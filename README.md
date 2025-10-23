@@ -1,14 +1,12 @@
 # PID Annotator Web Application
 
-A web-based application for annotating P&ID (Piping & Instrumentation Diagram) PDF documents with metadata from Excel component lists. Can run as a local server (localhost:5001) or in Docker containers, specifically optimized for Raspberry Pi 5 with CasaOS.
-
-**Author:** Rudi S. Kærgaard (rudikdk@gmail.com)
+A web-based version of the PID Annotator tool that runs in Docker containers, specifically optimized for Raspberry Pi 5 with CasaOS.
 
 ## Features
 
-- **Flexible Deployment**: Run locally on localhost:5001 or deploy in Docker containers
-- **Modern Web Interface**: React 18 with TailwindCSS, responsive design with dark mode
-- **Real-time Progress**: Live progress updates via WebSockets (Socket.IO)
+- **Same Functionality**: Identical features to the desktop version
+- **Web Interface**: Modern, responsive web UI with dark theme
+- **Real-time Progress**: Live progress updates via WebSockets
 - **File Upload**: Drag & drop support for PDF and Excel files
 - **Multi-File Processing**: Support for multiple PDFs with single Excel file
 - **Excel Annotation**: Automatically highlights found tags in Excel file
@@ -158,71 +156,27 @@ The application accepts tags in multiple formats:
 ## Architecture
 
 ### Technology Stack
-- **Backend**: Flask with Flask-SocketIO for real-time updates
-- **Frontend**: React 18 with TailwindCSS
-- **PDF Processing**: PyMuPDF (fitz) with memory optimization
-- **Excel Processing**: pandas + openpyxl with annotation support
-- **Watermarking**: ReportLab + PyPDF2 two-library approach
-- **Containerization**: Docker with multi-stage build (optional)
-- **Local Server**: Flask development server (localhost:5001)
-- **Production Server**: Gunicorn with eventlet workers (Docker)
-- **Real-time Communication**: Socket.IO (WebSocket)
-
-### Processing Pipeline
-
-```
-Upload PDF(s) + Excel
-    ↓
-Session-namespaced storage (UUID)
-    ↓
-Build Tag Index (parallel if >20 pages)
-    ├─ Extract text with regex
-    ├─ Find coordinates with page.search_for()
-    └─ Cache in defaultdict
-    ↓
-Process Annotations (from Excel)
-    ├─ Iterate Excel rows
-    ├─ Lookup tags in index
-    ├─ Apply highlights + notes
-    └─ Collect watermark positions
-    ↓
-Save pre-watermark PDF
-    ↓
-Apply Watermarks (if enabled)
-    ├─ Generate ReportLab overlay
-    ├─ Merge with PyPDF2
-    └─ Handle rotations
-    ↓
-Annotate Excel (if enabled)
-    └─ Highlight found tags with green fill
-    ↓
-Download annotated files
-    ↓
-Auto-cleanup after 24 hours
-```
+- **Backend**: Flask with SocketIO for real-time updates
+- **Frontend**: HTML5, CSS3, JavaScript with Bootstrap
+- **PDF Processing**: PyMuPDF (same as desktop version)
+- **Excel Processing**: pandas + openpyxl (same as desktop version)
+- **Containerization**: Docker with multi-stage build
+- **Web Server**: Gunicorn with eventlet workers
 
 ### File Structure
 ```
-Annotator/
-├── app.py                      # Main Flask application with routes
-├── pid_annotator_core.py       # Core processing engine
+pid-web-app/
+├── app.py                 # Main Flask application
+├── pid_annotator_core.py  # Core processing logic (from desktop app)
 ├── templates/
-│   └── index.html              # React 18 SPA with TailwindCSS
-├── static/                     # Static assets (auto-created)
-├── uploads/                    # Temporary file uploads
-├── output/                     # Generated PDF files
-├── persistent_uploads/         # Docker volume mount
-├── persistent_output/          # Docker volume mount
-├── data/                       # Application data
-├── requirements.txt            # Python dependencies
-├── pyproject.toml              # Project metadata and tool configs
-├── Dockerfile                  # Multi-stage container build
-├── docker-compose.yml          # Container orchestration
-├── entrypoint.sh               # Container startup script
-├── CLAUDE.md                   # Project instructions for Claude Code
-├── OPTIMIZATION_GUIDE.md       # Performance optimization guide
-├── README.md                   # This file
-└── fix python 3.13.bat         # Python 3.13 compatibility fix
+│   └── index.html         # Web interface
+├── static/               # Static assets (auto-created)
+├── uploads/              # Temporary file uploads
+├── output/               # Generated PDF files
+├── requirements.txt      # Python dependencies
+├── Dockerfile           # Container build instructions
+├── docker-compose.yml   # Docker Compose configuration
+└── README.md           # This file
 ```
 
 ### Key Architectural Patterns
@@ -259,110 +213,11 @@ Annotator/
 | Highlight Colors | ✅ | ✅ |
 | Watermark Feature | ✅ | ✅ |
 | Test Run (100 tags) | ✅ | ✅ |
-| Progress Tracking | ✅ (Real-time) | ✅ (Real-time) |
-| Dark Theme | ✅ (with persistence) | ✅ (with persistence) |
-| File Drag & Drop | ✅ | ✅ |
-| Multi-PDF Support | ✅ | ✅ |
-| Parallel Processing | ✅ | ✅ |
-| Streaming Mode | ✅ | ✅ |
-| Multi-user Support | Limited | ✅ (session-based) |
-| Remote Access | ❌ (localhost only) | ✅ |
-| Auto-restart | ❌ | ✅ (with Docker) |
-| Production Ready | ❌ | ✅ (Gunicorn) |
-| Easy Deployment | ✅ (pip install) | ✅ (Docker Compose) |
-
-## Development
-
-### Local Server Development
-
-```bash
-# Install dependencies
-pip install -r requirements.txt
-
-# Run local server (localhost:5001)
-python app.py
-
-# Install dev dependencies (for testing and code quality tools)
-pip install -e ".[dev]"
-```
-
-The local server runs on `http://localhost:5001` by default. This is perfect for:
-- Personal use on your local machine
-- Development and testing
-- Quick access without Docker setup
-- Single-user scenarios
-
-For production or multi-user deployment, use Docker (see Deployment section above).
-
-### Testing & Code Quality
-
-```bash
-# Run tests
-pytest
-
-# Run tests with coverage
-pytest --cov=pid_annotator_web --cov-report=html
-
-# Code formatting
-black .
-
-# Import sorting
-isort .
-
-# Linting
-flake8 .
-
-# Type checking
-mypy .
-```
-
-### Code Style Configuration
-
-Per [pyproject.toml](pyproject.toml):
-- **Line length:** 120 characters
-- **Formatter:** black with Python 3.8+ target
-- **Import sorting:** isort with black profile
-- **Type checking:** mypy (lenient, ignore missing imports)
-
-### Building for Different Architectures
-
-```bash
-# For ARM64 (Raspberry Pi 5)
-docker buildx build --platform linux/arm64 -t pid-annotator-web .
-
-# For AMD64 (x86_64)
-docker buildx build --platform linux/amd64 -t pid-annotator-web .
-
-# Multi-platform build
-docker buildx build --platform linux/arm64,linux/amd64 -t pid-annotator-web .
-```
-
-### Docker Operations
-
-```bash
-# Build and run with Docker Compose (production)
-docker-compose up -d --build
-
-# View logs
-docker-compose logs -f pid-annotator
-
-# Stop container
-docker-compose down
-
-# Restart container
-docker-compose restart pid-annotator
-
-# Check container status
-docker ps
-```
-
-## Python Version Compatibility
-
-- **Recommended:** Python 3.11 (used in Docker image)
-- **Supported:** Python 3.8+
-- **Python 3.13:** Compatible with fix script
-  - If you encounter errors with Python 3.13, run: `fix python 3.13.bat`
-  - This resolves compatibility issues with newer Python versions
+| Progress Tracking | ✅ | ✅ (Real-time) |
+| Dark Theme | ✅ | ✅ |
+| File Drag & Drop | ❌ | ✅ |
+| Multi-user Support | ❌ | ✅ |
+| Remote Access | ❌ | ✅ |
 
 ## Troubleshooting
 
@@ -483,21 +338,7 @@ For issues or questions:
 
 ## Credits
 
-**Created by:** Rudi S. Kærgaard
-**Email:** rudikdk@gmail.com
-**Local Server:** Flask development server (localhost:5001)
-**Docker Deployment:** Optimized for Raspberry Pi 5 + CasaOS
-
-## License
-
-See project repository for license information.
-
-## Recent Updates
-
-- **Performance Optimization:** Added parallel indexing, streaming mode, and adaptive processing
-- **Python 3.13 Support:** Compatibility fix script included
-- **Multi-File Support:** Process multiple PDFs with single Excel file
-- **Excel Annotation:** Automatic highlighting of found tags in Excel
-- **Session Management:** UUID-based session isolation
-- **Auto-Cleanup:** 24-hour file retention policy
-- **React 18 Frontend:** Modern UI with TailwindCSS and dark mode
+**Created by:** Rudi S. Kærgaard  
+**Email:** rudikdk@gmail.com  
+**Original Desktop Version:** PID Annotator GUI  
+**Web Version:** Optimized for Raspberry Pi 5 + CasaOS
