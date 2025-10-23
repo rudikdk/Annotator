@@ -3,6 +3,7 @@
 Core PID annotation functionality without GUI dependencies
 - Replaced "stamp" feature with "watermark" implemented via ReportLab + PyPDF2
 - Removed background options for the former stamp feature
+- Optimized with parallel indexing, memory management, and streaming for large files
 """
 
 import os
@@ -10,14 +11,24 @@ import fitz  # PyMuPDF
 import pandas as pd
 import re
 import time
+import gc
 from collections import defaultdict
 from io import BytesIO
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import Lock
 
 # Watermark overlay libs
 from reportlab.pdfgen import canvas
 from PyPDF2 import PdfReader, PdfWriter
+
+# Configuration for optimization features
+PARALLEL_INDEXING_ENABLED = True
+MAX_WORKERS = max(1, (os.cpu_count() or 2) - 1)  # Leave one core free
+STREAMING_THRESHOLD_MB = 50  # Enable streaming for files larger than this
+MEMORY_CLEANUP_BATCH_SIZE = 100  # Clean memory after processing this many pages
+PROGRESS_UPDATE_INTERVAL = 2  # Minimum percent change to trigger progress update
 
 
 def convert_tag_format(tag, from_delimiter="-", to_delimiter="."):
@@ -86,13 +97,81 @@ def is_valid_tag(tag):
     return tag_info['valid'] and 3 <= tag_info['count'] <= 5
 
 
-def build_tag_index(doc, update_progress=None):
+def _index_page_range(doc_path, page_start, page_end, tag_pattern):
+    """
+    Index a range of pages from a PDF document (worker function for parallel processing).
+    
+    Args:
+        doc_path: Path to the PDF file
+        page_start: Starting page number (inclusive)
+        page_end: Ending page number (exclusive)
+        tag_pattern: Compiled regex pattern for tag matching
+        
+    Returns:
+        dict: Partial tag index for this page range
+    """
+    local_index = defaultdict(list)
+    
+    # Open document in worker thread
+    doc = fitz.open(doc_path)
+    
+    try:
+        for page_num in range(page_start, page_end):
+            if page_num >= len(doc):
+                break
+                
+            page = doc[page_num]
+            text = page.get_text()
+            
+            # Find all potential tags on this page
+            matches = tag_pattern.finditer(text)
+            
+            for match in matches:
+                original_tag = match.group()
+                
+                # Skip if not a valid tag format
+                if not is_valid_tag(original_tag):
+                    continue
+                
+                # Get exact coordinates for this tag occurrence
+                rects = page.search_for(original_tag, flags=1)
+                
+                if rects:  # Only add if we can find the coordinates
+                    # Normalize tag for lookup
+                    normalized_tag = original_tag.upper()
+                    
+                    # Store both original format and converted formats
+                    tag_variants = [
+                        normalized_tag,
+                        convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."),
+                        convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-")
+                    ]
+                    
+                    # Add all variants to index
+                    for variant in set(tag_variants):
+                        local_index[variant].append((page_num, rects, original_tag))
+            
+            # Memory cleanup after each page
+            page = None
+        
+    finally:
+        doc.close()
+        # Force garbage collection
+        gc.collect()
+    
+    return dict(local_index)
+
+
+def build_tag_index(doc, update_progress=None, use_parallel=None, pdf_path=None):
     """
     Build a comprehensive index of all potential tags found in the PDF.
+    Supports both sequential and parallel processing modes.
     
     Args:
         doc: PyMuPDF document object
         update_progress: Optional progress callback function
+        use_parallel: Override parallel processing (True/False/None=auto)
+        pdf_path: Path to PDF file (required for parallel processing)
         
     Returns:
         dict: Index mapping normalized tag strings to their locations
@@ -101,18 +180,35 @@ def build_tag_index(doc, update_progress=None):
     print("Building comprehensive tag index...")
     start_time = time.time()
     
-    tag_index = defaultdict(list)
-    
-    # Define tag pattern - matches sequences with delimiters
-    # Matches patterns like: ABC-123-456, XYZ.01.02, etc.
-    tag_pattern = re.compile(r'\b[A-Z0-9]+[-\.][A-Z0-9]+(?:[-\.][A-Z0-9]+)*\b', re.IGNORECASE)
-    
     total_pages = len(doc)
     
+    # Determine if we should use parallel processing
+    if use_parallel is None:
+        use_parallel = PARALLEL_INDEXING_ENABLED and total_pages > 20
+    
+    # Define tag pattern - matches sequences with delimiters
+    tag_pattern = re.compile(r'\b[A-Z0-9]+[-\.][A-Z0-9]+(?:[-\.][A-Z0-9]+)*\b', re.IGNORECASE)
+    
+    if use_parallel and pdf_path and total_pages > 20:
+        print(f"Using parallel indexing with {MAX_WORKERS} workers for {total_pages} pages")
+        return _build_tag_index_parallel(pdf_path, total_pages, tag_pattern, update_progress)
+    else:
+        print(f"Using sequential indexing for {total_pages} pages")
+        return _build_tag_index_sequential(doc, total_pages, tag_pattern, update_progress)
+
+
+def _build_tag_index_sequential(doc, total_pages, tag_pattern, update_progress=None):
+    """Sequential tag indexing (original implementation)."""
+    tag_index = defaultdict(list)
+    last_reported_progress = -1
+    
     for page_num in range(total_pages):
+        # Update progress with throttling
         if update_progress:
             progress = int((page_num / total_pages) * 100) if total_pages else 100
-            update_progress(progress, f"Indexing page {page_num + 1}/{total_pages}...")
+            if progress - last_reported_progress >= PROGRESS_UPDATE_INTERVAL:
+                update_progress(progress, f"Indexing page {page_num + 1}/{total_pages}...")
+                last_reported_progress = progress
         
         page = doc[page_num]
         text = page.get_text()
@@ -123,32 +219,82 @@ def build_tag_index(doc, update_progress=None):
         for match in matches:
             original_tag = match.group()
             
-            # Skip if not a valid tag format
             if not is_valid_tag(original_tag):
                 continue
             
-            # Get exact coordinates for this tag occurrence
             rects = page.search_for(original_tag, flags=1)
             
-            if rects:  # Only add if we can find the coordinates
-                # Normalize tag for lookup (convert to uppercase, standardize delimiters)
+            if rects:
                 normalized_tag = original_tag.upper()
-                
-                # Store both original format and converted formats
                 tag_variants = [
                     normalized_tag,
                     convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."),
                     convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-")
                 ]
                 
-                # Add all variants to index
-                for variant in set(tag_variants):  # Use set to avoid duplicates
+                for variant in set(tag_variants):
                     tag_index[variant].append((page_num, rects, original_tag))
+        
+        # Memory cleanup every MEMORY_CLEANUP_BATCH_SIZE pages
+        if (page_num + 1) % MEMORY_CLEANUP_BATCH_SIZE == 0:
+            page = None
+            gc.collect()
+            if hasattr(fitz, 'TOOLS'):
+                try:
+                    fitz.TOOLS.store_shrink(100)
+                except:
+                    pass
     
-    elapsed_time = time.time() - start_time
     total_tags = sum(len(locations) for locations in tag_index.values())
-    print(f"Tag index built in {elapsed_time:.2f}s. Found {total_tags} tag instances across {len(tag_index)} unique tags.")
+    print(f"Sequential indexing complete. Found {total_tags} tag instances across {len(tag_index)} unique tags.")
+    return dict(tag_index)
+
+
+def _build_tag_index_parallel(pdf_path, total_pages, tag_pattern, update_progress=None):
+    """Parallel tag indexing using ThreadPoolExecutor."""
+    tag_index = defaultdict(list)
+    index_lock = Lock()
+    completed_pages = [0]
+    last_reported_progress = [-1]
     
+    # Calculate chunk size (distribute pages across workers)
+    chunk_size = max(10, total_pages // (MAX_WORKERS * 2))
+    chunks = [(i, min(i + chunk_size, total_pages)) for i in range(0, total_pages, chunk_size)]
+    
+    def process_chunk(chunk_info):
+        """Process a chunk and update progress."""
+        start_page, end_page = chunk_info
+        local_result = _index_page_range(pdf_path, start_page, end_page, tag_pattern)
+        
+        # Update global progress
+        with index_lock:
+            completed_pages[0] += (end_page - start_page)
+            if update_progress:
+                progress = int((completed_pages[0] / total_pages) * 100)
+                if progress - last_reported_progress[0] >= PROGRESS_UPDATE_INTERVAL:
+                    update_progress(progress, f"Indexed {completed_pages[0]}/{total_pages} pages (parallel)...")
+                    last_reported_progress[0] = progress
+        
+        return local_result
+    
+    # Execute parallel processing
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+        futures = [executor.submit(process_chunk, chunk) for chunk in chunks]
+        
+        for future in as_completed(futures):
+            try:
+                local_index = future.result()
+                
+                # Merge local results into global index
+                with index_lock:
+                    for tag_variant, locations in local_index.items():
+                        tag_index[tag_variant].extend(locations)
+                        
+            except Exception as e:
+                print(f"Error in parallel indexing chunk: {e}")
+    
+    total_tags = sum(len(locations) for locations in tag_index.values())
+    print(f"Parallel indexing complete. Found {total_tags} tag instances across {len(tag_index)} unique tags.")
     return dict(tag_index)
 
 
@@ -467,6 +613,14 @@ def reload_excel_columns(excel_path, header_row):
         }
 
 
+def _get_file_size_mb(filepath):
+    """Get file size in megabytes."""
+    try:
+        return os.path.getsize(filepath) / (1024 * 1024)
+    except:
+        return 0
+
+
 def annotate_pdf_with_progress(
     pdf_path,
     excel_path,
@@ -482,10 +636,12 @@ def annotate_pdf_with_progress(
     watermark_enabled=False,
     watermark_attribute="",
     watermark_text_color="#000000",
-    default_highlight_color="#FFFF00"
+    default_highlight_color="#FFFF00",
+    use_streaming=None
 ):
     """
-    Annotate PDF with tags from Excel file with progress tracking
+    Annotate PDF with tags from Excel file with progress tracking.
+    Automatically uses streaming mode for large files (>50MB by default).
 
     Args:
         pdf_path: Path to the PDF file
@@ -502,7 +658,38 @@ def annotate_pdf_with_progress(
         watermark_enabled: Whether to enable watermark feature
         watermark_attribute: Column name to use for watermark text
         watermark_text_color: Text color for watermark (hex format)
+        use_streaming: Override streaming mode (True/False/None=auto)
     """
+    # Determine if we should use streaming mode
+    if use_streaming is None:
+        file_size_mb = _get_file_size_mb(pdf_path)
+        use_streaming = file_size_mb > STREAMING_THRESHOLD_MB
+        if use_streaming:
+            print(f"[OPTIMIZATION] Large file detected ({file_size_mb:.1f}MB). Using streaming mode.")
+    
+    if use_streaming:
+        return _annotate_pdf_streaming(
+            pdf_path, excel_path, out_path, column_color_pairs, max_tags,
+            tag_column, header_row, selected_comment_columns, task_id,
+            progress_callback, annotation_type, watermark_enabled,
+            watermark_attribute, watermark_text_color, default_highlight_color
+        )
+    else:
+        return _annotate_pdf_standard(
+            pdf_path, excel_path, out_path, column_color_pairs, max_tags,
+            tag_column, header_row, selected_comment_columns, task_id,
+            progress_callback, annotation_type, watermark_enabled,
+            watermark_attribute, watermark_text_color, default_highlight_color
+        )
+
+
+def _annotate_pdf_standard(
+    pdf_path, excel_path, out_path, column_color_pairs, max_tags,
+    tag_column, header_row, selected_comment_columns, task_id,
+    progress_callback, annotation_type, watermark_enabled,
+    watermark_attribute, watermark_text_color, default_highlight_color
+):
+    """Standard annotation mode - loads entire PDF into memory."""
     def update_progress(progress, status):
         print(f"[CORE DEBUG] update_progress called: progress={progress}%, status='{status}'")
         if progress_callback:
@@ -574,7 +761,7 @@ def annotate_pdf_with_progress(
         update_progress(overall_progress, status)
 
     update_progress(30, "Building comprehensive tag index...")
-    tag_index = build_tag_index(doc, index_progress_callback)
+    tag_index = build_tag_index(doc, index_progress_callback, pdf_path=pdf_path)
     
     # PHASE 2: Process annotations using index (60-90% progress)
     def annotation_progress_callback(progress, status):
@@ -717,6 +904,192 @@ def annotate_pdf_with_progress(
     print(f"PDF saved successfully to {out_path}.")
 
     # Return the set of found tags for Excel annotation
+    return processed_tags
+
+
+def _annotate_pdf_streaming(
+    pdf_path, excel_path, out_path, column_color_pairs, max_tags,
+    tag_column, header_row, selected_comment_columns, task_id,
+    progress_callback, annotation_type, watermark_enabled,
+    watermark_attribute, watermark_text_color, default_highlight_color
+):
+    """Streaming annotation mode - for large PDFs, processes in chunks with memory management."""
+    def update_progress(progress, status):
+        print(f"[CORE DEBUG STREAMING] update_progress called: progress={progress}%, status='{status}'")
+        if progress_callback:
+            try:
+                progress_callback(task_id, progress, status)
+            except Exception as e:
+                print(f"[CORE ERROR] progress_callback failed: {e}")
+    
+    print(f"\n--- Starting STREAMING annotation process ---")
+    print(f"PDF: {pdf_path}")
+    print(f"Using streaming mode for large file optimization")
+    
+    # Read Excel data
+    update_progress(2, "Loading Excel file...")
+    engine = 'openpyxl' if excel_path.lower().endswith('.xlsx') else 'xlrd'
+    df = pd.read_excel(excel_path, header=header_row-1, engine=engine)
+    df = df.dropna(axis=1, how="all")
+    
+    if tag_column and tag_column in df.columns:
+        tag_col = tag_column
+    else:
+        tag_col = df.columns[6]
+    
+    update_progress(10, "Excel loaded. Building tag index with streaming...")
+    
+    # Build tag index using parallel processing (efficient for large files)
+    doc = fitz.open(pdf_path)
+    total_pages = len(doc)
+    
+    def index_progress_callback(progress, status):
+        overall_progress = 10 + int(progress * 0.4)
+        update_progress(overall_progress, f"Streaming index: {status}")
+    
+    tag_index = build_tag_index(doc, index_progress_callback, pdf_path=pdf_path)
+    
+    # Close and reopen document to clear memory
+    doc.close()
+    gc.collect()
+    if hasattr(fitz, 'TOOLS'):
+        try:
+            fitz.TOOLS.store_shrink(100)
+        except:
+            pass
+    
+    update_progress(50, "Processing annotations in streaming mode...")
+    
+    # Reopen for annotation
+    doc = fitz.open(pdf_path)
+    watermark_items_by_page = defaultdict(list)
+    
+    def annotation_progress_callback(progress, status):
+        overall_progress = 50 + int(progress * 0.35)
+        update_progress(overall_progress, f"Streaming annotations: {status}")
+    
+    found_tags, skipped_tags, processed_tags = process_annotations_from_index(
+        doc=doc,
+        df=df,
+        tag_index=tag_index,
+        tag_col=tag_col,
+        column_color_pairs=column_color_pairs,
+        selected_comment_columns=selected_comment_columns,
+        annotation_type=annotation_type,
+        watermark_enabled=watermark_enabled,
+        watermark_attribute=watermark_attribute,
+        watermark_text_color=watermark_text_color,
+        max_tags=max_tags,
+        update_progress=annotation_progress_callback,
+        watermark_items_by_page=watermark_items_by_page,
+        default_highlight_color=default_highlight_color
+    )
+    
+    update_progress(85, "Saving annotated PDF (streaming mode)...")
+    
+    # Save with compression
+    tmp_out_path = f"{out_path}.prewatermark.pdf"
+    doc.save(tmp_out_path, incremental=False, deflate=True, garbage=4, clean=True)
+    doc.close()
+    
+    # Clear memory before watermark phase
+    gc.collect()
+    if hasattr(fitz, 'TOOLS'):
+        try:
+            fitz.TOOLS.store_shrink(100)
+        except:
+            pass
+    
+    # Apply watermarks if needed (same as standard mode)
+    def _create_overlay_page(width, height, items, color_hex, page_rotation=0):
+        r, g, b = _hex_to_rgb01(color_hex or "#000000")
+        packet = BytesIO()
+        c = canvas.Canvas(packet, pagesize=(width, height))
+        c.setFillColorRGB(r, g, b)
+        
+        try:
+            page_rotation = int(page_rotation) % 360
+        except Exception:
+            page_rotation = 0
+        
+        for it in items:
+            text = it.get('text', '')
+            x = float(it.get('x', 0))
+            y_fitz = float(it.get('y', 0))
+            font_size = int(it.get('font_size', 9)) or 9
+            desired_rotation = int(it.get('rotation', 0)) % 360
+            y_rl = float(height) - (y_fitz + font_size)
+            final_rotation = (desired_rotation - page_rotation) % 360
+            
+            c.saveState()
+            c.setFont("Helvetica", font_size)
+            c.translate(x, y_rl)
+            if final_rotation:
+                c.rotate(final_rotation)
+            c.drawString(0, 0, text)
+            c.restoreState()
+        
+        c.showPage()
+        c.save()
+        packet.seek(0)
+        return packet.getvalue()
+    
+    if watermark_enabled and any(len(v) > 0 for v in watermark_items_by_page.values()):
+        update_progress(90, "Applying watermarks (streaming mode)...")
+        reader = PdfReader(tmp_out_path)
+        writer = PdfWriter()
+        
+        num_pages = len(reader.pages)
+        for p in range(num_pages):
+            base_page = reader.pages[p]
+            
+            try:
+                width = float(base_page.mediabox.right) - float(base_page.mediabox.left)
+                height = float(base_page.mediabox.top) - float(base_page.mediabox.bottom)
+            except Exception:
+                width = 595.0
+                height = 842.0
+            
+            items = watermark_items_by_page.get(p, [])
+            if items:
+                try:
+                    page_rotation = int(base_page.get('/Rotate', 0)) % 360
+                except Exception:
+                    page_rotation = 0
+                
+                overlay_bytes = _create_overlay_page(width, height, items, watermark_text_color, page_rotation)
+                overlay_reader = PdfReader(BytesIO(overlay_bytes))
+                overlay_page = overlay_reader.pages[0]
+                base_page.merge_page(overlay_page)
+            
+            writer.add_page(base_page)
+            
+            # Memory cleanup every 50 pages in streaming mode
+            if (p + 1) % 50 == 0:
+                gc.collect()
+        
+        with open(out_path, "wb") as f_out:
+            writer.write(f_out)
+        
+        try:
+            os.remove(tmp_out_path)
+        except Exception:
+            pass
+    else:
+        try:
+            os.replace(tmp_out_path, out_path)
+        except Exception:
+            import shutil
+            shutil.copyfile(tmp_out_path, out_path)
+            try:
+                os.remove(tmp_out_path)
+            except Exception:
+                pass
+    
+    update_progress(98, "Streaming annotation complete")
+    print(f"Streaming mode: PDF saved successfully to {out_path}.")
+    print(f"Found {found_tags} tags, skipped {skipped_tags}")
+    
     return processed_tags
 
 
