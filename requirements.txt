@@ -5,7 +5,7 @@ PyMuPDF>=1.23.0
 openpyxl>=3.1.0
 Werkzeug==2.3.7
 python-socketio==5.8.0
-eventlet==0.33.3
+# eventlet==0.33.3  # Disabled: Not compatible with Python 3.13 - use threading mode for local dev
 gunicorn==21.2.0
 reportlab
 PyPDF2

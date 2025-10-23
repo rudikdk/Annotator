@@ -49,7 +49,7 @@ app.config['SESSION_COOKIE_PATH'] = '/'
 socketio = SocketIO(
     app,
     cors_allowed_origins="*",
-    async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'eventlet'),
+    async_mode=os.environ.get('SOCKETIO_ASYNC_MODE', 'threading'),
     ping_interval=25,
     ping_timeout=60
 )
