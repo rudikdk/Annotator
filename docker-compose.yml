@@ -1,0 +1,42 @@
+services:
+  pid-annotator:
+    build: .
+    container_name: pid-annotator-web
+    ports:
+      - "8080:8080"  # External port 18080 maps to internal port 8080
+    environment:
+      - PORT=8080
+      - FLASK_ENV=production
+    volumes:
+      # Mount existing directories for persistent data
+      - ./uploads:/app/uploads:rw
+      - ./output:/app/output:rw
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:${PORT:-8080}/', timeout=5).status==200 else 1)\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    # Resource limits for Raspberry Pi 5 (applied via Compose v2.4 service keys)
+    mem_limit: 2g
+    cpus: 2.0
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    networks:
+      - pid_network
+
+# Optional: Create named volumes for better data management
+volumes:
+  pid_data:
+  pid_uploads:
+  pid_output:
+
+# Optional: Create custom network
+networks:
+  pid_network:
+    driver: bridge

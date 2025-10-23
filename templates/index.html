@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<!-- Google tag (gtag.js) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-T5SHGJHPDM"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+
+  gtag('config', 'G-T5SHGJHPDM');
+</script>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-5381972896332978"
+     crossorigin="anonymous"></script>
+  <title>PID Annotator</title>
+
+  <!-- Prevent theme flash: set dark class before CSS loads -->
+  <script>
+    (function () {
+      try {
+        const stored = localStorage.getItem("theme");
+        const prefersDark =
+          window.matchMedia &&
+          window.matchMedia("(prefers-color-scheme: dark)").matches;
+        if (stored === "dark" || (!stored && prefersDark)) {
+          document.documentElement.classList.add("dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+        }
+      } catch (e) {}
+    })();
+  </script>
+
+  <!-- TailwindCSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              DEFAULT: "#2563eb",
+              hover: "#1d4ed8",
+            },
+            success: {
+              DEFAULT: "#16a34a",
+              hover: "#15803d",
+            },
+            warning: {
+              DEFAULT: "#f59e0b",
+              hover: "#d97706",
+            },
+            danger: {
+              DEFAULT: "#dc2626",
+              hover: "#b91c1c",
+            },
+            surface: {
+              light: "#ffffff",
+              dark: "#0b0f19",
+              1: "#111827",
+              2: "#0f172a",
+            },
+          },
+          boxShadow: {
+            soft: "0 6px 24px rgba(0,0,0,0.15)",
+          },
+          transitionTimingFunction: {
+            smooth: "cubic-bezier(0.4, 0.0, 0.2, 1)",
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Icons -->
+  <link
+    href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"
+    rel="stylesheet"
+  />
+
+  <!-- Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <!-- React + ReactDOM + Babel (for JSX in-browser) -->
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    html,
+    body {
+      height: 100%;
+    }
+  </style>
+</head>
+<body class="bg-white text-gray-900 dark:bg-zinc-900 dark:text-zinc-100 transition-colors duration-500 ease-smooth">
+  <div id="root" class="min-h-screen"></div>
+
+  <script type="text/babel">
+  {% raw %}
+    const { useEffect, useMemo, useRef, useState } = React;
+
+    // UI helpers
+    function cx(...classes) {
+      return classes.filter(Boolean).join(" ");
+    }
+
+    function ThemeToggle() {
+      const [dark, setDark] = useState(() =>
+        document.documentElement.classList.contains("dark")
+      );
+
+      useEffect(() => {
+        if (dark) {
+          document.documentElement.classList.add("dark");
+          localStorage.setItem("theme", "dark");
+        } else {
+          document.documentElement.classList.remove("dark");
+          localStorage.setItem("theme", "light");
+        }
+      }, [dark]);
+
+      return (
+        <button
+          type="button"
+          onClick={() => setDark((d) => !d)}
+          className="inline-flex items-center gap-2 rounded-full bg-zinc-200/60 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:scale-105 active:scale-95 transition-transform duration-200"
+          aria-label="Toggle theme"
+        >
+          <i className={cx("fa-solid", dark ? "fa-moon" : "fa-sun")}></i>
+          <span>{dark ? "Dark" : "Light"}</span>
+        </button>
+      );
+    }
+
+    function Header() {
+      return (
+        <header className="sticky top-0 z-30 backdrop-blur bg-white/70 dark:bg-zinc-900/70 border-b border-zinc-200/60 dark:border-zinc-800">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <div className="flex h-16 items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand/10 text-brand">
+                  <i className="fa-solid fa-file-pdf text-lg"></i>
+                </div>
+                <div>
+                  <div className="text-lg sm:text-xl font-semibold tracking-tight">
+                    PID Annotator
+                  </div>
+                  <div className="text-xs sm:text-sm text-zinc-500 dark:text-zinc-400">
+                    Annotate PDF files using Excel data
+                  </div>
+                </div>
+              </div>
+              <ThemeToggle />
+            </div>
+          </div>
+        </header>
+      );
+    }
+
+    function SectionCard({ title, children, right }) {
+      const [open, setOpen] = useState(true);
+      return (
+        <section className="rounded-xl bg-white dark:bg-zinc-950/60 border border-zinc-200/60 dark:border-zinc-800 shadow-soft">
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="w-full flex items-center justify-between gap-3 px-4 sm:px-6 py-3 border-b border-zinc-200/60 dark:border-zinc-800"
+            aria-expanded={open}
+          >
+            <div className="flex items-center gap-3">
+              <i className={cx("fa-solid text-brand", open ? "fa-chevron-down rotate-0" : "fa-chevron-right rotate-0", "transition-transform duration-200")}></i>
+              <h2 className="text-base sm:text-lg font-semibold">{title}</h2>
+            </div>
+        <div onClick={(e) => e.stopPropagation()}>{right}</div>
+          </button>
+          <div className={cx("grid transition-all duration-300", open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0")}>
+            <div className="overflow-hidden">
+              <div className="px-4 sm:px-6 py-4">{children}</div>
+            </div>
+          </div>
+        </section>
+      );
+    }
+
+    function UploadArea({ onFilesUploaded, onColumnsLoaded, uploadedFiles, setUploadedFiles, setToast }) {
+      const inputRef = useRef(null);
+      const [dragOver, setDragOver] = useState(false);
+      const [status, setStatus] = useState(null); // {type: 'processing'|'success'|'error'|'warning', text: string}
+
+      function logToConsole(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] ${message}`);
+      }
+
+      function setStatusMsg(type, text) {
+        setStatus({ type, text });
+      }
+
+      function validateAndUpload(files) {
+        if (!files || files.length === 0) return;
+
+        setStatusMsg("processing", `Processing ${files.length} file(s)...`);
+        logToConsole(`Processing ${files.length} files...`);
+
+        const pdfFiles = files.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+        const excelFiles = files.filter(
+          (f) =>
+            f.name.toLowerCase().endsWith(".xlsx") ||
+            f.name.toLowerCase().endsWith(".xls")
+        );
+        const invalidFiles = files.filter(
+          (f) =>
+            !f.name.toLowerCase().endsWith(".pdf") &&
+            !f.name.toLowerCase().endsWith(".xlsx") &&
+            !f.name.toLowerCase().endsWith(".xls")
+        );
+
+        if (invalidFiles.length > 0) {
+          setStatusMsg(
+            "error",
+            `Invalid file types: ${invalidFiles.map((f) => f.name).join(", ")}`
+          );
+          logToConsole(
+            `Invalid file types: ${invalidFiles.map((f) => f.name).join(", ")}`
+          );
+          return;
+        }
+
+        const hasExcelInCurrentUpload = excelFiles.length > 0;
+        const hasExcelAlreadyUploaded = uploadedFiles.excel.length > 0;
+
+        logToConsole(
+          `Debug: hasExcelInCurrentUpload=${hasExcelInCurrentUpload}, hasExcelAlreadyUploaded=${hasExcelAlreadyUploaded}, uploadedFiles.excel.length=${uploadedFiles.excel.length}`
+        );
+
+        if (excelFiles.length > 1) {
+          setStatusMsg("error", "Please upload only one Excel file");
+          logToConsole("Error: Multiple Excel files uploaded");
+          return;
+        }
+
+        if (hasExcelInCurrentUpload && hasExcelAlreadyUploaded) {
+          setStatusMsg(
+            "error",
+            "Excel file already uploaded. Please upload only PDF files now."
+          );
+          logToConsole("Error: Excel file already uploaded");
+          return;
+        }
+
+        if (!hasExcelInCurrentUpload && !hasExcelAlreadyUploaded && pdfFiles.length > 0) {
+          setStatusMsg("error", "Please upload at least one Excel file first");
+          logToConsole(
+            "Error: No Excel file uploaded, but trying to upload PDFs"
+          );
+          return;
+        }
+
+        if (!hasExcelInCurrentUpload && !hasExcelAlreadyUploaded && pdfFiles.length === 0) {
+          setStatusMsg("error", "Please upload at least one Excel file");
+          logToConsole("Error: No files to upload");
+          return;
+        }
+
+        // If uploading a new Excel, clear previous lists
+        if (hasExcelInCurrentUpload) {
+          setUploadedFiles({ excel: [], pdf: [] });
+        }
+
+        const uploadPromises = [];
+        if (hasExcelInCurrentUpload) {
+          uploadPromises.push(uploadFile(excelFiles[0], "excel"));
+        }
+        pdfFiles.forEach((pdf) => uploadPromises.push(uploadFile(pdf, "pdf")));
+
+        Promise.all(uploadPromises).then((results) => {
+          const successful = results.filter((r) => r.success).length;
+          const total = results.length;
+          if (successful === total) {
+            setStatusMsg("success", `${successful} file(s) uploaded successfully`);
+            logToConsole(`Successfully uploaded ${successful} files`);
+          } else {
+            setStatusMsg(
+              "warning",
+              `${successful}/${total} files uploaded`
+            );
+            logToConsole(`Partial upload: ${successful}/${total} files uploaded`);
+          }
+          if (typeof onFilesUploaded === "function") onFilesUploaded();
+        });
+      }
+
+      function uploadFile(file, type) {
+        return new Promise((resolve) => {
+          const formData = new FormData();
+          formData.append(type === "pdf" ? "pdf_file" : "excel_file", file);
+          logToConsole(`Uploading ${type.toUpperCase()}: ${file.name}`);
+
+          fetch(type === "pdf" ? "/upload_pdf" : "/upload_excel", {
+            method: "POST",
+            body: formData,
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.success) {
+                logToConsole(`${type.toUpperCase()} uploaded: ${data.filename}`);
+                setUploadedFiles((prev) => {
+                  const next = { ...prev };
+                  next[type] = [...prev[type], { name: file.name, filename: data.filename }];
+                  return next;
+                });
+
+                if (type === "excel" && data.columns && onColumnsLoaded) {
+                  onColumnsLoaded(data.columns, data.default_tag_column);
+                }
+
+                resolve({ success: true, data });
+              } else {
+                logToConsole(`Error uploading ${type.toUpperCase()}: ${data.message}`);
+                setToast({ type: "error", text: data.message });
+                resolve({ success: false, data });
+              }
+            })
+            .catch((error) => {
+              logToConsole(`Error uploading ${type.toUpperCase()}: ${error.message}`);
+              setToast({ type: "error", text: error.message });
+              resolve({ success: false, error });
+            });
+        });
+      }
+
+      return (
+        <div>
+          <div
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const files = Array.from(e.dataTransfer.files || []);
+              validateAndUpload(files);
+            }}
+            className={cx(
+              "group cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-10 text-center transition-colors duration-300",
+              "bg-white dark:bg-zinc-950/40 border-zinc-300/60 dark:border-zinc-700",
+              "hover:border-brand/60 hover:bg-brand/5",
+              dragOver && "border-brand bg-brand/10"
+            )}
+          >
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-xl bg-brand/10 text-brand mb-3">
+              <i className="fa-solid fa-file-arrow-up text-2xl"></i>
+            </div>
+            <div className="text-lg font-semibold">Click or drag files here.</div>
+            <div className="text-sm text-zinc-500 dark:text-zinc-400">
+              Upload one Excel first, then one or more PDF files
+            </div>
+            <div className="mt-2 text-xs text-zinc-400">
+              Supported: PDF, Excel (.xlsx / .xls)
+            </div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".pdf,.xlsx,.xls"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                validateAndUpload(files);
+                e.target.value = "";
+              }}
+            />
+          </div>
+
+          {status && (
+            <div
+              className={cx(
+                "mt-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-medium",
+                status.type === "processing" &&
+                  "bg-zinc-200/70 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300",
+                status.type === "success" &&
+                  "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300",
+                status.type === "warning" &&
+                  "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300",
+                status.type === "error" &&
+                  "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300"
+              )}
+            >
+              {status.type === "processing" && <i className="fa-solid fa-spinner animate-spin"></i>}
+              {status.type === "success" && <i className="fa-solid fa-check"></i>}
+              {status.type === "warning" && <i className="fa-solid fa-triangle-exclamation"></i>}
+              {status.type === "error" && <i className="fa-solid fa-xmark"></i>}
+              <span>{status.text}</span>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    function FilesList({ uploadedFiles }) {
+      const hasFiles =
+        uploadedFiles.excel.length > 0 || uploadedFiles.pdf.length > 0;
+      if (!hasFiles) return null;
+
+      return (
+        <div className="mt-6">
+          <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">
+            Uploaded Files
+          </h3>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {uploadedFiles.excel.map((f, idx) => (
+              <div
+                key={`excel-${idx}`}
+                className="flex items-center gap-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/60 p-3"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
+                  <i className="fa-solid fa-file-excel"></i>
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{f.name}</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Uploaded
+                  </div>
+                </div>
+                <i className="fa-solid fa-check text-emerald-500"></i>
+              </div>
+            ))}
+            {uploadedFiles.pdf.map((f, idx) => (
+              <div
+                key={`pdf-${idx}`}
+                className="flex items-center gap-3 rounded-xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/60 p-3"
+              >
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/10 text-rose-500">
+                  <i className="fa-solid fa-file-pdf"></i>
+                </div>
+                <div className="flex-1">
+                  <div className="text-sm font-medium">{f.name}</div>
+                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                    Uploaded
+                  </div>
+                </div>
+                <i className="fa-solid fa-check text-emerald-500"></i>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function Tabs({ tabs, current, onChange }) {
+      return (
+        <div>
+          <div className="flex flex-wrap gap-2">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => onChange(t.key)}
+                className={cx(
+                  "px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200",
+                  current === t.key
+                    ? "bg-brand text-white shadow-soft"
+                    : "bg-zinc-200/60 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-300/60 dark:hover:bg-zinc-700"
+                )}
+                role="tab"
+                aria-selected={current === t.key}
+              >
+                {t.icon && <i className={cx("mr-2", t.icon)}></i>}
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    function ProgressModal({
+      open,
+      modeTitle,
+      progress,
+      status,
+      onClose,
+      onDownload,
+      fileCount,
+      error,
+      annotateExcelEnabled,
+    }) {
+      if (!open) return null;
+      const complete = progress === 100 && !error;
+      return (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div
+            className="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            onClick={() => {}}
+          />
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <i className="fa-solid fa-cogs text-brand"></i>
+                <h3 className="font-semibold">{modeTitle}</h3>
+              </div>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                aria-label="Close"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+
+            {!error && (
+              <div className="px-5 py-4">
+                <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800 mb-3">
+                  <div
+                    className="h-3 rounded-full bg-brand transition-all duration-300"
+                    style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <div className="text-zinc-600 dark:text-zinc-400">
+                    {status || "Initializing..."}
+                  </div>
+                  <div className="font-semibold">{progress}%</div>
+                </div>
+                {!!fileCount && (
+                  <div className="mt-2 text-xs text-zinc-500 dark:text-zinc-400">
+                    Processing {fileCount} PDF file(s)
+                  </div>
+                )}
+
+                {complete && (
+                  <div className="mt-5 space-y-3">
+                    <div className="flex items-center gap-2 text-emerald-500">
+                      <i className="fa-solid fa-circle-check text-2xl"></i>
+                      <div className="font-semibold">
+                        {annotateExcelEnabled
+                          ? (fileCount > 1
+                              ? `Your ${fileCount} annotated PDF and Excel files are ready.`
+                              : "Your annotated PDF and Excel files are ready.")
+                          : (fileCount > 1
+                              ? `Your ${fileCount} annotated PDF files are ready.`
+                              : "Your annotated PDF is ready.")
+                        }
+                      </div>
+                    </div>
+                    <div className="grid gap-2">
+                      <button
+                        onClick={onDownload}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-success text-white px-4 py-2.5 font-semibold hover:bg-success-hover transition-colors"
+                      >
+                        <i className="fa-solid fa-download"></i>
+                        {annotateExcelEnabled
+                          ? (fileCount > 1 ? "Download All PDF & Excel Files" : "Download PDF & Excel")
+                          : (fileCount > 1 ? "Download All Files" : "Download File")
+                        }
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2.5 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+                      >
+                        <i className="fa-solid fa-times"></i>
+                        Close
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {error && (
+              <div className="px-5 py-6">
+                <div className="flex flex-col items-center text-center">
+                  <i className="fa-solid fa-triangle-exclamation text-danger text-4xl mb-3"></i>
+                  <div className="text-xl font-semibold text-danger mb-2">
+                    Processing Failed
+                  </div>
+                  <div className="text-sm text-zinc-600 dark:text-zinc-400 mb-4">
+                    {error}
+                  </div>
+                  <button
+                    onClick={onClose}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2.5 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+                  >
+                    <i className="fa-solid fa-times"></i>
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    function FAQModal({ open, onClose }) {
+      if (!open) return null;
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
+          <div className="relative w-full max-w-3xl rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
+              <h3 className="font-semibold">FAQ – PID Annotator</h3>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                aria-label="Close FAQ"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="px-5 py-4 max-h-[70vh] overflow-y-auto text-sm space-y-4">
+              <div>
+                <h4 className="font-semibold">Which row is used as headers in Excel?</h4>
+                <p>You can configure which row contains the headers using the "Header Row" field. Default is 6.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Which column is used for Tag?</h4>
+                <p>Select any column from your Excel file using the "Tag Column" dropdown. Defaults to the recommended column for backward compatibility.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Where is the output saved?</h4>
+                <p>Output is generated and available for download once processing is complete via the modal button.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">What is included in the comment?</h4>
+                <p>The tag itself at the top, followed by all selected columns from the Excel row.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">What if a tag is not found in the PDF?</h4>
+                <p>It will be skipped. Check Excel/PDF for formatting mismatches.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Supported tag formats</h4>
+                <p>Hyphen-delimited (e.g., 230-HV-NON-501) and period-delimited (e.g., 230.HV.NON.501).</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Highlight color feature</h4>
+                <p>Choose a column and highlight color. Tags with data in that column will be highlighted.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Test Run</h4>
+                <p>Processes only the first 100 tags for a quick test.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Watermark feature</h4>
+                <p>Adds text labels near tags using a watermark overlay. Choose an attribute column and text color.</p>
+              </div>
+              <div>
+                <h4 className="font-semibold">Python Libraries and Licenses</h4>
+                <p>This application uses the following Python libraries:</p>
+                <ul>
+                  <li key="flask">Flask (BSD-3-Clause)</li>
+                  <li key="flask-socketio">Flask-SocketIO (MIT)</li>
+                  <li key="pandas">pandas (BSD-3-Clause)</li>
+                  <li key="pymupdf">PyMuPDF (AGPL-3.0)</li>
+                  <li key="openpyxl">openpyxl (MIT)</li>
+                  <li key="werkzeug">Werkzeug (BSD-3-Clause)</li>
+                  <li key="python-socketio">python-socketio (MIT)</li>
+                  <li key="eventlet">eventlet (MIT)</li>
+                  <li key="gunicorn">gunicorn (MIT)</li>
+                  <li key="reportlab">reportlab (BSD)</li>
+                  <li key="pypdf2">PyPDF2 (BSD-3-Clause)</li>
+                </ul>
+              </div>
+              <hr className="border-zinc-200/60 dark:border-zinc-800"/>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                <p><strong>Created by:</strong> Rudi S. Kærgaard — <strong>Email:</strong> rudikdk@gmail.com</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function App() {
+      // Backend-bound state
+      const [excelColumns, setExcelColumns] = useState([]);
+      const [uploadedFiles, setUploadedFiles] = useState({ excel: [], pdf: [] });
+
+      // Configuration state
+      const [headerRow, setHeaderRow] = useState(6);
+      const [tagColumn, setTagColumn] = useState("");
+      const [commentColumns, setCommentColumns] = useState([]);
+      const [highlightColor, setHighlightColor] = useState("#FFFF00");
+      const [highlightColumn, setHighlightColumn] = useState("");
+      const [annotateExcel, setAnnotateExcel] = useState(false);
+      const [watermarkEnabled, setWatermarkEnabled] = useState(false);
+      const [watermarkAttributes, setWatermarkAttributes] = useState([]);
+      const [watermarkTextColor, setWatermarkTextColor] = useState("#000000");
+
+      // UI state
+      const [showFAQ, setShowFAQ] = useState(false);
+      const [toast, setToast] = useState(null); // {type, text}
+
+      // Processing modal state
+      const [processingOpen, setProcessingOpen] = useState(false);
+      const [processingTitle, setProcessingTitle] = useState("Processing Files");
+      const [progress, setProgress] = useState(0);
+      const [statusText, setStatusText] = useState("Initializing...");
+      const [fileCount, setFileCount] = useState(0);
+      const [errorText, setErrorText] = useState(null);
+      const [currentTaskId, setCurrentTaskId] = useState(null);
+      const [annotateExcelEnabled, setAnnotateExcelEnabled] = useState(false);
+
+      // Socket
+      const socket = useMemo(() => io(), []);
+      const pollRef = useRef(null);
+
+      function logToConsole(message) {
+        const timestamp = new Date().toLocaleTimeString();
+        console.log(`[${timestamp}] ${message}`);
+      }
+
+      function onColumnsLoaded(columns, defaultTag) {
+        setExcelColumns(columns || []);
+        setTagColumn(defaultTag || "");
+        // Reset dependent fields
+        setWatermarkAttributes([]);
+        setHighlightColumn("");
+        // Default: no columns selected for comments
+        setCommentColumns([]);
+        logToConsole(`Loaded ${columns?.length ?? 0} columns from Excel file`);
+      }
+
+      function reloadColumnsForHeaderRow(nextHeaderRow) {
+        fetch("/reload_columns", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ header_row: nextHeaderRow }),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              onColumnsLoaded(data.columns, data.default_tag_column);
+              logToConsole(data.message || "Columns reloaded");
+            } else {
+              setToast({ type: "error", text: data.message || "Failed to reload columns" });
+              logToConsole(`Error reloading columns: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            setToast({ type: "error", text: err.message });
+            logToConsole(`Error reloading columns: ${err.message}`);
+          });
+      }
+
+      function startProcessing(isTest) {
+        setProcessingOpen(true);
+        setProcessingTitle(isTest ? "Test Run (100 tags)" : "Processing Files");
+        setProgress(0);
+        setStatusText("Initializing...");
+        setErrorText(null);
+        setFileCount(0);
+
+        const data = {
+          header_row: Number(headerRow) || 1,
+          tag_column: tagColumn || "",
+          comment_columns: commentColumns.length > 0 ? commentColumns : null,
+          highlight_color: highlightColor,
+          highlight_column: highlightColumn,
+          annotate_excel: annotateExcel,
+          watermark_enabled: watermarkEnabled,
+          watermark_attributes: watermarkAttributes,
+          watermark_text_color: watermarkTextColor,
+          max_tags: isTest ? 100 : null,
+        };
+
+        logToConsole(isTest ? "Starting test run (100 tags)..." : "Starting full processing...");
+
+        fetch("/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(data),
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setCurrentTaskId(data.task_id);
+              setFileCount(data.file_count || 0);
+              logToConsole(`Processing started with task ID: ${data.task_id}`);
+              startProgressPolling(data.task_id);
+            } else {
+              setErrorText(data.message || "Failed to start processing");
+              setStatusText("Error starting processing");
+              logToConsole(`Error starting processing: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            setErrorText(err.message);
+            setStatusText("Error starting processing");
+            logToConsole(`Error starting processing: ${err.message}`);
+          });
+      }
+
+      function startProgressPolling(taskId) {
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+        }
+        pollRef.current = setInterval(() => {
+          fetch(`/progress/${taskId}`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (typeof data.progress === "number" && data.progress >= 0) {
+                setProgress(data.progress);
+                setStatusText(data.status || "");
+              }
+              if (data.progress === 100) {
+                // Extract file count from status if present
+                const statusMessage = data.status || "";
+                const fileCountMatch = statusMessage.match(/(\d+)\s+PDF\(s\)/);
+                const count = fileCountMatch ? parseInt(fileCountMatch[1], 10) : fileCount || 1;
+                setFileCount(count);
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+                logToConsole("Processing complete! (detected via polling)");
+              } else if (data.progress === -1) {
+                setErrorText(data.status || "Processing failed");
+                clearInterval(pollRef.current);
+                pollRef.current = null;
+                logToConsole(`Error detected via polling: ${data.status}`);
+              }
+            })
+            .catch((err) => {
+              logToConsole(`Error polling progress: ${err.message}`);
+            });
+        }, 2000);
+      }
+
+      // Socket listeners
+      useEffect(() => {
+        function onConnect() {
+          logToConsole("Connected to server");
+        }
+        function onDisconnect() {
+          logToConsole("Disconnected from server");
+        }
+        function onConnectError(error) {
+          logToConsole("Connection error: " + error);
+        }
+        function onProgress(data) {
+          logToConsole(
+            `[DEBUG] Received progress update: task_id=${data.task_id}, progress=${data.progress}, status=${data.status}`
+          );
+          if (data.task_id === currentTaskId) {
+            if (typeof data.progress === "number" && data.progress >= 0) {
+              setProgress(data.progress);
+              setStatusText(data.status || "");
+              if (data.progress === 100) {
+                const statusMessage = data.status || "";
+                const fileCountMatch = statusMessage.match(/(\d+)\s+PDF\(s\)/);
+                const count = fileCountMatch ? parseInt(fileCountMatch[1], 10) : fileCount || 1;
+                setFileCount(count);
+                logToConsole("Processing complete! Download is now available!");
+              }
+            } else {
+              setErrorText(data.status || "Processing failed");
+              logToConsole(`Error: ${data.status}`);
+            }
+          }
+        }
+
+        socket.on("connect", onConnect);
+        socket.on("disconnect", onDisconnect);
+        socket.on("connect_error", onConnectError);
+        socket.on("progress_update", onProgress);
+
+        return () => {
+          socket.off("connect", onConnect);
+          socket.off("disconnect", onDisconnect);
+          socket.off("connect_error", onConnectError);
+          socket.off("progress_update", onProgress);
+        };
+      }, [socket, currentTaskId, fileCount]);
+
+      function closeProcessing() {
+        setProcessingOpen(false);
+        setErrorText(null);
+        setProgress(0);
+        setStatusText("Initializing...");
+        if (pollRef.current) {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+        }
+      }
+
+      function downloadFromModal() {
+        logToConsole("Starting download from modal...");
+        fetch("/download")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success && data.multiple_files && Array.isArray(data.files)) {
+              logToConsole(`Starting download of ${data.file_count || data.files.length} files...`);
+              sequentialDownloads(data.files);
+            } else if (data.success) {
+              window.open("/download", "_blank");
+            } else {
+              logToConsole(`Download error: ${data.message}`);
+              setToast({ type: "error", text: data.message || "Download error" });
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Download error: ${err.message}`);
+            // Fallback to direct
+            window.open("/download", "_blank");
+          });
+      }
+
+      function sequentialDownloads(urls) {
+        let i = 0;
+        function next() {
+          if (i < urls.length) {
+            const a = document.createElement("a");
+            a.href = urls[i];
+            a.download = "";
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            i += 1;
+            setTimeout(next, 1000);
+          } else {
+            logToConsole("All files downloaded successfully!");
+          }
+        }
+        next();
+      }
+
+      function handleClearSession() {
+        // Show confirmation dialog
+        const confirmed = window.confirm(
+          "This will delete all uploaded files and reset the session. Are you sure you want to continue?"
+        );
+        
+        if (!confirmed) {
+          return;
+        }
+
+        logToConsole("Clearing session...");
+
+        fetch("/clear_session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              logToConsole(data.message || "Session cleared successfully");
+              
+              // Reset all UI state
+              setUploadedFiles({ excel: [], pdf: [] });
+              setExcelColumns([]);
+              setTagColumn("");
+              setCommentColumns([]);
+              setHeaderRow(6);
+              setHighlightColumn("");
+              setHighlightColor("#FFFF00");
+              setAnnotateExcel(false);
+              setWatermarkEnabled(false);
+              setWatermarkAttributes([]);
+              setWatermarkTextColor("#000000");
+              
+              // Show success toast
+              setToast({
+                type: "success",
+                text: data.message || "Session cleared successfully"
+              });
+            } else {
+              logToConsole(`Error clearing session: ${data.message}`);
+              setToast({
+                type: "error",
+                text: data.message || "Failed to clear session"
+              });
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Error clearing session: ${err.message}`);
+            setToast({
+              type: "error",
+              text: `Error clearing session: ${err.message}`
+            });
+          });
+      }
+
+
+      return (
+        <div className="flex min-h-screen flex-col">
+          <Header />
+
+          <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-6 sm:py-8 space-y-6">
+            {/* Upload */}
+            <SectionCard title="File Upload">
+              <UploadArea
+                uploadedFiles={uploadedFiles}
+                setUploadedFiles={setUploadedFiles}
+                setToast={setToast}
+                onColumnsLoaded={onColumnsLoaded}
+                onFilesUploaded={() => {}}
+              />
+              <FilesList uploadedFiles={uploadedFiles} />
+            </SectionCard>
+
+            {/* Configuration */}
+            <SectionCard title="Options & Configurations">
+              <div className="space-y-8">
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Configuration</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div>
+                      <label htmlFor="header-row" className="block text-sm font-medium mb-1">
+                        Header Row
+                      </label>
+                      <input
+                        id="header-row"
+                        type="number"
+                        min={1}
+                        value={headerRow}
+                        onChange={(e) => {
+                          const v = Math.max(1, Number(e.target.value || 1));
+                          setHeaderRow(v);
+                          reloadColumnsForHeaderRow(v);
+                        }}
+                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                      />
+                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        Default: 6
+                      </div>
+                    </div>
+                    <div>
+                      <label htmlFor="tag-column" className="block text-sm font-medium mb-1">
+                        Tag Column
+                      </label>
+                      <select
+                        id="tag-column"
+                        value={tagColumn}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setTagColumn(val);
+                          // keep all comments except tag
+                          setCommentColumns(excelColumns.filter((c) => c !== val));
+                        }}
+                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                      >
+                        {excelColumns.length === 0 && (
+                          <option value="">Select Excel file first</option>
+                        )}
+                        {excelColumns.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Comment Columns</h3>
+                  <div>
+                    <div className="mb-4">
+                      <label htmlFor="comment-highlight-color" className="block text-sm font-medium mb-1">
+                        Attribute Highlight Color
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          id="comment-highlight-color"
+                          type="color"
+                          value={highlightColor}
+                          onChange={(e) => setHighlightColor(e.target.value)}
+                          className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
+                        />
+                        <span className="text-sm text-zinc-500 dark:text-zinc-400">Choose Color</span>
+                      </div>
+                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        Used when the selected attribute has a value.
+                      </div>
+                      <div className="mt-4">
+                        <label htmlFor="highlight-attribute" className="block text-sm font-medium mb-1">
+                          Highlight Attribute (Column)
+                        </label>
+                        <select
+                          id="highlight-attribute"
+                          value={highlightColumn}
+                          onChange={(e) => setHighlightColumn(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                        >
+                          <option value="">None</option>
+                          {excelColumns.filter((c) => c !== tagColumn).map((c) => (
+                            <option key={c} value={c}>
+                              {c}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Tags will be highlighted in the chosen color when this attribute has any non-empty value.
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCommentColumns(excelColumns.filter((c) => c !== tagColumn))
+                        }
+                        className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700"
+                      >
+                        Select All
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setCommentColumns([])}
+                        className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700"
+                      >
+                        Select None
+                      </button>
+                    </div>
+                    <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))" }}>
+                      {excelColumns.length === 0 && (
+                        <div className="text-sm text-zinc-500 dark:text-zinc-400">
+                          Load Excel file to see available columns
+                        </div>
+                      )}
+                      {excelColumns
+                        .filter((c) => c !== tagColumn)
+                        .map((c) => {
+                          const checked = commentColumns.includes(c);
+                          return (
+                            <label
+                              key={c}
+                              className={cx(
+                                "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors",
+                                checked
+                                  ? "border-brand/50 bg-brand/5"
+                                  : "border-zinc-200/60 dark:border-zinc-800 bg-transparent hover:bg-zinc-200/40 dark:hover:bg-zinc-800/60"
+                              )}
+                            >
+                              <input
+                                type="checkbox"
+                                className="accent-brand"
+                                checked={checked}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setCommentColumns([...commentColumns, c]);
+                                  } else {
+                                    setCommentColumns(commentColumns.filter((x) => x !== c));
+                                  }
+                                }}
+                              />
+                              <span>{c}</span>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Excel Annotation</h3>
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
+                      <label className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={annotateExcel}
+                          onClick={() => setAnnotateExcel((v) => !v)}
+                          className={cx(
+                            "h-6 w-11 rounded-full transition-colors",
+                            annotateExcel ? "bg-brand" : "bg-zinc-400/60 dark:bg-zinc-700"
+                          )}
+                        >
+                          <span
+                            className={cx(
+                              "block h-5 w-5 rounded-full bg-white dark:bg-zinc-200 translate-x-0.5 transition-transform",
+                              annotateExcel && "translate-x-[22px]"
+                            )}
+                          />
+                        </button>
+                        <span className="text-sm font-medium">Annotate Excel file</span>
+                      </label>
+                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        Highlight rows in light green where tags are found in the PDF
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Watermark</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          role="switch"
+                          aria-checked={watermarkEnabled}
+                          onClick={() => setWatermarkEnabled((v) => !v)}
+                          className={cx(
+                            "h-6 w-11 rounded-full transition-colors",
+                            watermarkEnabled ? "bg-brand" : "bg-zinc-400/60 dark:bg-zinc-700"
+                          )}
+                        >
+                          <span
+                            className={cx(
+                              "block h-5 w-5 rounded-full bg-white dark:bg-zinc-200 translate-x-0.5 transition-transform",
+                              watermarkEnabled && "translate-x-[22px]"
+                            )}
+                          />
+                        </button>
+                        <span className="text-sm font-medium">Enable Watermark</span>
+                      </label>
+                    </div>
+                    
+                    {watermarkEnabled && (
+                      <>
+                        <div>
+                          <label htmlFor="watermark-text-color" className="block text-sm font-medium mb-1">
+                            Text Color
+                          </label>
+                          <input
+                            id="watermark-text-color"
+                            type="color"
+                            value={watermarkTextColor}
+                            onChange={(e) => setWatermarkTextColor(e.target.value)}
+                            className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
+                          />
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Watermark Attributes (multiple allowed)
+                          </label>
+                          <div className="mb-2 flex flex-wrap gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setWatermarkAttributes(excelColumns.filter((c) => c !== tagColumn))}
+                              className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700"
+                            >
+                              Select All
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setWatermarkAttributes([])}
+                              className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700"
+                            >
+                              Select None
+                            </button>
+                          </div>
+                          <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))" }}>
+                            {excelColumns.length === 0 && (
+                              <div className="text-sm text-zinc-500 dark:text-zinc-400">
+                                Load Excel file to see available columns
+                              </div>
+                            )}
+                            {excelColumns.map((c) => {
+                              const checked = watermarkAttributes.includes(c);
+                              return (
+                                <label
+                                  key={c}
+                                  className={cx(
+                                    "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-pointer transition-colors",
+                                    checked
+                                      ? "border-brand/50 bg-brand/5"
+                                      : "border-zinc-200/60 dark:border-zinc-800 bg-transparent hover:bg-zinc-200/40 dark:hover:bg-zinc-800/60"
+                                  )}
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="accent-brand"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setWatermarkAttributes([...watermarkAttributes, c]);
+                                      } else {
+                                        setWatermarkAttributes(watermarkAttributes.filter((x) => x !== c));
+                                      }
+                                    }}
+                                  />
+                                  <span>{c}</span>
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+
+
+            </SectionCard>
+
+            {/* Actions */}
+            <SectionCard title="Actions">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <button
+                  onClick={() => startProcessing(false)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-3 font-semibold shadow-soft hover:bg-brand-hover transition-all hover:shadow-md hover:scale-[1.01]"
+                >
+                  <i className="fa-solid fa-play"></i>
+                  Start
+                </button>
+                <button
+                  onClick={() => startProcessing(true)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-warning text-black px-4 py-3 font-semibold shadow-soft hover:bg-warning-hover/90 transition-all hover:shadow-md hover:scale-[1.01]"
+                >
+                  <i className="fa-solid fa-bolt"></i>
+                  Test Run (100 tags)
+                </button>
+                <button
+                  onClick={handleClearSession}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-danger text-white px-4 py-3 font-semibold shadow-soft hover:bg-danger-hover transition-all hover:shadow-md hover:scale-[1.01]"
+                >
+                  <i className="fa-solid fa-trash-can"></i>
+                  Clear Session
+                </button>
+                <button
+                  onClick={() => setShowFAQ(true)}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-200/90 dark:bg-zinc-800 px-4 py-3 font-semibold hover:bg-zinc-300/80 dark:hover:bg-zinc-700 transition-all"
+                >
+                  <i className="fa-solid fa-circle-question"></i>
+                  FAQ
+                </button>
+              </div>
+            </SectionCard>
+          </main>
+
+          {/* Toast */}
+          {toast && (
+            <div className="fixed bottom-6 left-0 right-0 mx-auto w-[92%] max-w-md z-50">
+              <div
+                className={cx(
+                  "rounded-xl px-4 py-3 shadow-soft border backdrop-blur",
+                  "bg-white/90 dark:bg-zinc-900/90 border-zinc-200/60 dark:border-zinc-800",
+                  "flex items-center gap-3"
+                )}
+              >
+                <i
+                  className={cx(
+                    "fa-solid",
+                    toast.type === "error" && "fa-circle-xmark text-danger",
+                    toast.type === "success" && "fa-circle-check text-success",
+                    toast.type === "warning" && "fa-triangle-exclamation text-warning",
+                    toast.type === "info" && "fa-circle-info text-brand"
+                  )}
+                />
+                <div className="text-sm flex-1">{toast.text}</div>
+                <button
+                  className="p-2 rounded-lg hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                  onClick={() => setToast(null)}
+                >
+                  <i className="fa-solid fa-xmark"></i>
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Modals */}
+          <ProgressModal
+            open={processingOpen}
+            modeTitle={processingTitle}
+            progress={progress}
+            status={statusText}
+            fileCount={fileCount}
+            error={errorText}
+            onClose={closeProcessing}
+            onDownload={downloadFromModal}
+            annotateExcelEnabled={annotateExcel}
+          />
+          <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} />
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+  {% endraw %}
+  </script>
+</body>
+</html>

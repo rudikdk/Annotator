@@ -1,0 +1,144 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pid-annotator-web"
+version = "1.0.0"
+description = "A web-based PID Annotator tool for annotating P&ID diagrams with component data from Excel files"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+authors = [
+    {name = "Rudi S. Kærgaard", email = "rudikdk@gmail.com"}
+]
+keywords = ["pid", "annotator", "pdf", "excel", "flask", "web-app"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business",
+    "Topic :: Multimedia :: Graphics :: Editors",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Framework :: Flask",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "Flask==2.3.3",
+    "Flask-SocketIO==5.3.6",
+    "pandas>=2.0.0",
+    "PyMuPDF>=1.23.0",
+    "openpyxl>=3.1.0",
+    "Werkzeug==2.3.7",
+    "python-socketio==5.8.0",
+    "eventlet==0.33.3",
+    "gunicorn==21.2.0",
+    "reportlab",
+    "PyPDF2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "isort>=5.12.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rudikdk/pid-annotator-web"
+Documentation = "https://github.com/rudikdk/pid-annotator-web/blob/main/README.md"
+Repository = "https://github.com/rudikdk/pid-annotator-web"
+Issues = "https://github.com/rudikdk/pid-annotator-web/issues"
+
+[project.scripts]
+pid-annotator = "app:main"
+
+[tool.setuptools]
+packages = ["pid_annotator_web"]
+
+[tool.setuptools.package-data]
+pid_annotator_web = [
+    "templates/*.html",
+    "static/**/*",
+]
+
+[tool.black]
+line-length = 120
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+  | uploads
+  | output
+  | persistent_uploads
+  | persistent_output
+)/
+'''
+
+[tool.isort]
+profile = "black"
+line_length = 120
+skip_gitignore = true
+skip = ["uploads", "output", "persistent_uploads", "persistent_output"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "--cov=pid_annotator_web",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
+exclude = [
+    "uploads/",
+    "output/",
+    "persistent_uploads/",
+    "persistent_output/",
+]
+
+[tool.coverage.run]
+source = ["pid_annotator_web"]
+omit = [
+    "*/tests/*",
+    "*/uploads/*",
+    "*/output/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
