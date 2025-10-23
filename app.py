@@ -327,6 +327,7 @@ def process_files():
         tag_column = data.get('tag_column', session.get('default_tag_column'))
         selected_comment_columns = data.get('comment_columns', None)
         max_tags = data.get('max_tags', None)  # For test runs
+        is_test = data.get('is_test', False)  # Flag to indicate test run
         annotate_excel = data.get('annotate_excel', False)  # New parameter for Excel annotation
 
         # Highlight settings
@@ -354,7 +355,7 @@ def process_files():
         def process_thread(session_id, task_id, original_pdf_names, pdf_paths, excel_path,
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
-                          watermark_text_color, annotate_excel):
+                          watermark_text_color, annotate_excel, is_test):
             try:
                 output_files = []
                 output_display_names = []  # Clean names for user display/download
@@ -398,7 +399,12 @@ def process_files():
 
                     # Format date as DDMMMYYYY (e.g., 01JAN2025)
                     current_date = format_date_ddmmmyyyy(datetime.now())
-                    clean_filename = f"{original_basename}_annotated_{current_date}.pdf"
+
+                    # Add TEST prefix for test runs
+                    if is_test:
+                        clean_filename = f"{original_basename}_TEST_annotated_{current_date}.pdf"
+                    else:
+                        clean_filename = f"{original_basename}_annotated_{current_date}.pdf"
 
                     # Use session ID in actual stored filename to avoid conflicts
                     output_filename = f"{session_id}_{clean_filename}"
@@ -441,7 +447,12 @@ def process_files():
                         excel_basename = excel_basename[len(f"{session_id}_"):]
 
                     current_date = format_date_ddmmmyyyy(datetime.now())
-                    excel_clean_filename = f"{excel_basename}_annotated_{current_date}.xlsx"
+
+                    # Add TEST prefix for test runs
+                    if is_test:
+                        excel_clean_filename = f"{excel_basename}_TEST_annotated_{current_date}.xlsx"
+                    else:
+                        excel_clean_filename = f"{excel_basename}_annotated_{current_date}.xlsx"
 
                     # Use session ID in actual stored filename to avoid conflicts
                     excel_output_filename = f"{session_id}_{excel_clean_filename}"
@@ -473,7 +484,8 @@ def process_files():
                     'output_files': output_files,
                     'completed': True,
                     'timestamp': datetime.now().isoformat(),
-                    'annotate_excel': annotate_excel
+                    'annotate_excel': annotate_excel,
+                    'is_test': is_test
                 }
 
                 # Final progress update
@@ -509,7 +521,7 @@ def process_files():
         socketio.start_background_task(process_thread, session_id, current_task_id, original_pdf_names, pdf_paths, excel_path,
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
-                          watermark_text_color, annotate_excel)
+                          watermark_text_color, annotate_excel, is_test)
 
         return jsonify({
             'success': True,
@@ -614,6 +626,53 @@ def get_progress(task_id):
         return jsonify(progress_data[task_id])
     return jsonify({'progress': 0, 'status': 'Task not found'})
 
+@app.route('/cleanup_test_output', methods=['POST'])
+def cleanup_test_output():
+    """Delete only test output files, preserve uploads for full run"""
+    try:
+        session_id = session.get('session_id', 'default')
+        current_task = session.get('current_task')
+
+        print(f"[TEST CLEANUP] Starting test output cleanup for session {session_id}")
+
+        # Delete only TEST output files from output directory
+        output_dir = Path(app.config['OUTPUT_FOLDER'])
+        deleted_outputs = 0
+        for file_path in output_dir.glob(f'{session_id}_*_TEST_*'):
+            if file_path.is_file():
+                try:
+                    file_path.unlink()
+                    deleted_outputs += 1
+                    print(f"[TEST CLEANUP] Deleted test output file: {file_path.name}")
+                except Exception as e:
+                    print(f"[TEST CLEANUP ERROR] Failed to delete test output file {file_path.name}: {e}")
+
+        # Clean up output_files_data for this task
+        if current_task and current_task in output_files_data:
+            del output_files_data[current_task]
+            print(f"[TEST CLEANUP] Cleared output_files_data for task {current_task}")
+
+        # Clean up progress_data for this task
+        if current_task and current_task in progress_data:
+            del progress_data[current_task]
+            print(f"[TEST CLEANUP] Cleared progress_data for task {current_task}")
+
+        print(f"[TEST CLEANUP] Test cleanup complete. Deleted {deleted_outputs} test output file(s). Uploads preserved for full run.")
+
+        return jsonify({
+            'success': True,
+            'message': f'Test files cleaned up successfully. Upload data preserved.',
+            'deleted_outputs': deleted_outputs,
+            'uploads_preserved': True
+        })
+
+    except Exception as e:
+        print(f"[TEST CLEANUP ERROR] {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error during test cleanup: {str(e)}'
+        })
+
 @app.route('/cleanup_after_download', methods=['POST'])
 def cleanup_after_download():
     """Delete uploaded and output files after successful download"""
@@ -621,6 +680,17 @@ def cleanup_after_download():
         session_id = session.get('session_id', 'default')
         current_task = session.get('current_task')
 
+        # Check if this was a test run
+        is_test_run = False
+        if current_task and current_task in output_files_data:
+            is_test_run = output_files_data[current_task].get('is_test', False)
+
+        if is_test_run:
+            # For test runs, only delete test output files
+            print(f"[CLEANUP] Test run detected - preserving uploads")
+            return cleanup_test_output()
+
+        # Full run cleanup - delete everything
         print(f"[CLEANUP] Starting post-download cleanup for session {session_id}")
 
         # Delete session-specific files from uploads directory

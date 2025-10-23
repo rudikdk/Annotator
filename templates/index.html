@@ -493,6 +493,8 @@
       fileCount,
       error,
       annotateExcelEnabled,
+      isTestRun,
+      onStartFullRun,
     }) {
       if (!open) return null;
       const complete = progress === 100 && !error;
@@ -509,7 +511,7 @@
           <div className="relative w-full max-w-md rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
               <div className="flex items-center gap-2">
-                <i className="fa-solid fa-cogs text-brand"></i>
+                <i className={cx("fa-solid text-brand", isTestRun ? "fa-bolt" : "fa-cogs")}></i>
                 <h3 className="font-semibold">{modeTitle}</h3>
               </div>
               <button
@@ -546,27 +548,57 @@
                     <div className="flex items-center gap-2 text-emerald-500">
                       <i className="fa-solid fa-circle-check text-2xl"></i>
                       <div className="font-semibold">
-                        {annotateExcelEnabled
-                          ? (fileCount > 1
-                              ? `Your ${fileCount} annotated PDF and Excel files are ready.`
-                              : "Your annotated PDF and Excel files are ready.")
-                          : (fileCount > 1
-                              ? `Your ${fileCount} annotated PDF files are ready.`
-                              : "Your annotated PDF is ready.")
+                        {isTestRun
+                          ? "Test run complete!"
+                          : (annotateExcelEnabled
+                              ? (fileCount > 1
+                                  ? `Your ${fileCount} annotated PDF and Excel files are ready.`
+                                  : "Your annotated PDF and Excel files are ready.")
+                              : (fileCount > 1
+                                  ? `Your ${fileCount} annotated PDF files are ready.`
+                                  : "Your annotated PDF is ready."))
                         }
                       </div>
                     </div>
+
+                    {isTestRun && (
+                      <div className="rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-200/60 dark:border-blue-800 px-3 py-2">
+                        <div className="flex items-start gap-2">
+                          <i className="fa-solid fa-info-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                          <div className="text-xs text-blue-800 dark:text-blue-200">
+                            Upload data has been preserved. You can now review the test output and run the full processing when ready.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="grid gap-2">
                       <button
                         onClick={onDownload}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-success text-white px-4 py-2.5 font-semibold hover:bg-success-hover transition-colors"
                       >
                         <i className="fa-solid fa-download"></i>
-                        {annotateExcelEnabled
-                          ? (fileCount > 1 ? "Download All PDF & Excel Files" : "Download PDF & Excel")
-                          : (fileCount > 1 ? "Download All Files" : "Download File")
+                        {isTestRun
+                          ? "Download Test Files"
+                          : (annotateExcelEnabled
+                              ? (fileCount > 1 ? "Download All PDF & Excel Files" : "Download PDF & Excel")
+                              : (fileCount > 1 ? "Download All Files" : "Download File"))
                         }
                       </button>
+
+                      {isTestRun && (
+                        <button
+                          onClick={() => {
+                            onClose();
+                            onStartFullRun();
+                          }}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand text-white px-4 py-2.5 font-semibold hover:bg-brand-hover transition-colors"
+                        >
+                          <i className="fa-solid fa-play"></i>
+                          Run Full Processing
+                        </button>
+                      )}
+
                       <button
                         onClick={onClose}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2.5 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
@@ -714,6 +746,7 @@
       const [errorText, setErrorText] = useState(null);
       const [currentTaskId, setCurrentTaskId] = useState(null);
       const [annotateExcelEnabled, setAnnotateExcelEnabled] = useState(false);
+      const [isCurrentTestRun, setIsCurrentTestRun] = useState(false);
 
       // Socket
       const socket = useMemo(() => io(), []);
@@ -764,6 +797,7 @@
         setStatusText("Initializing...");
         setErrorText(null);
         setFileCount(0);
+        setIsCurrentTestRun(isTest);
 
         const data = {
           header_row: Number(headerRow) || 1,
@@ -776,6 +810,7 @@
           watermark_attributes: watermarkAttributes,
           watermark_text_color: watermarkTextColor,
           max_tags: isTest ? 100 : null,
+          is_test: isTest,
         };
 
         logToConsole(isTest ? "Starting test run (100 tags)..." : "Starting full processing...");
@@ -970,6 +1005,10 @@
 
       function cleanupAfterDownload() {
         logToConsole("Starting post-download cleanup...");
+
+        // Determine cleanup type based on whether this was a test run
+        const isTestCleanup = isCurrentTestRun;
+
         fetch("/cleanup_after_download", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -977,18 +1016,30 @@
           .then((r) => r.json())
           .then((data) => {
             if (data.success) {
-              logToConsole(`Cleanup successful: deleted ${data.deleted_uploads} upload(s) and ${data.deleted_outputs} output(s)`);
-              setToast({
-                type: "success",
-                text: `Files downloaded! Cleaned up ${data.deleted_uploads + data.deleted_outputs} file(s) from server.`
-              });
-              // Reset UI state
-              setUploadedFiles({ excel: [], pdf: [] });
-              setExcelColumns([]);
-              setTagColumn("");
-              setCommentColumns([]);
-              // Close the processing modal
-              closeProcessing();
+              const deletedCount = (data.deleted_uploads || 0) + (data.deleted_outputs || 0);
+
+              if (isTestCleanup) {
+                logToConsole(`Test cleanup successful: deleted ${data.deleted_outputs} test output(s). Uploads preserved.`);
+                setToast({
+                  type: "success",
+                  text: `Test files downloaded! Upload data preserved. Ready for full run.`
+                });
+                // For test runs, do NOT reset uploaded files
+                // Only close the modal
+                closeProcessing();
+              } else {
+                logToConsole(`Full cleanup successful: deleted ${data.deleted_uploads} upload(s) and ${data.deleted_outputs} output(s)`);
+                setToast({
+                  type: "success",
+                  text: `Files downloaded! Cleaned up ${deletedCount} file(s) from server.`
+                });
+                // For full runs, reset UI state completely
+                setUploadedFiles({ excel: [], pdf: [] });
+                setExcelColumns([]);
+                setTagColumn("");
+                setCommentColumns([]);
+                closeProcessing();
+              }
             } else {
               logToConsole(`Cleanup error: ${data.message}`);
               setToast({ type: "error", text: `Cleanup failed: ${data.message}` });
@@ -1442,6 +1493,8 @@
             onClose={closeProcessing}
             onDownload={downloadFromModal}
             annotateExcelEnabled={annotateExcel}
+            isTestRun={isCurrentTestRun}
+            onStartFullRun={() => startProcessing(false)}
           />
           <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} />
         </div>
