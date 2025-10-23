@@ -899,13 +899,38 @@
       function downloadFromModal() {
         logToConsole("Starting download from modal...");
         fetch("/download")
-          .then((r) => r.json())
+          .then((r) => {
+            logToConsole(`[DEBUG] Download response status: ${r.status}, content-type: ${r.headers.get('content-type')}`);
+            // Check if response is JSON or binary file
+            const contentType = r.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+              return r.json();
+            } else {
+              // Single file response - trigger download directly
+              logToConsole('[DEBUG] Single file detected, opening in new tab');
+              window.open("/download", "_blank");
+              // Trigger cleanup after a short delay to allow download to start
+              setTimeout(() => {
+                cleanupAfterDownload();
+              }, 2000);
+              return null; // Return null to skip further processing
+            }
+          })
           .then((data) => {
+            if (!data) return; // Skip if we already handled single file download
+
+            logToConsole(`[DEBUG] Download JSON response: ${JSON.stringify(data)}`);
+
             if (data.success && data.multiple_files && Array.isArray(data.files)) {
               logToConsole(`Starting download of ${data.file_count || data.files.length} files...`);
+              logToConsole(`[DEBUG] File URLs: ${JSON.stringify(data.files)}`);
               sequentialDownloads(data.files);
             } else if (data.success) {
               window.open("/download", "_blank");
+              // Trigger cleanup after a short delay for single file fallback
+              setTimeout(() => {
+                cleanupAfterDownload();
+              }, 2000);
             } else {
               logToConsole(`Download error: ${data.message}`);
               setToast({ type: "error", text: data.message || "Download error" });
@@ -913,8 +938,12 @@
           })
           .catch((err) => {
             logToConsole(`Download error: ${err.message}`);
-            // Fallback to direct
+            // Fallback to direct download
             window.open("/download", "_blank");
+            // Trigger cleanup after a short delay
+            setTimeout(() => {
+              cleanupAfterDownload();
+            }, 2000);
           });
       }
 
@@ -932,9 +961,43 @@
             setTimeout(next, 1000);
           } else {
             logToConsole("All files downloaded successfully!");
+            // Trigger cleanup after all downloads complete
+            cleanupAfterDownload();
           }
         }
         next();
+      }
+
+      function cleanupAfterDownload() {
+        logToConsole("Starting post-download cleanup...");
+        fetch("/cleanup_after_download", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              logToConsole(`Cleanup successful: deleted ${data.deleted_uploads} upload(s) and ${data.deleted_outputs} output(s)`);
+              setToast({
+                type: "success",
+                text: `Files downloaded! Cleaned up ${data.deleted_uploads + data.deleted_outputs} file(s) from server.`
+              });
+              // Reset UI state
+              setUploadedFiles({ excel: [], pdf: [] });
+              setExcelColumns([]);
+              setTagColumn("");
+              setCommentColumns([]);
+              // Close the processing modal
+              closeProcessing();
+            } else {
+              logToConsole(`Cleanup error: ${data.message}`);
+              setToast({ type: "error", text: `Cleanup failed: ${data.message}` });
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Cleanup error: ${err.message}`);
+            setToast({ type: "error", text: `Cleanup failed: ${err.message}` });
+          });
       }
 
       function handleClearSession() {

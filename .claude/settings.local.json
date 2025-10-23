@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(tree:*)",
+      "Bash(python -c \"\nimport os\nimport sys\n\n# Check if output folder exists and what files are in there\noutput_folder = ''output''\nif os.path.exists(output_folder):\n    files = os.listdir(output_folder)\n    print(f''Files in output folder: {len(files)}'')\n    for f in files:\n        print(f''  - {f}'')\n        # Check file size\n        size = os.path.getsize(os.path.join(output_folder, f))\n        print(f''    Size: {size} bytes'')\nelse:\n    print(''Output folder does not exist'')\n\")",
+      "Bash(python3 -c \"\nimport os\nimport sys\n\n# Check if output folder exists and what files are in there\noutput_folder = ''output''\nif os.path.exists(output_folder):\n    files = os.listdir(output_folder)\n    print(f''Files in output folder: {len(files)}'')\n    for f in files:\n        print(f''  - {f}'')\n        # Check file size\n        size = os.path.getsize(os.path.join(output_folder, f))\n        print(f''    Size: {size} bytes'')\nelse:\n    print(''Output folder does not exist'')\n\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

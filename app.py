@@ -174,9 +174,22 @@ def progress_callback(task_id, progress, status):
 
 @app.route('/')
 def index():
-    """Main application page"""
-    if 'session_id' not in session:
-        session['session_id'] = str(uuid.uuid4())
+    """Main application page - always start with fresh session"""
+    # Get old session ID if it exists (for cleanup)
+    old_session_id = session.get('session_id')
+
+    # Clear all session data to start fresh
+    session.clear()
+
+    # Generate new session ID
+    new_session_id = str(uuid.uuid4())
+    session['session_id'] = new_session_id
+
+    print(f"[SESSION] Page loaded. Old session: {old_session_id}, New session: {new_session_id}")
+
+    # Note: Old files will be cleaned up by the 24-hour cleanup routine
+    # We don't delete them immediately in case user accidentally refreshed
+
     return render_template('index.html')
 
 def format_date_ddmmmyyyy(dt):
@@ -446,8 +459,13 @@ def process_files():
                     if success:
                         output_files.append(excel_output_filename)
                         output_display_names.append(excel_clean_filename)
+                        print(f"[APP DEBUG] Excel file created successfully: {excel_output_path}")
+                        print(f"[APP DEBUG] Excel file exists: {os.path.exists(excel_output_path)}")
+                        if os.path.exists(excel_output_path):
+                            print(f"[APP DEBUG] Excel file size: {os.path.getsize(excel_output_path)} bytes")
                         progress_callback(task_id, 98, "Excel annotation complete")
                     else:
+                        print(f"[APP ERROR] Excel annotation failed!")
                         progress_callback(task_id, 98, "Excel annotation failed")
 
                 # Store output files info in thread-safe global dictionary
@@ -515,41 +533,56 @@ def download_file():
     """Download the processed PDF files"""
     current_task = session.get('current_task')
 
+    print(f"[APP DEBUG] /download route called, current_task: {current_task}")
+
     # Check if we have a completed task with output files
     if not current_task or current_task not in output_files_data:
+        print(f"[APP DEBUG] No task data found for task: {current_task}")
         return jsonify({'success': False, 'message': 'No output files available'})
 
     task_data = output_files_data[current_task]
     if not task_data.get('completed'):
+        print(f"[APP DEBUG] Task not completed: {current_task}")
         return jsonify({'success': False, 'message': 'Processing not complete'})
 
     output_files = task_data['output_files']
+    print(f"[APP DEBUG] Output files: {output_files}")
+    print(f"[APP DEBUG] Number of output files: {len(output_files)}")
+
     if not output_files:
         return jsonify({'success': False, 'message': 'No output files available'})
 
     # Single file download
     if len(output_files) == 1:
+        print(f"[APP DEBUG] Single file download mode")
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_files[0])
         if not os.path.exists(output_path):
+            print(f"[APP ERROR] Output file not found: {output_path}")
             return jsonify({'success': False, 'message': 'Output file not found'})
 
         # Use clean filename for download
         clean_name = get_clean_filename(output_files[0])
+        print(f"[APP DEBUG] Sending single file: {clean_name}")
         return send_file(output_path, as_attachment=True, download_name=clean_name)
 
     # Multiple files - return JSON with file list for sequential download
     else:
+        print(f"[APP DEBUG] Multiple files download mode")
         file_urls = []
         for filename in output_files:
-            file_urls.append(f'/download_file/{filename}')
+            file_url = f'/download_file/{filename}'
+            file_urls.append(file_url)
+            print(f"[APP DEBUG] Added file URL: {file_url}")
 
-        return jsonify({
+        response_data = {
             'success': True,
             'multiple_files': True,
             'file_count': len(output_files),
             'files': file_urls,
             'message': f'{len(output_files)} files ready for download'
-        })
+        }
+        print(f"[APP DEBUG] Returning JSON response: {response_data}")
+        return jsonify(response_data)
 
 @app.route('/download_file/<filename>')
 def download_single_file(filename):
@@ -581,12 +614,81 @@ def get_progress(task_id):
         return jsonify(progress_data[task_id])
     return jsonify({'progress': 0, 'status': 'Task not found'})
 
+@app.route('/cleanup_after_download', methods=['POST'])
+def cleanup_after_download():
+    """Delete uploaded and output files after successful download"""
+    try:
+        session_id = session.get('session_id', 'default')
+        current_task = session.get('current_task')
+
+        print(f"[CLEANUP] Starting post-download cleanup for session {session_id}")
+
+        # Delete session-specific files from uploads directory
+        uploads_dir = Path(app.config['UPLOAD_FOLDER'])
+        deleted_uploads = 0
+        for file_path in uploads_dir.glob(f'{session_id}_*'):
+            if file_path.is_file():
+                try:
+                    file_path.unlink()
+                    deleted_uploads += 1
+                    print(f"[CLEANUP] Deleted upload file: {file_path.name}")
+                except Exception as e:
+                    print(f"[CLEANUP ERROR] Failed to delete upload file {file_path.name}: {e}")
+
+        # Delete session-specific files from output directory
+        output_dir = Path(app.config['OUTPUT_FOLDER'])
+        deleted_outputs = 0
+        for file_path in output_dir.glob(f'{session_id}_*'):
+            if file_path.is_file():
+                try:
+                    file_path.unlink()
+                    deleted_outputs += 1
+                    print(f"[CLEANUP] Deleted output file: {file_path.name}")
+                except Exception as e:
+                    print(f"[CLEANUP ERROR] Failed to delete output file {file_path.name}: {e}")
+
+        # Clear session data
+        session.pop('pdf_files', None)
+        session.pop('original_pdf_names', None)
+        session.pop('pdf_file', None)
+        session.pop('original_pdf_name', None)
+        session.pop('excel_file', None)
+        session.pop('excel_columns', None)
+        session.pop('default_tag_column', None)
+        session.pop('current_task', None)
+
+        # Clean up output_files_data for this task
+        if current_task and current_task in output_files_data:
+            del output_files_data[current_task]
+            print(f"[CLEANUP] Cleared output_files_data for task {current_task}")
+
+        # Clean up progress_data for this task
+        if current_task and current_task in progress_data:
+            del progress_data[current_task]
+            print(f"[CLEANUP] Cleared progress_data for task {current_task}")
+
+        print(f"[CLEANUP] Cleanup complete. Deleted {deleted_uploads} upload file(s) and {deleted_outputs} output file(s)")
+
+        return jsonify({
+            'success': True,
+            'message': f'Files cleaned up successfully',
+            'deleted_uploads': deleted_uploads,
+            'deleted_outputs': deleted_outputs
+        })
+
+    except Exception as e:
+        print(f"[CLEANUP ERROR] {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error during cleanup: {str(e)}'
+        })
+
 @app.route('/clear_session', methods=['POST'])
 def clear_session():
     """Clear all session data and delete uploaded/output files"""
     try:
         session_id = session.get('session_id', 'default')
-        
+
         # Delete session-specific files from uploads directory
         uploads_dir = Path(app.config['UPLOAD_FOLDER'])
         deleted_uploads = 0
@@ -594,7 +696,7 @@ def clear_session():
             if file_path.is_file():
                 file_path.unlink()
                 deleted_uploads += 1
-        
+
         # Delete session-specific files from output directory
         output_dir = Path(app.config['OUTPUT_FOLDER'])
         deleted_outputs = 0
@@ -602,22 +704,22 @@ def clear_session():
             if file_path.is_file():
                 file_path.unlink()
                 deleted_outputs += 1
-        
+
         # Clear all session data
         session.clear()
-        
+
         # Generate new session ID
         session['session_id'] = str(uuid.uuid4())
-        
+
         print(f"[SESSION CLEAR] Deleted {deleted_uploads} upload files and {deleted_outputs} output files for session {session_id}")
-        
+
         return jsonify({
             'success': True,
             'message': f'Session cleared successfully. Deleted {deleted_uploads} upload file(s) and {deleted_outputs} output file(s).',
             'deleted_uploads': deleted_uploads,
             'deleted_outputs': deleted_outputs
         })
-        
+
     except Exception as e:
         print(f"[SESSION CLEAR ERROR] {str(e)}")
         return jsonify({
