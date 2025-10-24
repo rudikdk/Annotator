@@ -17,8 +17,8 @@ gunicorn==21.2.0
 pandas>=2.0.0
 
 # PDF Processing
-PyMuPDF>=1.23.0  # ARM64 wheels available
-PyPDF2>=3.0.0    # Specify version for stability
+PyMuPDF==1.24.14  # Pinned for Windows DLL compatibility
+PyPDF2>=3.0.0     # Specify version for stability
 
 # Excel Processing
 openpyxl  # For .xlsx format (read and write support, including annotation)
