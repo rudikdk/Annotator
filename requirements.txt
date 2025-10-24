@@ -21,7 +21,8 @@ PyMuPDF>=1.23.0  # ARM64 wheels available
 PyPDF2>=3.0.0    # Specify version for stability
 
 # Excel Processing
-openpyxl>=3.1.0
+openpyxl  # For .xlsx format (read and write support, including annotation)
+xlrd>=2.0.0  # For .xls format (read-only support, no annotation capability)
 
 # PDF Generation & Watermarking
 reportlab>=4.0.0

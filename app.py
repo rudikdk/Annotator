@@ -184,6 +184,8 @@ def index():
     # Generate new session ID
     new_session_id = str(uuid.uuid4())
     session['session_id'] = new_session_id
+    session['tag_filters'] = []  # Initialize empty tag filters
+    session['filter_logic'] = 'AND'  # Default filter logic
 
     print(f"[SESSION] Page loaded. Old session: {old_session_id}, New session: {new_session_id}")
 
@@ -297,6 +299,110 @@ def reload_columns():
         session['default_tag_column'] = result['default_tag_column']
 
     return jsonify(result)
+
+@app.route('/get_tag_parts', methods=['POST'])
+def get_tag_parts():
+    """Analyze Excel file and return available values for each tag part"""
+    from pid_annotator_core import analyze_tag_parts
+
+    data = request.get_json()
+    header_row = data.get('header_row', 6)
+    tag_column = data.get('tag_column')
+
+    # Use selected_excel from request if provided, otherwise fall back to session
+    selected_excel = data.get('selected_excel')
+    if selected_excel:
+        excel_file = selected_excel
+    else:
+        excel_file = session.get('excel_file')
+
+    if not excel_file:
+        return jsonify({'success': False, 'message': 'No Excel file selected'})
+
+    if not tag_column:
+        tag_column = session.get('default_tag_column')
+        if not tag_column:
+            return jsonify({'success': False, 'message': 'No tag column specified'})
+
+    excel_path = os.path.join(app.config['UPLOAD_FOLDER'], excel_file)
+
+    if not os.path.exists(excel_path):
+        return jsonify({'success': False, 'message': f'Excel file not found: {excel_file}'})
+
+    result = analyze_tag_parts(excel_path, tag_column, header_row, top_n=20)
+
+    return jsonify(result)
+
+@app.route('/preview_filtered_tags', methods=['POST'])
+def preview_filtered_tags():
+    """Preview which tags match the current filter criteria"""
+    from pid_annotator_core import apply_tag_filters
+
+    data = request.get_json()
+    header_row = data.get('header_row', 6)
+    tag_column = data.get('tag_column')
+    tag_filters = data.get('tag_filters', [])
+    filter_logic = data.get('filter_logic', 'AND')
+
+    # Use selected_excel from request if provided, otherwise fall back to session
+    selected_excel = data.get('selected_excel')
+    if selected_excel:
+        excel_file = selected_excel
+    else:
+        excel_file = session.get('excel_file')
+
+    if not excel_file:
+        return jsonify({'success': False, 'message': 'No Excel file selected'})
+
+    if not tag_column:
+        tag_column = session.get('default_tag_column')
+        if not tag_column:
+            return jsonify({'success': False, 'message': 'No tag column specified'})
+
+    excel_path = os.path.join(app.config['UPLOAD_FOLDER'], excel_file)
+
+    if not os.path.exists(excel_path):
+        return jsonify({'success': False, 'message': f'Excel file not found: {excel_file}'})
+
+    try:
+        # Load Excel data
+        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        if is_xls:
+            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
+        else:
+            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+
+        df = df.dropna(axis=1, how="all")
+
+        # Validate tag column exists
+        if tag_column not in df.columns:
+            return jsonify({'success': False, 'message': f'Tag column "{tag_column}" not found in Excel file'})
+
+        # Extract all tags
+        tags = df[tag_column].dropna().astype(str).str.strip()
+
+        # Filter tags
+        if tag_filters:
+            matching_tags = []
+            for tag in tags:
+                if tag and tag.lower() != 'nan' and apply_tag_filters(tag, tag_filters, filter_logic):
+                    matching_tags.append(tag)
+        else:
+            # No filters, all tags match
+            matching_tags = [tag for tag in tags if tag and tag.lower() != 'nan']
+
+        return jsonify({
+            'success': True,
+            'matching_tags': matching_tags,
+            'total_tags': len([tag for tag in tags if tag and tag.lower() != 'nan']),
+            'message': f'{len(matching_tags)} tags match the filter criteria'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error previewing filtered tags: {str(e)}'
+        })
 
 @app.route('/select_excel', methods=['POST'])
 def select_excel():
@@ -420,6 +526,13 @@ def process_files():
         is_test = data.get('is_test', False)  # Flag to indicate test run
         annotate_excel = data.get('annotate_excel', False)  # New parameter for Excel annotation
 
+        # Disable Excel annotation for .xls files (read-only support for .xls)
+        is_xls_file = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        if annotate_excel and is_xls_file:
+            # Automatically disable Excel annotation for .xls files
+            print(f"[APP INFO] Excel annotation disabled for .xls file: {excel_path}")
+            annotate_excel = False
+
         # Highlight settings
         highlight_column = data.get('highlight_column', '')
         highlight_color = data.get('highlight_color', '#FFFF00')
@@ -432,6 +545,44 @@ def process_files():
         if not watermark_attributes and data.get('watermark_attribute'):
             watermark_attributes = [data.get('watermark_attribute')]
         watermark_text_color = data.get('watermark_text_color', '#000000')
+        watermark_background_enabled = data.get('watermark_background_enabled', False)
+
+        # Tag matching settings
+        tag_matching_config = data.get('tag_matching_config', None)
+
+        # Tag filtering settings
+        tag_filters = data.get('tag_filters', [])
+        filter_logic = data.get('filter_logic', 'AND')
+
+        # Validate filters and count matching tags
+        if tag_filters:
+            from pid_annotator_core import apply_tag_filters, parse_tag_parts
+            import pandas as pd
+
+            # Load Excel to count matching tags
+            is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+            if is_xls:
+                df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
+            else:
+                df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+
+            df = df.dropna(axis=1, how="all")
+
+            # Count tags that pass the filters
+            tags = df[tag_column].dropna().astype(str).str.strip()
+            matching_tags = sum(1 for tag in tags if tag and tag.lower() != 'nan' and apply_tag_filters(tag, tag_filters, filter_logic))
+
+            if matching_tags == 0:
+                return jsonify({
+                    'success': False,
+                    'message': f'No tags match the selected filters. Please adjust your filter criteria.'
+                })
+
+            print(f"[APP DEBUG] Tag filters applied: {len(tag_filters)} filter(s), {matching_tags} tags match")
+
+        # Store filters in session for reuse
+        session['tag_filters'] = tag_filters
+        session['filter_logic'] = filter_logic
 
         # Create task ID for progress tracking
         task_id = str(uuid.uuid4())
@@ -445,11 +596,20 @@ def process_files():
         def process_thread(session_id, task_id, original_pdf_names, pdf_paths, excel_path,
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
-                          watermark_text_color, annotate_excel, is_test):
+                          watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
+                          tag_matching_config, tag_filters, filter_logic):
             try:
                 output_files = []
                 output_display_names = []  # Clean names for user display/download
                 all_found_tags = set()  # Collect all found tags from all PDFs
+
+                # Aggregate report data from all PDFs
+                aggregated_report = {
+                    'found': [],
+                    'not_found': [],
+                    'duplicates': {},
+                    'validation_warnings': []
+                }
 
                 # Process each PDF file
                 for i, pdf_path in enumerate(pdf_paths):
@@ -500,8 +660,8 @@ def process_files():
                     output_filename = f"{session_id}_{clean_filename}"
                     output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_filename)
 
-                    # Process this PDF and get found tags
-                    found_tags = annotate_pdf_with_progress(
+                    # Process this PDF and get found tags and report data
+                    found_tags, report_data = annotate_pdf_with_progress(
                         pdf_path=pdf_path,
                         excel_path=excel_path,
                         out_path=output_path,
@@ -515,59 +675,162 @@ def process_files():
                         annotation_type="highlight_only",
                         watermark_enabled=watermark_enabled,
                         watermark_attribute=watermark_attributes,
-                        watermark_text_color=watermark_text_color
+                        watermark_text_color=watermark_text_color,
+                        watermark_background_enabled=watermark_background_enabled,
+                        tag_matching_config=tag_matching_config,
+                        tag_filters=tag_filters,
+                        filter_logic=filter_logic
                     )
 
                     # Collect all found tags from all PDFs
                     if found_tags:
                         all_found_tags.update(found_tags)
 
+                    # Aggregate report data
+                    if report_data:
+                        aggregated_report['found'].extend(report_data.get('found', []))
+                        aggregated_report['not_found'].extend(report_data.get('not_found', []))
+                        # Merge duplicates (dict)
+                        for tag, rows in report_data.get('duplicates', {}).items():
+                            if tag in aggregated_report['duplicates']:
+                                aggregated_report['duplicates'][tag].extend(rows)
+                            else:
+                                aggregated_report['duplicates'][tag] = rows
+                        aggregated_report['validation_warnings'].extend(report_data.get('validation_warnings', []))
+
                     # Ensure progress reaches the end of this file's segment
                     progress_callback(task_id, file_end, f"Finished file {i+1}/{total_files}: {original_name}")
                     output_files.append(output_filename)
                     output_display_names.append(clean_filename)
 
-                # Generate Excel annotation if requested
+                # After processing all PDFs, generate Excel annotation if requested
                 if annotate_excel:
-                    progress_callback(task_id, 95, "Annotating Excel file...")
+                    print(f"\n{'='*80}")
+                    print(f"[APP] Starting Excel annotation process...")
+                    print(f"{'='*80}")
+                    print(f"[APP] Excel file path: {excel_path}")
+                    print(f"[APP] Excel file exists: {os.path.exists(excel_path)}")
+                    if os.path.exists(excel_path):
+                        print(f"[APP] Excel file size: {os.path.getsize(excel_path)} bytes")
+                    print(f"[APP] Found tags count: {len(all_found_tags)}")
+                    print(f"[APP] Tag column: {tag_column}")
+                    print(f"[APP] Header row: {header_row}")
+                    print(f"[APP] Report data - Found: {len(aggregated_report.get('found', []))}, Not Found: {len(aggregated_report.get('not_found', []))}, Duplicates: {len(aggregated_report.get('duplicates', {}))}")
 
-                    # Generate clean Excel output filename
-                    excel_basename = os.path.splitext(os.path.basename(excel_path))[0]
-                    if excel_basename.startswith(f"{session_id}_"):
-                        excel_basename = excel_basename[len(f"{session_id}_"):]
-
-                    current_date = format_date_ddmmmyyyy(datetime.now())
-
-                    # Add TEST prefix for test runs
-                    if is_test:
-                        excel_clean_filename = f"{excel_basename}_TEST_annotated_{current_date}.xlsx"
+                    # Validate prerequisites
+                    if not os.path.exists(excel_path):
+                        print(f"[APP ERROR] Cannot annotate Excel - file does not exist: {excel_path}")
+                        progress_callback(task_id, 95, "Excel annotation skipped - file not found")
+                    elif len(all_found_tags) == 0 and len(aggregated_report.get('not_found', [])) == 0:
+                        print(f"[APP WARNING] No tags to colorize (no found tags and no not-found tags)")
+                        progress_callback(task_id, 95, "Excel annotation skipped - no tags to colorize")
                     else:
-                        excel_clean_filename = f"{excel_basename}_annotated_{current_date}.xlsx"
+                        progress_callback(task_id, 95, "Annotating Excel file...")
 
-                    # Use session ID in actual stored filename to avoid conflicts
-                    excel_output_filename = f"{session_id}_{excel_clean_filename}"
-                    excel_output_path = os.path.join(app.config['OUTPUT_FOLDER'], excel_output_filename)
+                        # Generate clean Excel output filename
+                        excel_basename = os.path.splitext(os.path.basename(excel_path))[0]
+                        if excel_basename.startswith(f"{session_id}_"):
+                            excel_basename = excel_basename[len(f"{session_id}_"):]
 
-                    # Annotate Excel file with all found tags
-                    success = annotate_excel_with_found_tags(
-                        excel_path=excel_path,
-                        out_path=excel_output_path,
-                        found_tags_set=all_found_tags,
-                        tag_column=tag_column,
-                        header_row=header_row
+                        current_date = format_date_ddmmmyyyy(datetime.now())
+
+                        # Add TEST prefix for test runs
+                        if is_test:
+                            excel_clean_filename = f"{excel_basename}_TEST_annotated_{current_date}.xlsx"
+                        else:
+                            excel_clean_filename = f"{excel_basename}_annotated_{current_date}.xlsx"
+
+                        # Use session ID in actual stored filename to avoid conflicts
+                        excel_output_filename = f"{session_id}_{excel_clean_filename}"
+                        excel_output_path = os.path.join(app.config['OUTPUT_FOLDER'], excel_output_filename)
+
+                        print(f"[APP] Output filename: {excel_output_filename}")
+                        print(f"[APP] Full output path: {excel_output_path}")
+                        print(f"[APP] Output folder exists: {os.path.exists(app.config['OUTPUT_FOLDER'])}")
+
+                        # Annotate Excel file with all found tags and report data for color coding
+                        try:
+                            success = annotate_excel_with_found_tags(
+                                excel_path=excel_path,
+                                out_path=excel_output_path,
+                                found_tags_set=all_found_tags,
+                                tag_column=tag_column,
+                                header_row=header_row,
+                                report_data=aggregated_report
+                            )
+                        except Exception as e:
+                            print(f"[APP ERROR] Exception during Excel annotation: {str(e)}")
+                            import traceback
+                            traceback.print_exc()
+                            success = False
+
+                        if success:
+                            # Double-check file exists before adding to output list
+                            if os.path.exists(excel_output_path):
+                                file_size = os.path.getsize(excel_output_path)
+                                output_files.append(excel_output_filename)
+                                output_display_names.append(excel_clean_filename)
+                                print(f"[APP SUCCESS] Excel file created and verified:")
+                                print(f"[APP SUCCESS]   - Path: {excel_output_path}")
+                                print(f"[APP SUCCESS]   - Size: {file_size} bytes")
+                                print(f"[APP SUCCESS]   - Added to output files list")
+                                progress_callback(task_id, 96, "Excel annotation complete")
+                            else:
+                                print(f"[APP ERROR] annotate_excel_with_found_tags returned True but file does not exist!")
+                                print(f"[APP ERROR] Expected path: {excel_output_path}")
+                                progress_callback(task_id, 96, "Excel annotation failed - file not created")
+                        else:
+                            print(f"[APP ERROR] Excel annotation function returned False")
+                            progress_callback(task_id, 96, "Excel annotation failed")
+
+                    print(f"{'='*80}\n")
+
+                # Generate HTML processing report
+                progress_callback(task_id, 97, "Generating processing report...")
+                try:
+                    from report_template import generate_html_report
+
+                    # Prepare report settings
+                    report_settings = {
+                        'tag_column': tag_column,
+                        'header_row': header_row,
+                        'watermark_enabled': watermark_enabled,
+                        'annotate_excel': annotate_excel
+                    }
+
+                    # Generate HTML report
+                    report_html = generate_html_report(
+                        report_data=aggregated_report,
+                        pdf_filenames=original_pdf_names,
+                        excel_filename=os.path.basename(excel_path),
+                        settings=report_settings
                     )
 
-                    if success:
-                        output_files.append(excel_output_filename)
-                        output_display_names.append(excel_clean_filename)
-                        print(f"[APP DEBUG] Excel file created successfully: {excel_output_path}")
-                        print(f"[APP DEBUG] Excel file exists: {os.path.exists(excel_output_path)}")
-                        if os.path.exists(excel_output_path):
-                            print(f"[APP DEBUG] Excel file size: {os.path.getsize(excel_output_path)} bytes")
-                        progress_callback(task_id, 98, "Excel annotation complete")
+                    # Save report to output folder
+                    current_date = format_date_ddmmmyyyy(datetime.now())
+                    if is_test:
+                        report_clean_filename = f"report_TEST_{current_date}.html"
                     else:
-                        print(f"[APP ERROR] Excel annotation failed!")
-                        progress_callback(task_id, 98, "Excel annotation failed")
+                        report_clean_filename = f"report_{current_date}.html"
+
+                    report_filename = f"{session_id}_{report_clean_filename}"
+                    report_path = os.path.join(app.config['OUTPUT_FOLDER'], report_filename)
+
+                    with open(report_path, 'w', encoding='utf-8') as f:
+                        f.write(report_html)
+
+                    output_files.append(report_filename)
+                    output_display_names.append(report_clean_filename)
+
+                    print(f"[APP DEBUG] Report generated successfully: {report_path}")
+                    print(f"[APP DEBUG] Report - Found: {len(aggregated_report['found'])}, Not Found: {len(aggregated_report['not_found'])}, Duplicates: {len(aggregated_report['duplicates'])}")
+                    progress_callback(task_id, 98, "Report generated successfully")
+
+                except Exception as e:
+                    print(f"[APP ERROR] Report generation failed: {str(e)}")
+                    import traceback
+                    traceback.print_exc()
+                    progress_callback(task_id, 98, "Report generation failed (processing continued)")
 
                 # Store output files info in thread-safe global dictionary
                 output_files_data[task_id] = {
@@ -611,7 +874,8 @@ def process_files():
         socketio.start_background_task(process_thread, session_id, current_task_id, original_pdf_names, pdf_paths, excel_path,
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
-                          watermark_text_color, annotate_excel, is_test)
+                          watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
+                          tag_matching_config, tag_filters, filter_logic)
 
         return jsonify({
             'success': True,
@@ -632,10 +896,11 @@ def get_clean_filename(stored_filename):
 
 @app.route('/download')
 def download_file():
-    """Download the processed PDF files"""
+    """Download the processed files - supports filtering by file type"""
     current_task = session.get('current_task')
+    file_type = request.args.get('type', 'all')  # 'all', 'pdf', 'excel', 'report'
 
-    print(f"[APP DEBUG] /download route called, current_task: {current_task}")
+    print(f"[APP DEBUG] /download route called, current_task: {current_task}, file_type: {file_type}")
 
     # Check if we have a completed task with output files
     if not current_task or current_task not in output_files_data:
@@ -654,10 +919,27 @@ def download_file():
     if not output_files:
         return jsonify({'success': False, 'message': 'No output files available'})
 
+    # Filter files by type
+    filtered_files = []
+    for filename in output_files:
+        if file_type == 'pdf' and filename.endswith('.pdf'):
+            filtered_files.append(filename)
+        elif file_type == 'excel' and filename.endswith('.xlsx'):
+            filtered_files.append(filename)
+        elif file_type == 'report' and filename.endswith('.html'):
+            filtered_files.append(filename)
+        elif file_type == 'all':
+            filtered_files.append(filename)
+
+    print(f"[APP DEBUG] Filtered files ({file_type}): {filtered_files}")
+
+    if not filtered_files:
+        return jsonify({'success': False, 'message': f'No {file_type} files available'})
+
     # Return JSON with file info for download
     # Note: Files might be in output folder OR uploads folder (if already moved to workspace)
     file_urls = []
-    for filename in output_files:
+    for filename in filtered_files:
         # Check if file exists in either location
         output_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
         uploads_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
@@ -679,7 +961,7 @@ def download_file():
             'multiple_files': False,
             'file_count': 1,
             'files': file_urls,
-            'output_files': output_files,  # Include original filenames for workspace management
+            'output_files': filtered_files,  # Include original filenames for workspace management
             'message': '1 file ready for download'
         }
         print(f"[APP DEBUG] Returning JSON response for single file: {response_data}")
@@ -693,7 +975,7 @@ def download_file():
             'multiple_files': True,
             'file_count': len(file_urls),
             'files': file_urls,
-            'output_files': output_files,  # Include original filenames for workspace management
+            'output_files': filtered_files,  # Include original filenames for workspace management
             'message': f'{len(file_urls)} files ready for download'
         }
         print(f"[APP DEBUG] Returning JSON response: {response_data}")
@@ -1003,7 +1285,8 @@ def list_workspace_files():
                         'filename': file_path.name,
                         'size': file_size,
                         'uploadedAt': file_path.stat().st_mtime,
-                        'type': file_ext[1:]  # Remove dot
+                        'type': file_ext[1:],  # Remove dot
+                        'supportsAnnotation': file_ext == '.xlsx'  # Only .xlsx supports Excel annotation
                     })
                 elif file_ext == '.pdf':
                     is_annotated = '_annotated_' in original_name
@@ -1056,6 +1339,29 @@ def list_workspace_files():
             'message': f'Error listing files: {str(e)}',
             'files': {'excel': [], 'pdfs': []}
         })
+
+
+@app.route('/view_report/<filename>')
+def view_report(filename):
+    """View HTML processing report in browser"""
+    session_id = session.get('session_id', 'default')
+
+    # Security check - ensure filename starts with session ID
+    if not filename.startswith(f"{session_id}_report_"):
+        print(f"[VIEW_REPORT ERROR] Invalid report access attempt: {filename}")
+        return jsonify({'error': 'Invalid report access'}), 403
+
+    # Check if file exists in output folder
+    report_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+
+    if not os.path.exists(report_path):
+        print(f"[VIEW_REPORT ERROR] Report not found: {filename}")
+        return jsonify({'error': 'Report not found'}), 404
+
+    # Serve the HTML report
+    print(f"[VIEW_REPORT] Serving report: {filename}")
+    return send_file(report_path, mimetype='text/html')
+
 
 @app.route('/clear_session', methods=['POST'])
 def clear_session():

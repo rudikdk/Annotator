@@ -8,6 +8,7 @@ A powerful web-based tool for automatically annotating P&ID (Piping & Instrument
 
 - [Features](#features)
 - [Quick Start](#quick-start)
+- [HTML Report Generation](#html-report-generation)
 - [Common Workflows](#common-workflows)
 - [Interactive Tutorial](#interactive-tutorial)
 - [Configuration](#configuration)
@@ -30,6 +31,7 @@ A powerful web-based tool for automatically annotating P&ID (Piping & Instrument
 - **File Upload**: Drag & drop support for PDF and Excel files
 - **Multi-File Processing**: Support for multiple PDFs with single Excel file
 - **Excel Annotation**: Automatically highlights found tags in Excel file
+- **HTML Report Generation**: Interactive reports with search, sort, filter, and Excel export
 - **Configuration Profiles**: Save/load configuration presets with built-in templates
 - **Interactive Tutorial**: Step-by-step onboarding for new users
 - **Performance Optimized**: Adaptive processing with parallel indexing and streaming for large files
@@ -116,7 +118,156 @@ docker run -d \
 6. **Download:**
    - Download the annotated PDF(s) when processing completes
    - Download the annotated Excel file if Excel annotation is enabled
+   - Download the interactive HTML report for detailed analysis
    - Files are automatically cleaned up after 24 hours
+
+---
+
+## HTML Report Generation
+
+### Interactive Processing Reports
+
+After processing completes, the application automatically generates a comprehensive **HTML Report** that provides detailed analysis of the annotation process:
+
+#### Report Features
+
+1. **Visual Dashboard**
+   - Summary statistics with color-coded cards
+   - Found vs. Not Found tags with percentages
+   - Duplicate tag detection
+   - Validation warnings count
+
+2. **Interactive Data Tables**
+   - **Found Tags Table**: Shows tag name, pages found, bookmarks, occurrence count, and Excel row
+   - **Not Found Tags Table**: Lists missing tags with reasons
+   - **Duplicate Tags Table**: Identifies tags appearing multiple times in Excel
+   - **Validation Warnings Table**: Highlights potential data issues
+
+3. **Search & Filter**
+   - Real-time search across all tables
+   - Filter by any column value
+   - Instant results as you type
+
+4. **Sortable Columns**
+   - Click column headers to sort ascending/descending
+   - Works on all columns (tags, pages, occurrences, etc.)
+   - Numeric and alphabetic sorting supported
+
+5. **Export Capabilities**
+   - **Excel Export**: Download filtered data to Excel with formatting
+   - **Print-Ready**: Optimized for printing with clean layout
+   - **Collapsible Sections**: Hide/show sections for focused viewing
+
+6. **Bookmark Integration**
+   - Shows PDF bookmark names where tags were found
+   - Helps locate tags in specific sections (e.g., "Sheet 1", "Process Flow")
+   - Displays "N/A" for tags not found in bookmarks
+
+#### Report Contents
+
+**Summary Section:**
+- Total tags processed
+- Found tags (count and percentage)
+- Not found tags (count and percentage)
+- Duplicate tags detected
+- Validation warnings
+
+**Found Tags Details:**
+- Tag identifier
+- Page numbers where found (comma-separated list)
+- Bookmark names (section/drawing references)
+- Number of occurrences in PDF
+- Corresponding Excel row number
+
+**Not Found Tags Details:**
+- Tag identifier
+- Excel row number
+- Reason (e.g., "not_in_pdf", "invalid_format")
+
+**Duplicate Tags Details:**
+- Tag identifier
+- Excel row numbers (all occurrences)
+- Total count of duplicates
+
+**Validation Warnings:**
+- Tag identifier
+- Excel row number
+- Warning message (e.g., "Tag format invalid", "Missing required field")
+
+**Processing Settings:**
+- Tag column used
+- Header row configuration
+- Watermark status
+- Excel annotation status
+
+#### Using the Report
+
+1. **Download the Report**
+   - After processing completes, click "Download HTML Report"
+   - Opens in any modern web browser (Chrome, Firefox, Safari, Edge)
+   - No internet connection required (fully self-contained)
+
+2. **Search for Specific Tags**
+   - Type in the search box at the top
+   - Results filter in real-time across all tables
+   - Clear search to restore full view
+
+3. **Sort Data**
+   - Click column headers to sort
+   - First click: ascending order
+   - Second click: descending order
+   - Visual indicator shows sorted column
+
+4. **Export Filtered Data**
+   - Apply search filters as needed
+   - Click "Export Filtered Data (Excel)"
+   - Downloads Excel file with only visible/filtered rows
+   - Includes all sections (Found, Not Found, Duplicates, Warnings)
+
+5. **Collapse/Expand Sections**
+   - Click section headers to collapse/expand
+   - Useful for focusing on specific data
+   - All sections expanded when printing
+
+6. **Print Report**
+   - Click "Print Report" button
+   - Auto-formatted for clean printing
+   - All sections visible in print mode
+   - Headers and footers included
+
+#### Technical Details
+
+- **Format**: Self-contained HTML file with embedded CSS and JavaScript
+- **Dependencies**: Uses SheetJS library (CDN) for Excel export
+- **File Size**: Typically 200-500 KB depending on tag count
+- **Browser Compatibility**: Chrome 90+, Firefox 88+, Safari 14+, Edge 90+
+- **Offline Usage**: Fully functional offline (Excel export requires internet for CDN)
+
+#### Example Use Cases
+
+**Quality Control:**
+- Review which tags were successfully annotated
+- Identify patterns in not-found tags
+- Detect duplicate entries in source data
+- Validate Excel file structure
+
+**Project Reporting:**
+- Share processing results with team
+- Document annotation coverage
+- Track missing tags for follow-up
+- Provide evidence of processing completeness
+
+**Troubleshooting:**
+- Identify why specific tags weren't found
+- Check tag format consistency
+- Verify Excel structure issues
+- Review validation warnings
+
+**Data Analysis:**
+- Export found tags to Excel for further analysis
+- Compare bookmark locations across tags
+- Analyze occurrence patterns
+- Generate metrics for documentation quality
 
 ---
 
@@ -214,6 +365,43 @@ When tags aren't being found:
    - Clear previous files
    - Re-upload with corrections
    - Run another test to verify
+
+### Workflow 5: Quality Analysis with HTML Report
+
+Analyze processing results for quality control:
+
+1. **Complete Processing**
+   - Upload files and configure settings
+   - Run full processing (not test mode)
+   - Wait for completion notification
+
+2. **Download HTML Report**
+   - Click "Download HTML Report" button
+   - Open report in web browser
+   - Review summary dashboard
+
+3. **Analyze Results**
+   - **Success Rate**: Check percentage of found vs. not found tags
+   - **Duplicates**: Review duplicate tags table for data quality issues
+   - **Warnings**: Check validation warnings for potential problems
+   - **Bookmarks**: Review where tags were found (section references)
+
+4. **Search & Filter**
+   - Search for specific tag patterns
+   - Sort by occurrence count to find frequently used tags
+   - Filter by Excel row to cross-reference source data
+
+5. **Export Findings**
+   - Apply filters to show only relevant data
+   - Click "Export Filtered Data (Excel)"
+   - Share Excel file with team for review
+   - Use exported data for follow-up corrections
+
+6. **Take Action**
+   - **High Not Found Rate**: Review tag format in PDF
+   - **Many Duplicates**: Clean up source Excel file
+   - **Validation Warnings**: Fix Excel structure issues
+   - **Bookmark Anomalies**: Verify PDF structure
 
 ---
 
@@ -533,6 +721,7 @@ Auto-start only for:
 | PDF Annotation | ✅ | ✅ |
 | Excel Integration | ✅ | ✅ |
 | Excel Annotation | ✅ | ✅ |
+| HTML Report Generation | ✅ | ✅ |
 | Tag Column Selection | ✅ | ✅ |
 | Comment Columns | ✅ | ✅ |
 | Highlight Colors | ✅ | ✅ |
@@ -674,27 +863,30 @@ The web application includes a **comprehensive FAQ modal** with categorized help
    - Excel header row configuration
    - Tag column selection
 
-2. **Features & Configuration** (6 questions)
+2. **Features & Configuration** (7 questions)
    - Configuration profiles explained
    - Start vs Test Run differences
    - Excel annotation details
    - Watermark feature guide
    - Conditional highlighting
    - Multi-PDF processing
+   - HTML Report generation and usage
 
-3. **Troubleshooting** (5 questions)
+3. **Troubleshooting** (6 questions)
    - Tags not found in PDF
    - Slow processing for large files
    - File size limits
    - File storage duration
    - Different Excel structures
+   - HTML Report not downloading
 
-4. **Technical Details** (5 questions)
+4. **Technical Details** (6 questions)
    - Supported tag formats
    - PDF annotation content
    - Output file locations
    - Parallel processing explanation
    - Streaming mode details
+   - HTML Report structure and format
 
 5. **About & Licenses** (2 questions)
    - Python library licenses
@@ -800,7 +992,20 @@ See project repository for license information.
 
 ## Recent Updates
 
-### Latest Enhancements (v2.1)
+### Latest Enhancements (v2.2)
+
+- **HTML Report Generation**
+  - Interactive processing reports with visual dashboard
+  - Search, sort, and filter capabilities across all tables
+  - Found/Not Found/Duplicate tags analysis
+  - Bookmark integration showing PDF section references
+  - Export filtered data to Excel with formatting
+  - Print-ready layout for documentation
+  - Validation warnings and duplicate detection
+  - Collapsible sections for focused viewing
+  - Self-contained HTML file (200-500 KB)
+
+### Previous Updates (v2.1)
 
 - **Enhanced Interactive Tutorial**
   - Dynamic tooltip positioning with arrow pointers
@@ -823,7 +1028,7 @@ See project repository for license information.
   - Enhanced troubleshooting guide
   - Table of contents for easy navigation
 
-### Previous Updates (v2.0)
+### Earlier Updates (v2.0)
 
 - **Configuration Profiles**: Save/load configuration presets with 5 built-in templates
 - **Interactive Tutorial**: Automatic step-by-step onboarding for new users

@@ -858,6 +858,7 @@
       onDownload,
       fileCount,
       error,
+      reportFilename,
       annotateExcelEnabled,
       isTestRun,
       onStartFullRun,
@@ -940,17 +941,44 @@
 
                     <div className="grid gap-2">
                       <button
-                        onClick={onDownload}
+                        onClick={() => onDownload('pdf')}
                         className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-success text-white px-4 py-2.5 font-semibold hover:bg-success-hover transition-colors"
                       >
-                        <i className="fa-solid fa-download"></i>
+                        <i className="fa-solid fa-file-pdf"></i>
                         {isTestRun
-                          ? "Download Test Files"
-                          : (annotateExcelEnabled
-                              ? (fileCount > 1 ? "Download All PDF & Excel Files" : "Download PDF & Excel")
-                              : (fileCount > 1 ? "Download All Files" : "Download File"))
+                          ? "Download Test PDF(s)"
+                          : (fileCount > 1 ? `Download ${fileCount} PDF(s)` : "Download PDF")
                         }
                       </button>
+
+                      {annotateExcelEnabled && (
+                        <button
+                          onClick={() => onDownload('excel')}
+                          className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2.5 font-semibold hover:bg-emerald-700 transition-colors"
+                        >
+                          <i className="fa-solid fa-file-excel"></i>
+                          Download Annotated Excel
+                        </button>
+                      )}
+
+                      {reportFilename && (
+                        <>
+                          <button
+                            onClick={() => window.open(`/view_report/${reportFilename}`, '_blank')}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-brand text-white px-4 py-2.5 font-semibold hover:bg-brand-hover transition-colors"
+                          >
+                            <i className="fa-solid fa-chart-bar"></i>
+                            View Processing Report
+                          </button>
+                          <button
+                            onClick={() => onDownload('report')}
+                            className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 text-white px-4 py-2.5 font-semibold hover:bg-purple-700 transition-colors"
+                          >
+                            <i className="fa-solid fa-download"></i>
+                            Download Report (HTML)
+                          </button>
+                        </>
+                      )}
 
                       {isTestRun && (
                         <button
@@ -1762,10 +1790,38 @@
       const [commentColumns, setCommentColumns] = useState([]);
       const [highlightColor, setHighlightColor] = useState("#FFFF00");
       const [highlightColumn, setHighlightColumn] = useState("");
-      const [annotateExcel, setAnnotateExcel] = useState(false);
+      const [annotateExcel, setAnnotateExcel] = useState(true);
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
       const [watermarkTextColor, setWatermarkTextColor] = useState("#000000");
+      const [watermarkBackgroundEnabled, setWatermarkBackgroundEnabled] = useState(false);
+
+      // Tag matching configuration state
+      const [tagMatchingPreset, setTagMatchingPreset] = useState('default'); // 'default', 'match_all', 'custom'
+      const [tagMatchingMinParts, setTagMatchingMinParts] = useState(3);
+      const [tagMatchingMaxParts, setTagMatchingMaxParts] = useState(5);
+      const [tagMatchingSeparators, setTagMatchingSeparators] = useState(['-', '.']);
+      const [tagMatchingMinPartLength, setTagMatchingMinPartLength] = useState(1);
+      const [tagMatchingMaxPartLength, setTagMatchingMaxPartLength] = useState(5);
+      const [tagMatchingAllowPartial, setTagMatchingAllowPartial] = useState(false);
+      const [tagMatchingCustomRegex, setTagMatchingCustomRegex] = useState('');
+      const [tagMatchingPanelOpen, setTagMatchingPanelOpen] = useState(false);
+
+      // Tag filtering state
+      const [tagFilters, setTagFilters] = useState([]); // Array of {part, value, match_type, action}
+      const [filterLogic, setFilterLogic] = useState('AND'); // 'AND' or 'OR'
+      const [tagFilterPanelOpen, setTagFilterPanelOpen] = useState(false);
+      const [availableTagParts, setAvailableTagParts] = useState({}); // {part1: [{value, count}], part2: [...]}
+      const [filterBuilderOpen, setFilterBuilderOpen] = useState(false);
+      const [newFilterPart, setNewFilterPart] = useState(1);
+      const [newFilterValue, setNewFilterValue] = useState('');
+      const [newFilterMatchType, setNewFilterMatchType] = useState('exact');
+      const [newFilterAction, setNewFilterAction] = useState('include');
+      const [filterMatchingCount, setFilterMatchingCount] = useState(null);
+      const [filterPreviewOpen, setFilterPreviewOpen] = useState(false);
+      const [filterPreviewTags, setFilterPreviewTags] = useState([]);
+      const [filterPreviewExpanded, setFilterPreviewExpanded] = useState(false);
+      const [filterPreviewLoading, setFilterPreviewLoading] = useState(false);
 
       // Profile management state
       const [builtinTemplates, setBuiltinTemplates] = useState([]);
@@ -1793,6 +1849,7 @@
       const [currentTaskId, setCurrentTaskId] = useState(null);
       const [annotateExcelEnabled, setAnnotateExcelEnabled] = useState(false);
       const [isCurrentTestRun, setIsCurrentTestRun] = useState(false);
+      const [reportFilename, setReportFilename] = useState(null);
 
       // Socket
       const socket = useMemo(() => io(), []);
@@ -1836,6 +1893,110 @@
           });
       }
 
+      // Handle tag matching preset changes
+      function handleTagMatchingPresetChange(preset) {
+        setTagMatchingPreset(preset);
+        if (preset === 'default') {
+          setTagMatchingMinParts(3);
+          setTagMatchingMaxParts(5);
+          setTagMatchingSeparators(['-', '.']);
+          setTagMatchingMinPartLength(1);
+          setTagMatchingMaxPartLength(5);
+          setTagMatchingAllowPartial(false);
+          setTagMatchingCustomRegex('');
+        } else if (preset === 'match_all') {
+          setTagMatchingMinParts(1);
+          setTagMatchingMaxParts(10);
+          setTagMatchingSeparators(['-', '.', '_', '/', ':']);
+          setTagMatchingMinPartLength(1);
+          setTagMatchingMaxPartLength(20);
+          setTagMatchingAllowPartial(false);
+          setTagMatchingCustomRegex('');
+        }
+        // For 'custom', keep current settings
+      }
+
+      // Tag filter handlers
+      function handleAddFilter() {
+        if (!newFilterValue.trim()) {
+          setToast({ type: "error", text: "Please enter a filter value" });
+          return;
+        }
+
+        const newFilter = {
+          part: newFilterPart,
+          value: newFilterValue.trim(),
+          match_type: newFilterMatchType,
+          action: newFilterAction
+        };
+
+        setTagFilters([...tagFilters, newFilter]);
+        setFilterBuilderOpen(false);
+        // Reset builder fields
+        setNewFilterPart(1);
+        setNewFilterValue('');
+        setNewFilterMatchType('exact');
+        setNewFilterAction('include');
+        setToast({ type: "success", text: "Filter added successfully" });
+      }
+
+      function handleRemoveFilter(index) {
+        const updated = tagFilters.filter((_, i) => i !== index);
+        setTagFilters(updated);
+      }
+
+      function handleClearAllFilters() {
+        setTagFilters([]);
+        setFilterMatchingCount(null);
+        setFilterPreviewTags([]);
+        setFilterPreviewOpen(false);
+        setToast({ type: "success", text: "All filters cleared" });
+      }
+
+      function handlePreviewFilters() {
+        if (!selectedExcel || !tagColumn) {
+          setToast({ type: "error", text: "Please select an Excel file and tag column first" });
+          return;
+        }
+
+        if (tagFilters.length === 0) {
+          setToast({ type: "info", text: "No filters to preview. All tags will be processed." });
+          return;
+        }
+
+        setFilterPreviewLoading(true);
+        setFilterPreviewOpen(true);
+
+        fetch("/preview_filtered_tags", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selected_excel: selectedExcel,
+            tag_column: tagColumn,
+            header_row: headerRow,
+            tag_filters: tagFilters,
+            filter_logic: filterLogic
+          })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setFilterPreviewLoading(false);
+            if (data.success) {
+              setFilterPreviewTags(data.matching_tags);
+              setFilterMatchingCount(data.matching_tags.length);
+              logToConsole(`Filter preview: ${data.matching_tags.length}/${data.total_tags} tags match`);
+            } else {
+              setToast({ type: "error", text: data.message || "Failed to preview filters" });
+              logToConsole(`Error previewing filters: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            setFilterPreviewLoading(false);
+            setToast({ type: "error", text: "Error fetching filter preview" });
+            logToConsole(`Error previewing filters: ${err.message}`);
+          });
+      }
+
       function startProcessing(isTest) {
         // Validate that files are selected
         if (selectedPdfs.length === 0) {
@@ -1854,6 +2015,7 @@
         setStatusText("Initializing...");
         setErrorText(null);
         setFileCount(0);
+        setReportFilename(null);
         setIsCurrentTestRun(isTest);
 
         const data = {
@@ -1866,10 +2028,23 @@
           watermark_enabled: watermarkEnabled,
           watermark_attributes: watermarkAttributes,
           watermark_text_color: watermarkTextColor,
+          watermark_background_enabled: watermarkBackgroundEnabled,
           max_tags: isTest ? 100 : null,
           is_test: isTest,
           selected_pdfs: selectedPdfs,  // Send selected PDF filenames
           selected_excel: selectedExcel,  // Send selected Excel filename
+          tag_matching_config: {
+            preset: tagMatchingPreset,
+            min_parts: tagMatchingMinParts,
+            max_parts: tagMatchingMaxParts,
+            separators: tagMatchingSeparators,
+            min_part_length: tagMatchingMinPartLength,
+            max_part_length: tagMatchingMaxPartLength,
+            allow_partial_match: tagMatchingAllowPartial,
+            custom_regex: tagMatchingCustomRegex || null
+          },
+          tag_filters: tagFilters,  // Send tag filters
+          filter_logic: filterLogic  // Send filter logic (AND/OR)
         };
 
         logToConsole(isTest ? `Starting test run (100 tags) with ${selectedPdfs.length} PDF(s)...` : `Starting full processing with ${selectedPdfs.length} PDF(s)...`);
@@ -1973,6 +2148,17 @@
         if (settings.watermark_enabled !== undefined) setWatermarkEnabled(settings.watermark_enabled);
         if (settings.watermark_attributes !== undefined) setWatermarkAttributes(settings.watermark_attributes);
         if (settings.watermark_text_color !== undefined) setWatermarkTextColor(settings.watermark_text_color);
+        if (settings.watermark_background_enabled !== undefined) setWatermarkBackgroundEnabled(settings.watermark_background_enabled);
+
+        // Apply tag matching settings
+        if (settings.tag_matching_preset !== undefined) setTagMatchingPreset(settings.tag_matching_preset);
+        if (settings.tag_matching_min_parts !== undefined) setTagMatchingMinParts(settings.tag_matching_min_parts);
+        if (settings.tag_matching_max_parts !== undefined) setTagMatchingMaxParts(settings.tag_matching_max_parts);
+        if (settings.tag_matching_separators !== undefined) setTagMatchingSeparators(settings.tag_matching_separators);
+        if (settings.tag_matching_min_part_length !== undefined) setTagMatchingMinPartLength(settings.tag_matching_min_part_length);
+        if (settings.tag_matching_max_part_length !== undefined) setTagMatchingMaxPartLength(settings.tag_matching_max_part_length);
+        if (settings.tag_matching_allow_partial !== undefined) setTagMatchingAllowPartial(settings.tag_matching_allow_partial);
+        if (settings.tag_matching_custom_regex !== undefined) setTagMatchingCustomRegex(settings.tag_matching_custom_regex);
       }
 
       function loadSelectedProfile() {
@@ -2025,7 +2211,16 @@
             annotate_excel: annotateExcel,
             watermark_enabled: watermarkEnabled,
             watermark_attributes: watermarkAttributes,
-            watermark_text_color: watermarkTextColor
+            watermark_text_color: watermarkTextColor,
+            watermark_background_enabled: watermarkBackgroundEnabled,
+            tag_matching_preset: tagMatchingPreset,
+            tag_matching_min_parts: tagMatchingMinParts,
+            tag_matching_max_parts: tagMatchingMaxParts,
+            tag_matching_separators: tagMatchingSeparators,
+            tag_matching_min_part_length: tagMatchingMinPartLength,
+            tag_matching_max_part_length: tagMatchingMaxPartLength,
+            tag_matching_allow_partial: tagMatchingAllowPartial,
+            tag_matching_custom_regex: tagMatchingCustomRegex
           }
         };
 
@@ -2275,6 +2470,30 @@
         loadProfilesAndTemplates();
       }, []);
 
+      // Monitor selected Excel file and disable annotation for .xls files
+      useEffect(() => {
+        if (!selectedExcel) {
+          setAnnotateExcelEnabled(false);
+          return;
+        }
+
+        // Find the selected Excel file in workspaceFiles
+        const excelFile = workspaceFiles.excel?.find(f => f.filename === selectedExcel);
+
+        if (excelFile) {
+          // Enable annotation only for .xlsx files
+          const supportsAnnotation = excelFile.supportsAnnotation !== false;
+          setAnnotateExcelEnabled(supportsAnnotation);
+
+          // Auto-disable annotateExcel if file doesn't support annotation (silently, no warning)
+          if (!supportsAnnotation && annotateExcel) {
+            setAnnotateExcel(false);
+          }
+        } else {
+          setAnnotateExcelEnabled(false);
+        }
+      }, [selectedExcel, workspaceFiles.excel]);
+
       // Socket listeners
       useEffect(() => {
         function onConnect() {
@@ -2310,6 +2529,13 @@
                       const outputFiles = data.output_files || [];
                       logToConsole(`Processing completed with ${outputFiles.length} output files`);
 
+                      // Find report file (starts with session ID and contains "report_")
+                      const reportFile = outputFiles.find(f => f.includes('_report_') && f.endsWith('.html'));
+                      if (reportFile) {
+                        setReportFilename(reportFile);
+                        logToConsole(`Report available: ${reportFile}`);
+                      }
+
                       // Add PDF outputs to workspace (Excel outputs are download-only)
                       if (outputFiles.length > 0) {
                         addOutputsToWorkspace(outputFiles);
@@ -2340,20 +2566,48 @@
         };
       }, [socket, currentTaskId, fileCount]);
 
+      // Fetch available tag parts when Excel file or tag column changes
+      useEffect(() => {
+        if (selectedExcel && tagColumn) {
+          fetch("/get_tag_parts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              selected_excel: selectedExcel,
+              tag_column: tagColumn,
+              header_row: headerRow
+            })
+          })
+            .then((r) => r.json())
+            .then((data) => {
+              if (data.success) {
+                setAvailableTagParts(data.parts);
+                logToConsole(`Loaded tag parts: ${Object.keys(data.parts).length} parts available`);
+              } else {
+                console.error("Error loading tag parts:", data.message);
+              }
+            })
+            .catch((err) => {
+              console.error("Error fetching tag parts:", err);
+            });
+        }
+      }, [selectedExcel, tagColumn, headerRow]);
+
       function closeProcessing() {
         setProcessingOpen(false);
         setErrorText(null);
         setProgress(0);
         setStatusText("Initializing...");
+        setReportFilename(null);
         if (pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
         }
       }
 
-      function downloadFromModal() {
-        logToConsole("Starting download from modal...");
-        fetch("/download")
+      function downloadFromModal(fileType = 'pdf') {
+        logToConsole(`Starting download from modal... (type: ${fileType})`);
+        fetch(`/download?type=${fileType}`)
           .then((r) => r.json())
           .then((data) => {
             logToConsole(`[DEBUG] Download JSON response: ${JSON.stringify(data)}`);
@@ -2361,7 +2615,7 @@
             if (data.success && Array.isArray(data.files)) {
               logToConsole(`Starting download of ${data.file_count || data.files.length} files...`);
               logToConsole(`[DEBUG] File URLs: ${JSON.stringify(data.files)}`);
-              sequentialDownloads(data.files);
+              sequentialDownloads(data.files, fileType);
             } else {
               logToConsole(`Download error: ${data.message}`);
               setToast({ type: "error", text: data.message || "Download error" });
@@ -2373,7 +2627,7 @@
           });
       }
 
-      function sequentialDownloads(urls) {
+      function sequentialDownloads(urls, fileType = 'pdf') {
         let i = 0;
         function next() {
           if (i < urls.length) {
@@ -2387,8 +2641,13 @@
             setTimeout(next, 1000);
           } else {
             logToConsole("All files downloaded successfully!");
-            // Trigger cleanup after all downloads complete
-            cleanupAfterDownload();
+            // Only trigger cleanup for PDF/Excel downloads, not for report downloads
+            if (fileType !== 'report') {
+              cleanupAfterDownload();
+            } else {
+              logToConsole("Report downloaded - no cleanup needed");
+              setToast({ type: "success", text: "Report downloaded successfully!" });
+            }
           }
         }
         next();
@@ -2472,6 +2731,7 @@
               setWatermarkEnabled(false);
               setWatermarkAttributes([]);
               setWatermarkTextColor("#000000");
+              setWatermarkBackgroundEnabled(false);
               
               // Show success toast
               setToast({
@@ -2569,6 +2829,510 @@
                       </select>
                     </div>
                   </div>
+                </div>
+
+                {/* Tag Filter Panel */}
+                <div>
+                  <div
+                    className="flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-lg transition-colors"
+                    onClick={() => setTagFilterPanelOpen(!tagFilterPanelOpen)}
+                  >
+                    <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">
+                      Filter Tag Column
+                      {tagFilters.length > 0 && (
+                        <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand/20 text-brand dark:bg-brand/30">
+                          {tagFilters.length} active
+                        </span>
+                      )}
+                    </h3>
+                    <i className={`fa-solid fa-chevron-${tagFilterPanelOpen ? 'up' : 'down'} text-zinc-400 dark:text-zinc-500 text-sm`}></i>
+                  </div>
+
+                  {tagFilterPanelOpen && (
+                    <div className="mt-3 space-y-4 border-l-2 border-brand/30 pl-4">
+                      {/* Filter Logic Selector */}
+                      {tagFilters.length > 1 && (
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Filter Logic</label>
+                          <div className="flex gap-3">
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="filterLogic"
+                                value="AND"
+                                checked={filterLogic === 'AND'}
+                                onChange={(e) => setFilterLogic(e.target.value)}
+                                className="w-4 h-4 text-brand focus:ring-brand/60"
+                              />
+                              <span className="text-sm">AND (Match all filters)</span>
+                            </label>
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="filterLogic"
+                                value="OR"
+                                checked={filterLogic === 'OR'}
+                                onChange={(e) => setFilterLogic(e.target.value)}
+                                className="w-4 h-4 text-brand focus:ring-brand/60"
+                              />
+                              <span className="text-sm">OR (Match any filter)</span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Active Filters */}
+                      {tagFilters.length > 0 && (
+                        <div>
+                          <label className="block text-sm font-medium mb-2">Active Filters</label>
+                          <div className="space-y-2">
+                            {tagFilters.map((filter, index) => (
+                              <div key={index} className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                <span className="text-sm">
+                                  Part {filter.part} {filter.match_type === 'exact' ? '=' : '≈'} <strong>{filter.value}</strong>
+                                  <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${filter.action === 'include' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                    {filter.action}
+                                  </span>
+                                </span>
+                                <button
+                                  onClick={() => handleRemoveFilter(index)}
+                                  className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                >
+                                  <i className="fa-solid fa-times"></i>
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                          <button
+                            onClick={handleClearAllFilters}
+                            className="mt-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                          >
+                            Clear All Filters
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Add Filter Button */}
+                      {!filterBuilderOpen && (
+                        <button
+                          onClick={() => setFilterBuilderOpen(true)}
+                          className="w-full py-2 px-4 bg-brand/10 hover:bg-brand/20 text-brand dark:bg-brand/20 dark:hover:bg-brand/30 rounded-lg transition-colors"
+                        >
+                          <i className="fa-solid fa-plus mr-2"></i>
+                          Add Filter Rule
+                        </button>
+                      )}
+
+                      {/* Filter Builder */}
+                      {filterBuilderOpen && (
+                        <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700 space-y-3">
+                          <div className="flex justify-between items-center">
+                            <h4 className="font-medium text-sm">Add Filter Rule</h4>
+                            <button
+                              onClick={() => setFilterBuilderOpen(false)}
+                              className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                            >
+                              <i className="fa-solid fa-times"></i>
+                            </button>
+                          </div>
+
+                          {/* Part Selector */}
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Filter by Part</label>
+                            <select
+                              value={newFilterPart}
+                              onChange={(e) => {
+                                setNewFilterPart(Number(e.target.value));
+                                setNewFilterValue(''); // Reset value when part changes
+                              }}
+                              className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                            >
+                              {Object.keys(availableTagParts).map((partKey) => {
+                                const partNum = parseInt(partKey.replace('part', ''));
+                                const values = availableTagParts[partKey];
+                                return (
+                                  <option key={partKey} value={partNum}>
+                                    Part {partNum} ({values.length} unique values)
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </div>
+
+                          {/* Value Selector/Input */}
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Value</label>
+                            {availableTagParts[`part${newFilterPart}`] && availableTagParts[`part${newFilterPart}`].length > 0 ? (
+                              <select
+                                value={newFilterValue}
+                                onChange={(e) => setNewFilterValue(e.target.value)}
+                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              >
+                                <option value="">Select a value...</option>
+                                <option value="__custom__">Custom value...</option>
+                                {availableTagParts[`part${newFilterPart}`].map((item, idx) => (
+                                  <option key={idx} value={item.value}>
+                                    {item.value} ({item.count} tags)
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <input
+                                type="text"
+                                value={newFilterValue}
+                                onChange={(e) => setNewFilterValue(e.target.value)}
+                                placeholder="Enter filter value..."
+                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              />
+                            )}
+                            {newFilterValue === '__custom__' && (
+                              <input
+                                type="text"
+                                onChange={(e) => setNewFilterValue(e.target.value)}
+                                placeholder="Enter custom value..."
+                                className="w-full mt-2 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              />
+                            )}
+                          </div>
+
+                          {/* Match Type */}
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Match Type</label>
+                            <div className="flex gap-3">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="matchType"
+                                  value="exact"
+                                  checked={newFilterMatchType === 'exact'}
+                                  onChange={(e) => setNewFilterMatchType(e.target.value)}
+                                  className="w-4 h-4 text-brand focus:ring-brand/60"
+                                />
+                                <span className="text-sm">Exact</span>
+                              </label>
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="matchType"
+                                  value="contains"
+                                  checked={newFilterMatchType === 'contains'}
+                                  onChange={(e) => setNewFilterMatchType(e.target.value)}
+                                  className="w-4 h-4 text-brand focus:ring-brand/60"
+                                />
+                                <span className="text-sm">Contains</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Action */}
+                          <div>
+                            <label className="block text-sm font-medium mb-1">Action</label>
+                            <div className="flex gap-3">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="filterAction"
+                                  value="include"
+                                  checked={newFilterAction === 'include'}
+                                  onChange={(e) => setNewFilterAction(e.target.value)}
+                                  className="w-4 h-4 text-brand focus:ring-brand/60"
+                                />
+                                <span className="text-sm">Include</span>
+                              </label>
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="filterAction"
+                                  value="exclude"
+                                  checked={newFilterAction === 'exclude'}
+                                  onChange={(e) => setNewFilterAction(e.target.value)}
+                                  className="w-4 h-4 text-brand focus:ring-brand/60"
+                                />
+                                <span className="text-sm">Exclude</span>
+                              </label>
+                            </div>
+                          </div>
+
+                          {/* Add Button */}
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleAddFilter}
+                              className="flex-1 py-2 px-4 bg-brand hover:bg-brand-dark text-white rounded-lg transition-colors"
+                            >
+                              Add
+                            </button>
+                            <button
+                              onClick={() => setFilterBuilderOpen(false)}
+                              className="px-4 py-2 border border-zinc-300 dark:border-zinc-700 rounded-lg hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Preview Button */}
+                      {tagFilters.length > 0 && !filterBuilderOpen && (
+                        <button
+                          onClick={handlePreviewFilters}
+                          disabled={filterPreviewLoading}
+                          className="w-full py-2 px-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg transition-colors flex items-center justify-center"
+                        >
+                          {filterPreviewLoading ? (
+                            <>
+                              <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                              Loading Preview...
+                            </>
+                          ) : (
+                            <>
+                              <i className="fa-solid fa-eye mr-2"></i>
+                              Preview Matching Tags
+                            </>
+                          )}
+                        </button>
+                      )}
+
+                      {/* Preview Results Panel */}
+                      {filterPreviewOpen && filterPreviewTags.length > 0 && (
+                        <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                          <div className="flex justify-between items-center mb-3">
+                            <h4 className="font-medium text-sm">
+                              Matching Tags ({filterPreviewTags.length})
+                            </h4>
+                            <div className="flex gap-2">
+                              {filterPreviewTags.length > 10 && (
+                                <button
+                                  onClick={() => setFilterPreviewExpanded(!filterPreviewExpanded)}
+                                  className="text-xs text-brand hover:text-brand-dark"
+                                >
+                                  {filterPreviewExpanded ? 'Show Less' : 'Show All'}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setFilterPreviewOpen(false)}
+                                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                              >
+                                <i className="fa-solid fa-times"></i>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 max-h-60 overflow-y-auto">
+                            {(filterPreviewExpanded ? filterPreviewTags : filterPreviewTags.slice(0, 10)).map((tag, index) => (
+                              <div
+                                key={index}
+                                className="px-3 py-2 bg-white dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700 text-sm font-mono"
+                              >
+                                {tag}
+                              </div>
+                            ))}
+                          </div>
+
+                          {!filterPreviewExpanded && filterPreviewTags.length > 10 && (
+                            <div className="mt-2 text-xs text-zinc-500 dark:text-zinc-400 text-center">
+                              Showing 10 of {filterPreviewTags.length} tags
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {filterPreviewOpen && filterPreviewTags.length === 0 && !filterPreviewLoading && (
+                        <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-800">
+                          <div className="flex items-center gap-2 text-yellow-800 dark:text-yellow-400">
+                            <i className="fa-solid fa-exclamation-triangle"></i>
+                            <span className="text-sm font-medium">No tags match your filters</span>
+                          </div>
+                          <p className="text-xs text-yellow-700 dark:text-yellow-500 mt-1">
+                            Please adjust your filter criteria. Processing will be blocked with these filters.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Info text */}
+                      <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                        <i className="fa-solid fa-info-circle mr-1"></i>
+                        Filter tags by specific parts (e.g., only include tags with "HV" in part 2). Include filters select matching tags, exclude filters remove matching tags.
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Custom Tag Matching */}
+                <div>
+                  <div
+                    className="flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-lg transition-colors"
+                    onClick={() => setTagMatchingPanelOpen(!tagMatchingPanelOpen)}
+                  >
+                    <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">Custom Tag Matching</h3>
+                    <i className={`fa-solid fa-chevron-${tagMatchingPanelOpen ? 'up' : 'down'} text-zinc-400 dark:text-zinc-500 text-sm`}></i>
+                  </div>
+
+                  {tagMatchingPanelOpen && (
+                    <div className="mt-3 space-y-4 border-l-2 border-brand/30 pl-4">
+                      {/* Preset Selector */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Tag Matching Preset</label>
+                        <div className="space-y-2">
+                          <label className="flex items-center space-x-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="tagMatchingPreset"
+                              value="default"
+                              checked={tagMatchingPreset === 'default'}
+                              onChange={(e) => handleTagMatchingPresetChange(e.target.value)}
+                              className="w-4 h-4 text-brand focus:ring-brand/60"
+                            />
+                            <span className="text-sm">
+                              <strong>Default</strong> - 3-5 parts, separators: <code className="px-1 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded">-</code> <code className="px-1 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded">.</code>
+                            </span>
+                          </label>
+                          <label className="flex items-center space-x-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="tagMatchingPreset"
+                              value="match_all"
+                              checked={tagMatchingPreset === 'match_all'}
+                              onChange={(e) => handleTagMatchingPresetChange(e.target.value)}
+                              className="w-4 h-4 text-brand focus:ring-brand/60"
+                            />
+                            <span className="text-sm">
+                              <strong>Match Everything</strong> - 1-10 parts, separators: <code className="px-1 py-0.5 bg-zinc-100 dark:bg-zinc-800 rounded">- . _ / :</code>
+                            </span>
+                          </label>
+                          <label className="flex items-center space-x-2 cursor-pointer">
+                            <input
+                              type="radio"
+                              name="tagMatchingPreset"
+                              value="custom"
+                              checked={tagMatchingPreset === 'custom'}
+                              onChange={(e) => handleTagMatchingPresetChange(e.target.value)}
+                              className="w-4 h-4 text-brand focus:ring-brand/60"
+                            />
+                            <span className="text-sm"><strong>Custom</strong> - Configure your own rules</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Custom Configuration Fields */}
+                      {tagMatchingPreset === 'custom' && (
+                        <div className="space-y-4 p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                          {/* Number of Parts */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label htmlFor="minParts" className="block text-sm font-medium mb-1">Min Parts</label>
+                              <input
+                                id="minParts"
+                                type="number"
+                                min={1}
+                                max={10}
+                                value={tagMatchingMinParts}
+                                onChange={(e) => setTagMatchingMinParts(Math.max(1, Math.min(10, Number(e.target.value))))}
+                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor="maxParts" className="block text-sm font-medium mb-1">Max Parts</label>
+                              <input
+                                id="maxParts"
+                                type="number"
+                                min={1}
+                                max={10}
+                                value={tagMatchingMaxParts}
+                                onChange={(e) => setTagMatchingMaxParts(Math.max(1, Math.min(10, Number(e.target.value))))}
+                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Separators */}
+                          <div>
+                            <label className="block text-sm font-medium mb-2">Separators</label>
+                            <div className="flex flex-wrap gap-3">
+                              {['-', '.', '_', '/', ':'].map((sep) => (
+                                <label key={sep} className="flex items-center space-x-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={tagMatchingSeparators.includes(sep)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) {
+                                        setTagMatchingSeparators([...tagMatchingSeparators, sep]);
+                                      } else {
+                                        setTagMatchingSeparators(tagMatchingSeparators.filter(s => s !== sep));
+                                      }
+                                    }}
+                                    className="w-4 h-4 rounded text-brand focus:ring-brand/60"
+                                  />
+                                  <code className="px-2 py-1 bg-zinc-100 dark:bg-zinc-800 rounded text-sm">{sep}</code>
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+
+                          {/* Part Length */}
+                          <div className="grid grid-cols-2 gap-4">
+                            <div>
+                              <label htmlFor="minPartLength" className="block text-sm font-medium mb-1">Min Characters per Part</label>
+                              <input
+                                id="minPartLength"
+                                type="number"
+                                min={1}
+                                max={20}
+                                value={tagMatchingMinPartLength}
+                                onChange={(e) => setTagMatchingMinPartLength(Math.max(1, Math.min(20, Number(e.target.value))))}
+                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              />
+                            </div>
+                            <div>
+                              <label htmlFor="maxPartLength" className="block text-sm font-medium mb-1">Max Characters per Part</label>
+                              <input
+                                id="maxPartLength"
+                                type="number"
+                                min={1}
+                                max={20}
+                                value={tagMatchingMaxPartLength}
+                                onChange={(e) => setTagMatchingMaxPartLength(Math.max(1, Math.min(20, Number(e.target.value))))}
+                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Partial Matching */}
+                          <div>
+                            <label className="flex items-center space-x-2 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={tagMatchingAllowPartial}
+                                onChange={(e) => setTagMatchingAllowPartial(e.target.checked)}
+                                className="w-4 h-4 rounded text-brand focus:ring-brand/60"
+                              />
+                              <span className="text-sm font-medium">Allow Partial Tag Matching</span>
+                            </label>
+                            <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                              If Excel has "A-B-C", also match "A-B-C-D-E" in PDF
+                            </div>
+                          </div>
+
+                          {/* Custom Regex */}
+                          <div>
+                            <label htmlFor="customRegex" className="block text-sm font-medium mb-1">
+                              Custom Regex Pattern <span className="text-xs font-normal text-zinc-500">(Advanced - overrides above settings)</span>
+                            </label>
+                            <input
+                              id="customRegex"
+                              type="text"
+                              value={tagMatchingCustomRegex}
+                              onChange={(e) => setTagMatchingCustomRegex(e.target.value)}
+                              placeholder="e.g., \b[A-Z]{2,3}-\d{3,5}\b"
+                              className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 font-mono text-sm"
+                            />
+                            <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                              Leave empty to use settings above
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -2780,15 +3544,20 @@
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Excel Annotation</h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">
-                      <label className="flex items-center gap-3">
+                      <label className={cx(
+                        "flex items-center gap-3",
+                        !annotateExcelEnabled && "opacity-50 cursor-not-allowed"
+                      )}>
                         <button
                           type="button"
                           role="switch"
                           aria-checked={annotateExcel}
-                          onClick={() => setAnnotateExcel((v) => !v)}
+                          onClick={() => annotateExcelEnabled && setAnnotateExcel((v) => !v)}
+                          disabled={!annotateExcelEnabled}
                           className={cx(
                             "h-6 w-11 rounded-full transition-colors",
-                            annotateExcel ? "bg-brand" : "bg-zinc-400/60 dark:bg-zinc-700"
+                            annotateExcel && annotateExcelEnabled ? "bg-brand" : "bg-zinc-400/60 dark:bg-zinc-700",
+                            !annotateExcelEnabled && "cursor-not-allowed opacity-50"
                           )}
                         >
                           <span
@@ -2801,7 +3570,14 @@
                         <span className="text-sm font-medium">Annotate Excel file</span>
                       </label>
                       <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        Highlight rows in light green where tags are found in the PDF
+                        {annotateExcelEnabled ? (
+                          "Highlight rows in light green where tags are found in the PDF"
+                        ) : (
+                          <span className="text-orange-500 dark:text-orange-400">
+                            <i className="fa-solid fa-exclamation-triangle mr-1"></i>
+                            Only .xlsx files support Excel annotation. Convert your .xls file to .xlsx format.
+                          </span>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -2847,7 +3623,22 @@
                             className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
                           />
                         </div>
-                        
+
+                        <div>
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              className="accent-brand h-4 w-4 rounded"
+                              checked={watermarkBackgroundEnabled}
+                              onChange={(e) => setWatermarkBackgroundEnabled(e.target.checked)}
+                            />
+                            <span className="text-sm font-medium">White background behind watermark</span>
+                          </label>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 ml-6">
+                            Improves readability when watermark overlaps graphics
+                          </p>
+                        </div>
+
                         <div>
                           <label className="block text-sm font-medium mb-1">
                             Watermark Attributes (multiple allowed)
@@ -2993,6 +3784,7 @@
             error={errorText}
             onClose={closeProcessing}
             onDownload={downloadFromModal}
+            reportFilename={reportFilename}
             annotateExcelEnabled={annotateExcel}
             isTestRun={isCurrentTestRun}
             onStartFullRun={() => startProcessing(false)}
