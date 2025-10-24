@@ -97,6 +97,34 @@
     body {
       height: 100%;
     }
+
+    /* Tutorial spotlight pulse animation */
+    @keyframes pulse-spotlight {
+      0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+      }
+      50% {
+        opacity: 0.95;
+        transform: scale(1.01);
+      }
+    }
+
+    /* Smooth transitions for tutorial elements */
+    .tutorial-tooltip {
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
   </style>
 </head>
 <body class="bg-white text-gray-900 dark:bg-zinc-900 dark:text-zinc-100 transition-colors duration-500 ease-smooth">
@@ -352,7 +380,7 @@
               validateAndUpload(files);
             }}
             className={cx(
-              "group cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-10 text-center transition-colors duration-300",
+              "upload-area-tutorial group cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-10 text-center transition-colors duration-300",
               "bg-white dark:bg-zinc-950/40 border-zinc-300/60 dark:border-zinc-700",
               "hover:border-brand/60 hover:bg-brand/5",
               dragOver && "border-brand bg-brand/10"
@@ -453,6 +481,344 @@
               </div>
             ))}
           </div>
+        </div>
+      );
+    }
+
+    // New FileWorkspace component
+    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh }) {
+      const inputRef = useRef(null);
+      const [dragOver, setDragOver] = useState(false);
+
+      function formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return Math.round((bytes / Math.pow(k, i)) * 100) / 100 + ' ' + sizes[i];
+      }
+
+      function handleFileUpload(files) {
+        if (!files || files.length === 0) return;
+
+        const pdfFiles = files.filter((f) => f.name.toLowerCase().endsWith(".pdf"));
+        const excelFiles = files.filter(
+          (f) =>
+            f.name.toLowerCase().endsWith(".xlsx") ||
+            f.name.toLowerCase().endsWith(".xls") ||
+            f.name.toLowerCase().endsWith(".csv")
+        );
+
+        // Multiple Excel files are now allowed - users can select which one to use
+
+        // Upload files
+        const uploadPromises = [];
+        excelFiles.forEach((file) => uploadPromises.push(uploadFile(file, "excel")));
+        pdfFiles.forEach((file) => uploadPromises.push(uploadFile(file, "pdf")));
+
+        Promise.all(uploadPromises).then(() => {
+          onRefresh();
+        });
+      }
+
+      function uploadFile(file, type) {
+        return new Promise((resolve) => {
+          const formData = new FormData();
+          formData.append(type === "pdf" ? "pdf_file" : "excel_file", file);
+
+          fetch(type === "pdf" ? "/upload_pdf" : "/upload_excel", {
+            method: "POST",
+            body: formData,
+          })
+            .then((res) => res.json())
+            .then((data) => {
+              if (data.success) {
+                if (type === "excel" && data.columns && onColumnsLoaded) {
+                  onColumnsLoaded(data.columns, data.default_tag_column);
+                }
+                setToast({ type: "success", text: `${file.name} uploaded successfully` });
+                resolve({ success: true });
+              } else {
+                setToast({ type: "error", text: data.message });
+                resolve({ success: false });
+              }
+            })
+            .catch((error) => {
+              setToast({ type: "error", text: error.message });
+              resolve({ success: false });
+            });
+        });
+      }
+
+      function handleDeleteFile(filename) {
+        if (!confirm(`Delete ${filename}?`)) return;
+
+        fetch("/delete_file", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename })
+        })
+          .then((res) => res.json())
+          .then((data) => {
+            if (data.success) {
+              setToast({ type: "success", text: "File deleted" });
+
+              // Clear selectedExcel if the deleted file was selected
+              if (selectedExcel === filename) {
+                onExcelSelectionChange(null);
+              }
+
+              onRefresh();
+            } else {
+              setToast({ type: "error", text: data.message });
+            }
+          })
+          .catch((err) => {
+            setToast({ type: "error", text: `Error: ${err.message}` });
+          });
+      }
+
+      function togglePdfSelection(filename) {
+        const newSelection = selectedPdfs.includes(filename)
+          ? selectedPdfs.filter(f => f !== filename)
+          : [...selectedPdfs, filename];
+        onSelectionChange(newSelection);
+      }
+
+      function selectAllPdfs() {
+        onSelectionChange(workspaceFiles.pdfs.map(f => f.filename));
+      }
+
+      function deselectAllPdfs() {
+        onSelectionChange([]);
+      }
+
+      function toggleExcelSelection(filename) {
+        // Single selection: if clicking on already selected, do nothing
+        // if clicking on different file, switch to that one
+        if (selectedExcel === filename) {
+          // Already selected, keep it selected (don't allow deselection)
+          return;
+        }
+        onExcelSelectionChange(filename);
+
+        // Update session and reload columns for the newly selected Excel file
+        fetch("/select_excel", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ excel_file: filename, header_row: 6 })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success && onColumnsLoaded) {
+              onColumnsLoaded(data.columns, data.default_tag_column);
+              setToast({ type: "success", text: `Switched to ${filename.split('_').slice(1).join('_')}` });
+            } else {
+              setToast({ type: "error", text: data.message || "Failed to load columns" });
+            }
+          })
+          .catch((err) => {
+            console.error("Error reloading columns:", err);
+            setToast({ type: "error", text: "Failed to switch Excel file" });
+          });
+      }
+
+      const totalFiles = workspaceFiles.excel.length + workspaceFiles.pdfs.length;
+      const selectedCount = selectedPdfs.length;
+
+      return (
+        <div className="space-y-4">
+          {/* Upload Drop Zone */}
+          <div
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragOver(true);
+            }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              setDragOver(false);
+              const files = Array.from(e.dataTransfer.files || []);
+              handleFileUpload(files);
+            }}
+            className={cx(
+              "cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-300",
+              "bg-white dark:bg-zinc-950/40 border-zinc-300/60 dark:border-zinc-700",
+              "hover:border-brand/60 hover:bg-brand/5",
+              dragOver && "border-brand bg-brand/10"
+            )}
+          >
+            <div className="flex items-center justify-center gap-3">
+              <i className="fa-solid fa-cloud-arrow-up text-2xl text-brand"></i>
+              <div className="text-sm font-medium">Drop files here or click to upload</div>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400">(PDF, Excel, CSV)</div>
+            </div>
+            <input
+              ref={inputRef}
+              type="file"
+              accept=".pdf,.xlsx,.xls,.csv"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                handleFileUpload(files);
+                e.target.value = "";
+              }}
+            />
+          </div>
+
+          {/* Workspace Header */}
+          {totalFiles > 0 && (
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                Workspace ({totalFiles} file{totalFiles !== 1 ? 's' : ''})
+                {selectedCount > 0 && (
+                  <span className="ml-2 text-brand">
+                    {selectedCount} PDF{selectedCount !== 1 ? 's' : ''} selected
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                {workspaceFiles.pdfs.length > 0 && (
+                  <>
+                    {selectedPdfs.length === workspaceFiles.pdfs.length ? (
+                      <button
+                        onClick={deselectAllPdfs}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-zinc-200/60 dark:bg-zinc-800 hover:bg-zinc-300/60 dark:hover:bg-zinc-700 transition-colors"
+                      >
+                        Deselect All
+                      </button>
+                    ) : (
+                      <button
+                        onClick={selectAllPdfs}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-brand/10 text-brand hover:bg-brand/20 transition-colors"
+                      >
+                        Select All PDFs
+                      </button>
+                    )}
+                  </>
+                )}
+                <button
+                  onClick={() => {
+                    if (confirm('Clear all files from workspace?')) {
+                      fetch('/clear_session', { method: 'POST' })
+                        .then(r => r.json())
+                        .then(data => {
+                          if (data.success) {
+                            setToast({ type: 'success', text: 'Workspace cleared' });
+                            onRefresh();
+                          }
+                        });
+                    }
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-lg bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors"
+                >
+                  Clear All
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Files Grid */}
+          {totalFiles > 0 && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {/* Excel/CSV Files */}
+              {workspaceFiles.excel.map((file, idx) => {
+                const isSelected = selectedExcel === file.filename;
+                return (
+                  <div
+                    key={`excel-${idx}`}
+                    className={cx(
+                      "flex items-center gap-3 rounded-xl border p-3 transition-colors",
+                      isSelected
+                        ? "border-emerald-500 bg-emerald-500/5 dark:bg-emerald-500/10"
+                        : "border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/60"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleExcelSelection(file.filename)}
+                      className="h-5 w-5 rounded border-zinc-300 dark:border-zinc-700 text-emerald-500 focus:ring-emerald-500/50"
+                    />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-500">
+                      <i className={cx("fa-solid", file.type === 'csv' ? 'fa-file-csv' : 'fa-file-excel')}></i>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{file.name}</div>
+                      <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+                        <span>{formatFileSize(file.size)}</span>
+                        <span className="px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">TAG SOURCE</span>
+                        {isSelected && (
+                          <span className="px-2 py-0.5 rounded bg-brand/10 text-brand font-medium">SELECTED</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteFile(file.filename)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 transition-colors"
+                      title="Delete file"
+                    >
+                      <i className="fa-solid fa-xmark"></i>
+                    </button>
+                  </div>
+                );
+              })}
+
+              {/* PDF Files */}
+              {workspaceFiles.pdfs.map((file, idx) => {
+                const isSelected = selectedPdfs.includes(file.filename);
+                return (
+                  <div
+                    key={`pdf-${idx}`}
+                    className={cx(
+                      "flex items-center gap-3 rounded-xl border p-3 transition-colors",
+                      isSelected
+                        ? "border-brand bg-brand/5 dark:bg-brand/10"
+                        : "border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/60"
+                    )}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => togglePdfSelection(file.filename)}
+                      className="h-5 w-5 rounded border-zinc-300 dark:border-zinc-700 text-brand focus:ring-brand/50"
+                    />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-rose-500/10 text-rose-500">
+                      <i className="fa-solid fa-file-pdf"></i>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{file.name}</div>
+                      <div className="text-xs text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+                        <span>{formatFileSize(file.size)}</span>
+                        {file.isAnnotated && (
+                          <span className="px-2 py-0.5 rounded bg-brand/10 text-brand font-medium">ANNOTATED</span>
+                        )}
+                        {file.isTest && (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">TEST</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteFile(file.filename)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg hover:bg-red-100 dark:hover:bg-red-900/30 text-red-600 dark:text-red-400 transition-colors"
+                      title="Delete file"
+                    >
+                      <i className="fa-solid fa-xmark"></i>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {totalFiles === 0 && (
+            <div className="text-center py-8 text-zinc-500 dark:text-zinc-400">
+              <i className="fa-solid fa-folder-open text-4xl mb-2 opacity-50"></i>
+              <div className="text-sm">No files in workspace. Upload files to get started.</div>
+            </div>
+          )}
         </div>
       );
     }
@@ -637,14 +1003,652 @@
       );
     }
 
-    function FAQModal({ open, onClose }) {
+    function SaveProfileModal({ open, onClose, onSave }) {
+      const [profileName, setProfileName] = useState("");
+      const [profileDescription, setProfileDescription] = useState("");
+
       if (!open) return null;
+
+      function handleSave() {
+        if (!profileName.trim()) {
+          alert("Profile name is required");
+          return;
+        }
+        onSave(profileName.trim(), profileDescription.trim());
+        setProfileName("");
+        setProfileDescription("");
+      }
+
       return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
-          <div className="relative w-full max-w-3xl rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
             <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
-              <h3 className="font-semibold">FAQ – PID Annotator</h3>
+              <h3 className="font-semibold">Save Configuration Profile</h3>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                aria-label="Close"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label htmlFor="profile-name" className="block text-sm font-medium mb-1">
+                  Profile Name <span className="text-danger">*</span>
+                </label>
+                <input
+                  id="profile-name"
+                  type="text"
+                  value={profileName}
+                  onChange={(e) => setProfileName(e.target.value)}
+                  placeholder="e.g., My Custom Setup"
+                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                />
+              </div>
+              <div>
+                <label htmlFor="profile-description" className="block text-sm font-medium mb-1">
+                  Description (Optional)
+                </label>
+                <textarea
+                  id="profile-description"
+                  value={profileDescription}
+                  onChange={(e) => setProfileDescription(e.target.value)}
+                  placeholder="Describe this configuration..."
+                  rows={3}
+                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                />
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSave}
+                  className="flex-1 rounded-lg bg-brand text-white px-4 py-2 font-semibold hover:bg-brand-hover transition-colors"
+                >
+                  <i className="fa-solid fa-save mr-1"></i>
+                  Save Profile
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function ImportProfileModal({ open, onClose, onImport }) {
+      const fileInputRef = useRef(null);
+
+      if (!open) return null;
+
+      function handleFileSelect(e) {
+        const file = e.target.files?.[0];
+        if (file) {
+          if (!file.name.endsWith('.json')) {
+            alert("Please select a JSON file");
+            return;
+          }
+          onImport(file);
+        }
+      }
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
+              <h3 className="font-semibold">Import Configuration Profile</h3>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                aria-label="Close"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div className="text-sm text-zinc-600 dark:text-zinc-400">
+                Select a JSON profile file to import. The profile must match the expected format.
+              </div>
+              <div
+                onClick={() => fileInputRef.current?.click()}
+                className="cursor-pointer rounded-xl border-2 border-dashed border-zinc-300/60 dark:border-zinc-700 bg-white dark:bg-zinc-950/40 p-8 text-center hover:border-brand/60 hover:bg-brand/5 transition-colors"
+              >
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-xl bg-brand/10 text-brand mb-3">
+                  <i className="fa-solid fa-file-import text-2xl"></i>
+                </div>
+                <div className="text-lg font-semibold">Click to select JSON file</div>
+                <div className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
+                  Supported: .json files only
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+              </div>
+              <button
+                onClick={onClose}
+                className="w-full rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Tutorial/Onboarding System
+    const tutorialSteps = [
+      {
+        id: 1,
+        target: '.upload-area-tutorial',
+        title: 'Welcome to PID Annotator!',
+        content: 'Start by uploading your files. First upload an Excel file with your component list, then one or more PDF files.',
+        position: 'bottom',
+        canSkip: true
+      },
+      {
+        id: 2,
+        target: '#header-row',
+        title: 'Configure Header Row',
+        content: 'Specify which row in your Excel file contains the column headers. The default is row 6.',
+        position: 'right'
+      },
+      {
+        id: 3,
+        target: '#tag-column',
+        title: 'Select Tag Column',
+        content: 'Choose the column that contains your component tags (e.g., TAG-001-A).',
+        position: 'right'
+      },
+      {
+        id: 4,
+        target: '#profile-select',
+        title: 'Configuration Profiles',
+        content: 'Save time by using built-in templates or creating your own configuration profiles. You can save, load, export, and import settings.',
+        position: 'bottom'
+      },
+      {
+        id: 5,
+        target: '.comment-columns-tutorial',
+        title: 'Comment Columns',
+        content: 'Select which columns from your Excel file should be included in the PDF annotations. You can choose multiple columns.',
+        position: 'top'
+      },
+      {
+        id: 6,
+        target: '#highlight-attribute',
+        title: 'Conditional Highlighting',
+        content: 'Tags will be highlighted when the selected attribute column has a value. Choose your highlight color above.',
+        position: 'right'
+      },
+      {
+        id: 7,
+        target: '.excel-annotation-tutorial',
+        title: 'Excel Annotation',
+        content: 'Enable this to automatically highlight rows in your Excel file where tags were found in the PDF.',
+        position: 'right'
+      },
+      {
+        id: 8,
+        target: '.watermark-tutorial',
+        title: 'Watermark Feature',
+        content: 'Add text labels near tags in the PDF using attribute values from your Excel file.',
+        position: 'right'
+      },
+      {
+        id: 9,
+        target: '.start-button-tutorial',
+        title: 'Start Processing',
+        content: 'When ready, click "Start" for full processing or "Test Run" to process only the first 100 tags.',
+        position: 'top'
+      },
+      {
+        id: 10,
+        target: '.faq-button-tutorial',
+        title: 'Need Help?',
+        content: 'Click FAQ for detailed information about features and troubleshooting. You can replay this tutorial anytime from the FAQ section.',
+        position: 'top'
+      }
+    ];
+
+    function TutorialTooltip({ step, currentStep, totalSteps, onNext, onPrev, onSkip, onComplete }) {
+      if (!step) return null;
+
+      const isFirst = currentStep === 1;
+      const isLast = currentStep === totalSteps;
+      const tooltipRef = React.useRef(null);
+      const [tooltipStyle, setTooltipStyle] = React.useState({});
+      const [arrowStyle, setArrowStyle] = React.useState({});
+      const [arrowPosition, setArrowPosition] = React.useState('top');
+
+      // Calculate tooltip position based on target element
+      useEffect(() => {
+        if (!step?.target || !tooltipRef.current) return;
+
+        const targetElement = document.querySelector(step.target);
+        if (!targetElement) return;
+
+        const targetRect = targetElement.getBoundingClientRect();
+        const tooltipRect = tooltipRef.current.getBoundingClientRect();
+        const viewportWidth = window.innerWidth;
+        const viewportHeight = window.innerHeight;
+        const padding = 16;
+        const arrowSize = 12;
+
+        let top, left, arrowPos = 'top', arrowLeft = '50%', arrowTop = '-12px';
+
+        // Determine best position based on step.position and available space
+        const position = step.position || 'bottom';
+
+        if (position === 'bottom') {
+          top = targetRect.bottom + arrowSize + padding;
+          left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
+          arrowPos = 'top';
+          arrowTop = '-12px';
+          arrowLeft = '50%';
+        } else if (position === 'top') {
+          top = targetRect.top - tooltipRect.height - arrowSize - padding;
+          left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
+          arrowPos = 'bottom';
+          arrowTop = 'auto';
+          arrowLeft = '50%';
+        } else if (position === 'right') {
+          top = targetRect.top + (targetRect.height / 2) - (tooltipRect.height / 2);
+          left = targetRect.right + arrowSize + padding;
+          arrowPos = 'left';
+          arrowTop = '50%';
+          arrowLeft = '-12px';
+        } else if (position === 'left') {
+          top = targetRect.top + (targetRect.height / 2) - (tooltipRect.height / 2);
+          left = targetRect.left - tooltipRect.width - arrowSize - padding;
+          arrowPos = 'right';
+          arrowTop = '50%';
+          arrowLeft = 'auto';
+        }
+
+        // Adjust if tooltip goes off screen
+        if (left < padding) left = padding;
+        if (left + tooltipRect.width > viewportWidth - padding) {
+          left = viewportWidth - tooltipRect.width - padding;
+        }
+        if (top < padding) top = padding;
+        if (top + tooltipRect.height > viewportHeight - padding) {
+          top = viewportHeight - tooltipRect.height - padding;
+        }
+
+        setTooltipStyle({ top: `${top}px`, left: `${left}px` });
+        setArrowPosition(arrowPos);
+        setArrowStyle({
+          top: arrowTop === 'auto' ? 'auto' : arrowTop,
+          bottom: arrowPos === 'bottom' ? '-12px' : 'auto',
+          left: arrowLeft === 'auto' ? 'auto' : arrowLeft,
+          right: arrowPos === 'right' ? '-12px' : 'auto',
+          transform: arrowLeft === '50%' || arrowTop === '50%' ? 'translate(-50%, -50%)' : 'none'
+        });
+      }, [step, currentStep]);
+
+      return (
+        <div
+          ref={tooltipRef}
+          className="tutorial-tooltip fixed z-[60] bg-white dark:bg-zinc-900 border-2 border-brand rounded-xl shadow-soft p-4 max-w-sm transition-all duration-300"
+          style={tooltipStyle}
+        >
+          {/* Arrow pointer */}
+          <div
+            className="absolute w-0 h-0"
+            style={{
+              ...arrowStyle,
+              borderLeft: arrowPosition === 'right' ? '12px solid transparent' : arrowPosition === 'left' ? '12px solid var(--color-brand)' : '12px solid transparent',
+              borderRight: arrowPosition === 'left' ? '12px solid transparent' : arrowPosition === 'right' ? '12px solid var(--color-brand)' : '12px solid transparent',
+              borderTop: arrowPosition === 'bottom' ? '12px solid transparent' : arrowPosition === 'top' ? '12px solid var(--color-brand)' : '12px solid transparent',
+              borderBottom: arrowPosition === 'top' ? '12px solid transparent' : arrowPosition === 'bottom' ? '12px solid var(--color-brand)' : '12px solid transparent',
+            }}
+          />
+          <div className="flex items-start justify-between mb-3">
+            <div className="flex-1">
+              <h4 className="font-semibold text-lg text-brand">{step.title}</h4>
+              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
+                Step {currentStep} of {totalSteps}
+              </div>
+            </div>
+            <button
+              onClick={onSkip}
+              className="rounded-lg p-1 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+              aria-label="Close tutorial"
+            >
+              <i className="fa-solid fa-xmark"></i>
+            </button>
+          </div>
+
+          <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-4">
+            {step.content}
+          </p>
+
+          <div className="flex items-center justify-between">
+            <div className="flex gap-1">
+              {Array.from({ length: totalSteps }).map((_, i) => (
+                <div
+                  key={i}
+                  className={cx(
+                    "w-2 h-2 rounded-full transition-colors",
+                    i + 1 === currentStep
+                      ? "bg-brand"
+                      : i + 1 < currentStep
+                      ? "bg-brand/50"
+                      : "bg-zinc-300 dark:bg-zinc-700"
+                  )}
+                />
+              ))}
+            </div>
+
+            <div className="flex gap-2">
+              {!isFirst && (
+                <button
+                  onClick={onPrev}
+                  className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+                >
+                  <i className="fa-solid fa-arrow-left mr-1"></i>
+                  Back
+                </button>
+              )}
+              {!isLast ? (
+                <button
+                  onClick={onNext}
+                  className="rounded-lg bg-brand text-white px-3 py-1.5 text-sm font-medium hover:bg-brand-hover transition-colors"
+                >
+                  Next
+                  <i className="fa-solid fa-arrow-right ml-1"></i>
+                </button>
+              ) : (
+                <button
+                  onClick={onComplete}
+                  className="rounded-lg bg-success text-white px-3 py-1.5 text-sm font-medium hover:bg-success-hover transition-colors"
+                >
+                  <i className="fa-solid fa-check mr-1"></i>
+                  Finish
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    function TutorialOverlay({ active, currentStep, onNext, onPrev, onSkip, onComplete }) {
+      if (!active) return null;
+
+      const step = tutorialSteps[currentStep - 1];
+      const [spotlightStyle, setSpotlightStyle] = React.useState({});
+
+      useEffect(() => {
+        // Scroll to target element
+        if (step?.target) {
+          const element = document.querySelector(step.target);
+          if (element) {
+            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+            // Calculate spotlight position
+            setTimeout(() => {
+              const rect = element.getBoundingClientRect();
+              const padding = 8;
+              setSpotlightStyle({
+                top: `${rect.top - padding}px`,
+                left: `${rect.left - padding}px`,
+                width: `${rect.width + padding * 2}px`,
+                height: `${rect.height + padding * 2}px`,
+              });
+            }, 100);
+          }
+        }
+      }, [currentStep, step?.target]);
+
+      // Keyboard navigation
+      useEffect(() => {
+        const handleKeyDown = (e) => {
+          if (e.key === 'ArrowRight' || e.key === 'Enter') {
+            e.preventDefault();
+            onNext();
+          } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            onPrev();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            onSkip();
+          }
+        };
+
+        document.addEventListener('keydown', handleKeyDown);
+        return () => document.removeEventListener('keydown', handleKeyDown);
+      }, [onNext, onPrev, onSkip]);
+
+      return (
+        <>
+          <div className="tutorial-backdrop fixed inset-0 z-[55] bg-black/40 dark:bg-black/60" />
+
+          {/* Animated spotlight effect */}
+          {step?.target && (
+            <div
+              className="tutorial-spotlight fixed z-[56] rounded-lg border-2 border-brand shadow-[0_0_0_9999px_rgba(0,0,0,0.3)] pointer-events-none transition-all duration-300 ease-out"
+              style={{
+                ...spotlightStyle,
+                boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.3), 0 0 20px 4px rgba(var(--color-brand-rgb), 0.5), inset 0 0 20px rgba(var(--color-brand-rgb), 0.2)',
+                animation: 'pulse-spotlight 2s ease-in-out infinite'
+              }}
+            />
+          )}
+
+          <TutorialTooltip
+            step={step}
+            currentStep={currentStep}
+            totalSteps={tutorialSteps.length}
+            onNext={onNext}
+            onPrev={onPrev}
+            onSkip={onSkip}
+            onComplete={onComplete}
+          />
+
+          {/* Keyboard hints */}
+          <div className="fixed bottom-4 right-4 z-[60] bg-white/90 dark:bg-zinc-900/90 border border-zinc-300 dark:border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 backdrop-blur-sm">
+            <div className="flex items-center gap-3">
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono">←</kbd>
+                <kbd className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono">→</kbd>
+                Navigate
+              </span>
+              <span className="flex items-center gap-1">
+                <kbd className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono">ESC</kbd>
+                Skip
+              </span>
+            </div>
+          </div>
+        </>
+      );
+    }
+
+    function FAQModal({ open, onClose, onStartTutorial }) {
+      const [activeCategory, setActiveCategory] = React.useState('getting-started');
+      const [searchQuery, setSearchQuery] = React.useState('');
+
+      console.log('FAQModal render, open:', open);
+
+      // Define FAQ categories outside of conditional to avoid recreation
+      const faqCategories = React.useMemo(() => ({
+        'getting-started': {
+          title: 'Getting Started',
+          icon: 'fa-rocket',
+          questions: [
+            {
+              q: 'How do I get started with PID Annotator?',
+              a: 'Start the interactive tutorial (click "Start Tutorial" below) or follow these steps: 1) Upload your Excel file with component tags, 2) Upload one or more PDF files, 3) Configure settings or load a template, 4) Click "Start" to process.'
+            },
+            {
+              q: 'Which row is used as headers in Excel?',
+              a: 'You can configure which row contains the headers using the "Header Row" field. The default is row 6, but you can adjust this to match your Excel file structure.'
+            },
+            {
+              q: 'Which column should I use for tags?',
+              a: 'Select any column from your Excel file using the "Tag Column" dropdown. This column should contain your component identifiers (e.g., TAG-001-A, SYS.PUMP.01).'
+            }
+          ]
+        },
+        'features': {
+          title: 'Features & Configuration',
+          icon: 'fa-sliders',
+          questions: [
+            {
+              q: 'What are Configuration Profiles?',
+              a: 'Profiles let you save and reuse your settings. The app includes 5 built-in templates (Minimal, Standard, Production Ready, Quick Review, Excel Focus). You can also create custom profiles, export them as JSON for backup, or import profiles from team members.'
+            },
+            {
+              q: 'What is the difference between "Start" and "Test Run"?',
+              a: '"Start" processes all tags in your Excel file, while "Test Run" processes only the first 100 tags. Use Test Run to quickly verify your configuration before running a full batch.'
+            },
+            {
+              q: 'How does Excel Annotation work?',
+              a: 'When enabled, the application highlights rows in your Excel file (with green fill) where tags were successfully found in the PDF. This helps you quickly identify which components were annotated.'
+            },
+            {
+              q: 'What is the Watermark feature?',
+              a: 'Watermarks add text labels near tags in the PDF using attribute values from your Excel file. Choose which columns to include and customize the text color. The labels are added as overlays on the PDF.'
+            },
+            {
+              q: 'How does Conditional Highlighting work?',
+              a: 'Select a column (e.g., "Critical") and choose a highlight color. Tags will only be highlighted in the PDF if the selected column has a value for that row. This helps emphasize important tags.'
+            },
+            {
+              q: 'Can I process multiple PDFs at once?',
+              a: 'Yes! Upload multiple PDF files and they will all be processed with the same Excel file. Each PDF gets its own annotated output. Use the checkboxes to select which PDFs to process.'
+            }
+          ]
+        },
+        'troubleshooting': {
+          title: 'Troubleshooting',
+          icon: 'fa-wrench',
+          questions: [
+            {
+              q: 'What if a tag is not found in the PDF?',
+              a: 'Tags not found are skipped. Common causes: 1) Formatting differences (check delimiters: hyphens vs periods), 2) OCR quality in scanned PDFs, 3) Case sensitivity issues, 4) Extra spaces in tags. Verify tags match between Excel and PDF exactly.'
+            },
+            {
+              q: 'Why is processing slow for large files?',
+              a: 'The application automatically uses optimized modes for large files: Standard mode (<50MB), Streaming mode (≥50MB), and Parallel indexing (>20 pages). Performance depends on file size, page count, and tag density. Expected times: 10 pages ~7s, 100 pages ~18s, 500 pages ~2.5 min.'
+            },
+            {
+              q: 'What are the file size limits?',
+              a: 'Maximum upload size is 100MB per file. The application can handle very large PDFs (1000+ pages, 200MB+) using streaming mode. Files are automatically cleaned up after 24 hours.'
+            },
+            {
+              q: 'How long are my files stored?',
+              a: 'Uploaded and generated files are automatically deleted after 24 hours. Each user session is isolated with a unique ID to prevent conflicts. You can manually clear files using the "Clear All" button.'
+            },
+            {
+              q: 'What if my Excel file has a different structure?',
+              a: 'Adjust the "Header Row" setting to match your file. The application is flexible and works with most Excel structures as long as you specify the correct header row and tag column.'
+            }
+          ]
+        },
+        'technical': {
+          title: 'Technical Details',
+          icon: 'fa-code',
+          questions: [
+            {
+              q: 'What tag formats are supported?',
+              a: 'Both hyphen-delimited (e.g., 230-HV-NON-501) and period-delimited (e.g., 230.HV.NON.501) formats are supported. Tags should have 3-5 hierarchical parts. Matching is case-insensitive with automatic variant lookup.'
+            },
+            {
+              q: 'What is included in the PDF annotations?',
+              a: 'Annotations include: 1) The tag identifier at the top, 2) All selected comment columns from the Excel row, 3) Optional highlights based on attribute column, 4) Optional watermark labels. Format is customizable via configuration.'
+            },
+            {
+              q: 'Where is the output saved?',
+              a: 'Output files are generated on the server and available for download via the processing modal. Click the download button when processing completes. Files are stored in session-isolated folders.'
+            },
+            {
+              q: 'How does the parallel processing work?',
+              a: 'For PDFs with >20 pages, the application uses multi-threaded page processing to build the tag index faster. It utilizes CPU cores efficiently (configurable) while managing memory with periodic cleanup cycles.'
+            },
+            {
+              q: 'What happens during "Streaming Mode"?',
+              a: 'For files ≥50MB, streaming mode activates: 1) Document is closed/reopened between processing phases, 2) Memory cleanup runs every 100 pages, 3) Chunk-based processing reduces memory footprint. This prevents memory issues with very large files.'
+            }
+          ]
+        },
+        'about': {
+          title: 'About & Licenses',
+          icon: 'fa-info-circle',
+          questions: [
+            {
+              q: 'Python Libraries and Licenses',
+              a: (
+                <div>
+                  <p className="mb-2">This application uses the following open-source Python libraries:</p>
+                  <ul className="list-disc list-inside space-y-1 text-xs">
+                    <li>Flask (BSD-3-Clause) - Web framework</li>
+                    <li>Flask-SocketIO (MIT) - Real-time communication</li>
+                    <li>pandas (BSD-3-Clause) - Data processing</li>
+                    <li>PyMuPDF (AGPL-3.0) - PDF manipulation</li>
+                    <li>openpyxl (MIT) - Excel file handling</li>
+                    <li>Werkzeug (BSD-3-Clause) - WSGI utilities</li>
+                    <li>python-socketio (MIT) - WebSocket support</li>
+                    <li>eventlet (MIT) - Concurrent networking</li>
+                    <li>gunicorn (MIT) - Production server</li>
+                    <li>reportlab (BSD) - PDF generation</li>
+                    <li>PyPDF2 (BSD-3-Clause) - PDF merging</li>
+                  </ul>
+                </div>
+              )
+            },
+            {
+              q: 'Who created this application?',
+              a: 'PID Annotator was created by Rudi S. Kærgaard (rudikdk@gmail.com). The application is optimized for Docker deployment on Raspberry Pi 5 with CasaOS, but works on any system with Docker support.'
+            }
+          ]
+        }
+      }), []); // Empty dependency array since this never changes
+
+      const filteredCategories = React.useMemo(() => {
+        if (!searchQuery.trim()) return faqCategories;
+
+        const query = searchQuery.toLowerCase();
+        const filtered = {};
+
+        Object.entries(faqCategories).forEach(([key, category]) => {
+          const matchingQuestions = category.questions.filter(
+            item =>
+              item.q.toLowerCase().includes(query) ||
+              (typeof item.a === 'string' && item.a.toLowerCase().includes(query))
+          );
+
+          if (matchingQuestions.length > 0) {
+            filtered[key] = { ...category, questions: matchingQuestions };
+          }
+        });
+
+        return filtered;
+      }, [searchQuery, faqCategories]);
+
+      if (!open) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
+          <div className="relative w-full max-w-4xl rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
+              <div>
+                <h3 className="font-semibold text-lg">FAQ – PID Annotator</h3>
+                <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">Frequently Asked Questions & Help</p>
+              </div>
               <button
                 onClick={onClose}
                 className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
@@ -653,64 +1657,89 @@
                 <i className="fa-solid fa-xmark"></i>
               </button>
             </div>
-            <div className="px-5 py-4 max-h-[70vh] overflow-y-auto text-sm space-y-4">
-              <div>
-                <h4 className="font-semibold">Which row is used as headers in Excel?</h4>
-                <p>You can configure which row contains the headers using the "Header Row" field. Default is 6.</p>
+
+            {/* Search bar */}
+            <div className="px-5 py-3 border-b border-zinc-200/60 dark:border-zinc-800">
+              <div className="relative">
+                <i className="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"></i>
+                <input
+                  type="text"
+                  placeholder="Search FAQ..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm focus:ring-2 focus:ring-brand focus:border-brand"
+                />
               </div>
-              <div>
-                <h4 className="font-semibold">Which column is used for Tag?</h4>
-                <p>Select any column from your Excel file using the "Tag Column" dropdown. Defaults to the recommended column for backward compatibility.</p>
+            </div>
+
+            {/* Content */}
+            <div className="flex flex-1 overflow-hidden">
+              {/* Category sidebar */}
+              <div className="w-56 border-r border-zinc-200/60 dark:border-zinc-800 overflow-y-auto">
+                <div className="p-2 space-y-1">
+                  {Object.entries(filteredCategories).map(([key, category]) => (
+                    <button
+                      key={key}
+                      onClick={() => setActiveCategory(key)}
+                      className={cx(
+                        'w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2',
+                        activeCategory === key
+                          ? 'bg-brand/10 text-brand font-medium'
+                          : 'hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300'
+                      )}
+                    >
+                      <i className={cx('fa-solid', category.icon, 'w-4')}></i>
+                      <span className="flex-1">{category.title}</span>
+                      <span className="text-xs bg-zinc-200 dark:bg-zinc-700 px-1.5 py-0.5 rounded">
+                        {category.questions.length}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                <h4 className="font-semibold">Where is the output saved?</h4>
-                <p>Output is generated and available for download once processing is complete via the modal button.</p>
+
+              {/* Questions panel */}
+              <div className="flex-1 overflow-y-auto px-5 py-4">
+                {Object.keys(filteredCategories).length === 0 ? (
+                  <div className="text-center py-8 text-zinc-500 dark:text-zinc-400">
+                    <i className="fa-solid fa-search text-3xl mb-2"></i>
+                    <p>No results found for "{searchQuery}"</p>
+                  </div>
+                ) : (
+                  <div className="space-y-6">
+                    {filteredCategories[activeCategory]?.questions.map((item, idx) => (
+                      <div key={idx} className="space-y-2">
+                        <h4 className="font-semibold text-brand flex items-start gap-2">
+                          <i className="fa-solid fa-circle-question text-sm mt-0.5"></i>
+                          {item.q}
+                        </h4>
+                        <div className="text-sm text-zinc-700 dark:text-zinc-300 pl-6">
+                          {typeof item.a === 'string' ? <p>{item.a}</p> : item.a}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
-              <div>
-                <h4 className="font-semibold">What is included in the comment?</h4>
-                <p>The tag itself at the top, followed by all selected columns from the Excel row.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold">What if a tag is not found in the PDF?</h4>
-                <p>It will be skipped. Check Excel/PDF for formatting mismatches.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold">Supported tag formats</h4>
-                <p>Hyphen-delimited (e.g., 230-HV-NON-501) and period-delimited (e.g., 230.HV.NON.501).</p>
-              </div>
-              <div>
-                <h4 className="font-semibold">Highlight color feature</h4>
-                <p>Choose a column and highlight color. Tags with data in that column will be highlighted.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold">Test Run</h4>
-                <p>Processes only the first 100 tags for a quick test.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold">Watermark feature</h4>
-                <p>Adds text labels near tags using a watermark overlay. Choose an attribute column and text color.</p>
-              </div>
-              <div>
-                <h4 className="font-semibold">Python Libraries and Licenses</h4>
-                <p>This application uses the following Python libraries:</p>
-                <ul>
-                  <li key="flask">Flask (BSD-3-Clause)</li>
-                  <li key="flask-socketio">Flask-SocketIO (MIT)</li>
-                  <li key="pandas">pandas (BSD-3-Clause)</li>
-                  <li key="pymupdf">PyMuPDF (AGPL-3.0)</li>
-                  <li key="openpyxl">openpyxl (MIT)</li>
-                  <li key="werkzeug">Werkzeug (BSD-3-Clause)</li>
-                  <li key="python-socketio">python-socketio (MIT)</li>
-                  <li key="eventlet">eventlet (MIT)</li>
-                  <li key="gunicorn">gunicorn (MIT)</li>
-                  <li key="reportlab">reportlab (BSD)</li>
-                  <li key="pypdf2">PyPDF2 (BSD-3-Clause)</li>
-                </ul>
-              </div>
-              <hr className="border-zinc-200/60 dark:border-zinc-800"/>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 <p><strong>Created by:</strong> Rudi S. Kærgaard — <strong>Email:</strong> rudikdk@gmail.com</p>
               </div>
+              <button
+                onClick={() => {
+                  onClose();
+                  if (onStartTutorial) {
+                    onStartTutorial();
+                  }
+                }}
+                className="rounded-lg bg-brand text-white px-4 py-2 text-sm font-semibold hover:bg-brand-hover transition-colors"
+              >
+                <i className="fa-solid fa-play mr-1"></i>
+                Start Tutorial
+              </button>
             </div>
           </div>
         </div>
@@ -722,6 +1751,11 @@
       const [excelColumns, setExcelColumns] = useState([]);
       const [uploadedFiles, setUploadedFiles] = useState({ excel: [], pdf: [] });
 
+      // Workspace state
+      const [workspaceFiles, setWorkspaceFiles] = useState({ excel: [], pdfs: [] });
+      const [selectedPdfs, setSelectedPdfs] = useState([]);
+      const [selectedExcel, setSelectedExcel] = useState(null); // Track selected Excel file
+
       // Configuration state
       const [headerRow, setHeaderRow] = useState(6);
       const [tagColumn, setTagColumn] = useState("");
@@ -732,6 +1766,18 @@
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
       const [watermarkTextColor, setWatermarkTextColor] = useState("#000000");
+
+      // Profile management state
+      const [builtinTemplates, setBuiltinTemplates] = useState([]);
+      const [savedProfiles, setSavedProfiles] = useState([]);
+      const [selectedProfile, setSelectedProfile] = useState("");
+      const [activeProfileName, setActiveProfileName] = useState("");
+      const [showSaveProfileModal, setShowSaveProfileModal] = useState(false);
+      const [showImportProfileModal, setShowImportProfileModal] = useState(false);
+
+      // Tutorial state
+      const [tutorialActive, setTutorialActive] = useState(false);
+      const [tutorialStep, setTutorialStep] = useState(1);
 
       // UI state
       const [showFAQ, setShowFAQ] = useState(false);
@@ -791,6 +1837,17 @@
       }
 
       function startProcessing(isTest) {
+        // Validate that files are selected
+        if (selectedPdfs.length === 0) {
+          setToast({ type: "error", text: "Please select at least one PDF file to process" });
+          return;
+        }
+
+        if (!selectedExcel) {
+          setToast({ type: "error", text: "Please select an Excel/CSV file from the workspace" });
+          return;
+        }
+
         setProcessingOpen(true);
         setProcessingTitle(isTest ? "Test Run (100 tags)" : "Processing Files");
         setProgress(0);
@@ -811,9 +1868,11 @@
           watermark_text_color: watermarkTextColor,
           max_tags: isTest ? 100 : null,
           is_test: isTest,
+          selected_pdfs: selectedPdfs,  // Send selected PDF filenames
+          selected_excel: selectedExcel,  // Send selected Excel filename
         };
 
-        logToConsole(isTest ? "Starting test run (100 tags)..." : "Starting full processing...");
+        logToConsole(isTest ? `Starting test run (100 tags) with ${selectedPdfs.length} PDF(s)...` : `Starting full processing with ${selectedPdfs.length} PDF(s)...`);
 
         fetch("/process", {
           method: "POST",
@@ -874,6 +1933,348 @@
         }, 2000);
       }
 
+      // Profile Management Functions
+      function loadProfilesAndTemplates() {
+        // Load built-in templates
+        fetch("/get_builtin_templates")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setBuiltinTemplates(data.templates || []);
+              logToConsole(`Loaded ${data.templates?.length || 0} built-in templates`);
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Error loading templates: ${err.message}`);
+          });
+
+        // Load saved profiles
+        fetch("/load_profiles")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setSavedProfiles(data.profiles || []);
+              logToConsole(`Loaded ${data.count || 0} saved profiles`);
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Error loading profiles: ${err.message}`);
+          });
+      }
+
+      function applyProfileSettings(settings) {
+        // Apply all settings from profile
+        if (settings.header_row !== undefined) setHeaderRow(settings.header_row);
+        if (settings.tag_column !== undefined && settings.tag_column !== null) setTagColumn(settings.tag_column);
+        if (settings.comment_columns !== undefined) setCommentColumns(settings.comment_columns);
+        if (settings.highlight_column !== undefined) setHighlightColumn(settings.highlight_column);
+        if (settings.highlight_color !== undefined) setHighlightColor(settings.highlight_color);
+        if (settings.annotate_excel !== undefined) setAnnotateExcel(settings.annotate_excel);
+        if (settings.watermark_enabled !== undefined) setWatermarkEnabled(settings.watermark_enabled);
+        if (settings.watermark_attributes !== undefined) setWatermarkAttributes(settings.watermark_attributes);
+        if (settings.watermark_text_color !== undefined) setWatermarkTextColor(settings.watermark_text_color);
+      }
+
+      function loadSelectedProfile() {
+        if (!selectedProfile) {
+          setToast({ type: "warning", text: "No profile selected" });
+          return;
+        }
+
+        if (selectedProfile.startsWith('template:')) {
+          // Load built-in template
+          const templateName = selectedProfile.replace('template:', '');
+          const template = builtinTemplates.find(t => t.name === templateName);
+          if (template) {
+            applyProfileSettings(template.settings);
+            setActiveProfileName(template.name);
+            setToast({ type: "success", text: `Template "${template.name}" loaded` });
+            logToConsole(`Loaded template: ${template.name}`);
+          }
+        } else if (selectedProfile.startsWith('profile:')) {
+          // Load saved profile
+          const filename = selectedProfile.replace('profile:', '');
+          fetch(`/load_profile/${filename}`)
+            .then((r) => r.json())
+            .then((data) => {
+              if (data.success) {
+                applyProfileSettings(data.profile.settings);
+                setActiveProfileName(data.profile.name);
+                setToast({ type: "success", text: `Profile "${data.profile.name}" loaded` });
+                logToConsole(`Loaded profile: ${data.profile.name}`);
+              } else {
+                setToast({ type: "error", text: data.message });
+              }
+            })
+            .catch((err) => {
+              setToast({ type: "error", text: err.message });
+            });
+        }
+      }
+
+      function saveCurrentProfile(name, description) {
+        const profileData = {
+          name: name,
+          description: description,
+          settings: {
+            header_row: headerRow,
+            tag_column: tagColumn,
+            comment_columns: commentColumns,
+            highlight_column: highlightColumn,
+            highlight_color: highlightColor,
+            annotate_excel: annotateExcel,
+            watermark_enabled: watermarkEnabled,
+            watermark_attributes: watermarkAttributes,
+            watermark_text_color: watermarkTextColor
+          }
+        };
+
+        fetch("/save_profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(profileData)
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setToast({ type: "success", text: data.message });
+              logToConsole(`Saved profile: ${name}`);
+              loadProfilesAndTemplates(); // Reload profiles list
+              setActiveProfileName(name);
+              setShowSaveProfileModal(false);
+            } else {
+              setToast({ type: "error", text: data.message });
+            }
+          })
+          .catch((err) => {
+            setToast({ type: "error", text: err.message });
+          });
+      }
+
+      function exportSelectedProfile() {
+        if (!selectedProfile || selectedProfile.startsWith('template:')) {
+          setToast({ type: "warning", text: "Cannot export built-in templates" });
+          return;
+        }
+
+        const profileData = savedProfiles.find(p => p.filename === selectedProfile.replace('profile:', ''));
+        if (!profileData) return;
+
+        fetch("/export_profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: profileData.name })
+        })
+          .then((response) => {
+            if (response.ok) {
+              return response.blob();
+            } else {
+              return response.json().then(data => {
+                throw new Error(data.message || 'Export failed');
+              });
+            }
+          })
+          .then((blob) => {
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${profileData.name}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
+            setToast({ type: "success", text: "Profile exported successfully" });
+            logToConsole(`Exported profile: ${profileData.name}`);
+          })
+          .catch((err) => {
+            setToast({ type: "error", text: err.message });
+          });
+      }
+
+      function importProfileFile(file) {
+        const formData = new FormData();
+        formData.append('profile_file', file);
+
+        fetch("/import_profile", {
+          method: "POST",
+          body: formData
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setToast({ type: "success", text: data.message });
+              logToConsole(`Imported profile: ${data.profile.name}`);
+              loadProfilesAndTemplates(); // Reload profiles list
+              setShowImportProfileModal(false);
+            } else {
+              setToast({ type: "error", text: data.message });
+            }
+          })
+          .catch((err) => {
+            setToast({ type: "error", text: err.message });
+          });
+      }
+
+      function deleteSelectedProfile() {
+        if (!selectedProfile || selectedProfile.startsWith('template:')) {
+          setToast({ type: "warning", text: "Cannot delete built-in templates" });
+          return;
+        }
+
+        const filename = selectedProfile.replace('profile:', '');
+        const profileData = savedProfiles.find(p => p.filename === filename);
+
+        if (!confirm(`Are you sure you want to delete profile "${profileData?.name || filename}"?`)) {
+          return;
+        }
+
+        fetch(`/delete_profile/${filename}`, {
+          method: "DELETE"
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setToast({ type: "success", text: data.message });
+              logToConsole(`Deleted profile: ${filename}`);
+              setSelectedProfile("");
+              if (activeProfileName === profileData?.name) {
+                setActiveProfileName("");
+              }
+              loadProfilesAndTemplates(); // Reload profiles list
+            } else {
+              setToast({ type: "error", text: data.message });
+            }
+          })
+          .catch((err) => {
+            setToast({ type: "error", text: err.message });
+          });
+      }
+
+      // Tutorial control functions
+      function startTutorial() {
+        setTutorialActive(true);
+        setTutorialStep(1);
+        localStorage.setItem('tutorial_started', 'true');
+      }
+
+      function nextTutorialStep() {
+        if (tutorialStep < tutorialSteps.length) {
+          setTutorialStep(tutorialStep + 1);
+        }
+      }
+
+      function prevTutorialStep() {
+        if (tutorialStep > 1) {
+          setTutorialStep(tutorialStep - 1);
+        }
+      }
+
+      function skipTutorial() {
+        setTutorialActive(false);
+        setTutorialStep(1);
+        localStorage.setItem('tutorial_completed', 'true');
+        const dismissCount = parseInt(localStorage.getItem('tutorial_dismissed_count') || '0');
+        localStorage.setItem('tutorial_dismissed_count', String(dismissCount + 1));
+      }
+
+      function completeTutorial() {
+        setTutorialActive(false);
+        setTutorialStep(1);
+        localStorage.setItem('tutorial_completed', 'true');
+        setToast({ type: 'success', text: 'Tutorial completed! You\'re ready to start annotating PDFs.' });
+      }
+
+      // Workspace functions
+      function refreshWorkspace() {
+        fetch("/list_workspace_files")
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              setWorkspaceFiles(data.files);
+              logToConsole(`Workspace refreshed: ${data.total} files`);
+
+              // Auto-select all PDFs if none are selected yet
+              if (selectedPdfs.length === 0 && data.files.pdfs.length > 0) {
+                setSelectedPdfs(data.files.pdfs.map(f => f.filename));
+              }
+
+              // Auto-select first Excel file if none is selected yet
+              if (!selectedExcel && data.files.excel.length > 0) {
+                const firstExcel = data.files.excel[0].filename;
+                setSelectedExcel(firstExcel);
+                logToConsole(`Auto-selected Excel file: ${data.files.excel[0].name}`);
+
+                // Load columns for the auto-selected Excel file
+                fetch("/select_excel", {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ excel_file: firstExcel, header_row: 6 })
+                })
+                  .then((r) => r.json())
+                  .then((colData) => {
+                    if (colData.success) {
+                      onColumnsLoaded(colData.columns, colData.default_tag_column);
+                    }
+                  })
+                  .catch((err) => {
+                    console.error("Error loading columns for auto-selected Excel:", err);
+                  });
+              }
+            } else {
+              logToConsole(`Error refreshing workspace: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Error refreshing workspace: ${err.message}`);
+          });
+      }
+
+      function addOutputsToWorkspace(outputFiles) {
+        if (!outputFiles || outputFiles.length === 0) return;
+
+        fetch("/add_outputs_to_workspace", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ output_files: outputFiles })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            if (data.success) {
+              logToConsole(`Added ${data.moved_files.length} PDFs to workspace`);
+              refreshWorkspace();
+            } else {
+              logToConsole(`Error adding outputs to workspace: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            logToConsole(`Error adding outputs to workspace: ${err.message}`);
+          });
+      }
+
+      // Load workspace files on mount
+      useEffect(() => {
+        refreshWorkspace();
+      }, []);
+
+      // Check for first-time user on mount
+      useEffect(() => {
+        const tutorialCompleted = localStorage.getItem('tutorial_completed');
+        const dismissCount = parseInt(localStorage.getItem('tutorial_dismissed_count') || '0');
+
+        // Auto-start tutorial for first-time users (not completed and dismissed < 3 times)
+        if (!tutorialCompleted && dismissCount < 3) {
+          // Delay to let page render
+          setTimeout(() => {
+            startTutorial();
+          }, 1000);
+        }
+      }, []);
+
+      // Load profiles and templates on mount
+      useEffect(() => {
+        loadProfilesAndTemplates();
+      }, []);
+
       // Socket listeners
       useEffect(() => {
         function onConnect() {
@@ -899,6 +2300,25 @@
                 const count = fileCountMatch ? parseInt(fileCountMatch[1], 10) : fileCount || 1;
                 setFileCount(count);
                 logToConsole("Processing complete! Download is now available!");
+
+                // Get output files from server and add PDFs to workspace
+                fetch("/download")
+                  .then((r) => r.json())
+                  .then((data) => {
+                    if (data && data.success) {
+                      // Extract output files info
+                      const outputFiles = data.output_files || [];
+                      logToConsole(`Processing completed with ${outputFiles.length} output files`);
+
+                      // Add PDF outputs to workspace (Excel outputs are download-only)
+                      if (outputFiles.length > 0) {
+                        addOutputsToWorkspace(outputFiles);
+                      }
+                    }
+                  })
+                  .catch((err) => {
+                    logToConsole(`Error fetching output files: ${err.message}`);
+                  });
               }
             } else {
               setErrorText(data.status || "Processing failed");
@@ -934,38 +2354,14 @@
       function downloadFromModal() {
         logToConsole("Starting download from modal...");
         fetch("/download")
-          .then((r) => {
-            logToConsole(`[DEBUG] Download response status: ${r.status}, content-type: ${r.headers.get('content-type')}`);
-            // Check if response is JSON or binary file
-            const contentType = r.headers.get('content-type');
-            if (contentType && contentType.includes('application/json')) {
-              return r.json();
-            } else {
-              // Single file response - trigger download directly
-              logToConsole('[DEBUG] Single file detected, opening in new tab');
-              window.open("/download", "_blank");
-              // Trigger cleanup after a short delay to allow download to start
-              setTimeout(() => {
-                cleanupAfterDownload();
-              }, 2000);
-              return null; // Return null to skip further processing
-            }
-          })
+          .then((r) => r.json())
           .then((data) => {
-            if (!data) return; // Skip if we already handled single file download
-
             logToConsole(`[DEBUG] Download JSON response: ${JSON.stringify(data)}`);
 
-            if (data.success && data.multiple_files && Array.isArray(data.files)) {
+            if (data.success && Array.isArray(data.files)) {
               logToConsole(`Starting download of ${data.file_count || data.files.length} files...`);
               logToConsole(`[DEBUG] File URLs: ${JSON.stringify(data.files)}`);
               sequentialDownloads(data.files);
-            } else if (data.success) {
-              window.open("/download", "_blank");
-              // Trigger cleanup after a short delay for single file fallback
-              setTimeout(() => {
-                cleanupAfterDownload();
-              }, 2000);
             } else {
               logToConsole(`Download error: ${data.message}`);
               setToast({ type: "error", text: data.message || "Download error" });
@@ -973,12 +2369,7 @@
           })
           .catch((err) => {
             logToConsole(`Download error: ${err.message}`);
-            // Fallback to direct download
-            window.open("/download", "_blank");
-            // Trigger cleanup after a short delay
-            setTimeout(() => {
-              cleanupAfterDownload();
-            }, 2000);
+            setToast({ type: "error", text: `Download failed: ${err.message}` });
           });
       }
 
@@ -1024,21 +2415,18 @@
                   type: "success",
                   text: `Test files downloaded! Upload data preserved. Ready for full run.`
                 });
-                // For test runs, do NOT reset uploaded files
-                // Only close the modal
+                // For test runs, only close the modal - workspace already has files
                 closeProcessing();
+                refreshWorkspace();
               } else {
-                logToConsole(`Full cleanup successful: deleted ${data.deleted_uploads} upload(s) and ${data.deleted_outputs} output(s)`);
+                logToConsole(`Full cleanup successful: deleted ${data.deleted_outputs} Excel output(s). PDFs remain in workspace.`);
                 setToast({
                   type: "success",
-                  text: `Files downloaded! Cleaned up ${deletedCount} file(s) from server.`
+                  text: `Files downloaded! Annotated PDFs added to workspace for reprocessing.`
                 });
-                // For full runs, reset UI state completely
-                setUploadedFiles({ excel: [], pdf: [] });
-                setExcelColumns([]);
-                setTagColumn("");
-                setCommentColumns([]);
+                // For full runs, files remain in workspace - just close modal
                 closeProcessing();
+                refreshWorkspace();
               }
             } else {
               logToConsole(`Cleanup error: ${data.message}`);
@@ -1113,16 +2501,20 @@
           <Header />
 
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-6 sm:py-8 space-y-6">
-            {/* Upload */}
-            <SectionCard title="File Upload">
-              <UploadArea
-                uploadedFiles={uploadedFiles}
-                setUploadedFiles={setUploadedFiles}
-                setToast={setToast}
+            {/* File Workspace */}
+            <SectionCard title="File Workspace">
+              <FileWorkspace
+                workspaceFiles={workspaceFiles}
+                selectedPdfs={selectedPdfs}
+                selectedExcel={selectedExcel}
+                onSelectionChange={setSelectedPdfs}
+                onExcelSelectionChange={setSelectedExcel}
+                onDeleteFile={() => {}}
+                onUploadFiles={() => {}}
                 onColumnsLoaded={onColumnsLoaded}
-                onFilesUploaded={() => {}}
+                setToast={setToast}
+                onRefresh={refreshWorkspace}
               />
-              <FilesList uploadedFiles={uploadedFiles} />
             </SectionCard>
 
             {/* Configuration */}
@@ -1180,6 +2572,111 @@
                 </div>
 
                 <div>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Configuration Profiles</h3>
+                  <div className="space-y-4">
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div>
+                        <label htmlFor="profile-select" className="block text-sm font-medium mb-1">
+                          Load Profile
+                        </label>
+                        <select
+                          id="profile-select"
+                          value={selectedProfile}
+                          onChange={(e) => setSelectedProfile(e.target.value)}
+                          className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                        >
+                          <option value="">-- Select Profile --</option>
+                          {builtinTemplates.length > 0 && (
+                            <optgroup label="Built-in Templates">
+                              {builtinTemplates.map((t) => (
+                                <option key={`template-${t.name}`} value={`template:${t.name}`}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {savedProfiles.length > 0 && (
+                            <optgroup label="Saved Profiles">
+                              {savedProfiles.map((p) => (
+                                <option key={`profile-${p.filename}`} value={`profile:${p.filename}`}>
+                                  {p.name}
+                                </option>
+                              ))}
+                            </optgroup>
+                          )}
+                        </select>
+                        {selectedProfile && (
+                          <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                            {selectedProfile.startsWith('template:')
+                              ? builtinTemplates.find(t => t.name === selectedProfile.replace('template:', ''))?.description
+                              : savedProfiles.find(p => p.filename === selectedProfile.replace('profile:', ''))?.description}
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium mb-1">Actions</label>
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={loadSelectedProfile}
+                            disabled={!selectedProfile}
+                            className="rounded-lg bg-brand text-white px-3 py-2 text-sm font-medium hover:bg-brand-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <i className="fa-solid fa-download mr-1"></i>
+                            Load
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowSaveProfileModal(true)}
+                            className="rounded-lg bg-success text-white px-3 py-2 text-sm font-medium hover:bg-success-hover transition-colors"
+                          >
+                            <i className="fa-solid fa-save mr-1"></i>
+                            Save
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={exportSelectedProfile}
+                        disabled={!selectedProfile || selectedProfile.startsWith('template:')}
+                        className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-2 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <i className="fa-solid fa-file-export mr-1"></i>
+                        Export JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowImportProfileModal(true)}
+                        className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-2 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+                      >
+                        <i className="fa-solid fa-file-import mr-1"></i>
+                        Import JSON
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deleteSelectedProfile}
+                        disabled={!selectedProfile || selectedProfile.startsWith('template:')}
+                        className="rounded-lg bg-danger text-white px-3 py-2 text-sm font-medium hover:bg-danger-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <i className="fa-solid fa-trash mr-1"></i>
+                        Delete
+                      </button>
+                    </div>
+
+                    {activeProfileName && (
+                      <div className="flex items-center gap-2 rounded-lg bg-brand/10 border border-brand/30 px-3 py-2 text-sm">
+                        <i className="fa-solid fa-circle-check text-brand"></i>
+                        <span className="font-medium">Active Profile:</span>
+                        <span>{activeProfileName}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="comment-columns-tutorial">
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Comment Columns</h3>
                   <div>
                     <div className="mb-4">
@@ -1279,7 +2776,7 @@
                   </div>
                 </div>
 
-                <div>
+                <div className="excel-annotation-tutorial">
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Excel Annotation</h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">
@@ -1310,7 +2807,7 @@
                   </div>
                 </div>
 
-                <div>
+                <div className="watermark-tutorial">
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Watermark</h3>
                   <div className="space-y-4">
                     <div>
@@ -1422,7 +2919,7 @@
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <button
                   onClick={() => startProcessing(false)}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-3 font-semibold shadow-soft hover:bg-brand-hover transition-all hover:shadow-md hover:scale-[1.01]"
+                  className="start-button-tutorial inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-3 font-semibold shadow-soft hover:bg-brand-hover transition-all hover:shadow-md hover:scale-[1.01]"
                 >
                   <i className="fa-solid fa-play"></i>
                   Start
@@ -1442,8 +2939,12 @@
                   Clear Session
                 </button>
                 <button
-                  onClick={() => setShowFAQ(true)}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-200/90 dark:bg-zinc-800 px-4 py-3 font-semibold hover:bg-zinc-300/80 dark:hover:bg-zinc-700 transition-all"
+                  onClick={() => {
+                    console.log('FAQ button clicked, current showFAQ:', showFAQ);
+                    setShowFAQ(true);
+                    console.log('setShowFAQ(true) called');
+                  }}
+                  className="faq-button-tutorial inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-200/90 dark:bg-zinc-800 px-4 py-3 font-semibold hover:bg-zinc-300/80 dark:hover:bg-zinc-700 transition-all"
                 >
                   <i className="fa-solid fa-circle-question"></i>
                   FAQ
@@ -1496,7 +2997,25 @@
             isTestRun={isCurrentTestRun}
             onStartFullRun={() => startProcessing(false)}
           />
-          <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} />
+          <SaveProfileModal
+            open={showSaveProfileModal}
+            onClose={() => setShowSaveProfileModal(false)}
+            onSave={saveCurrentProfile}
+          />
+          <ImportProfileModal
+            open={showImportProfileModal}
+            onClose={() => setShowImportProfileModal(false)}
+            onImport={importProfileFile}
+          />
+          <TutorialOverlay
+            active={tutorialActive}
+            currentStep={tutorialStep}
+            onNext={nextTutorialStep}
+            onPrev={prevTutorialStep}
+            onSkip={skipTutorial}
+            onComplete={completeTutorial}
+          />
+          <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} onStartTutorial={startTutorial} />
         </div>
       );
     }

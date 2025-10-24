@@ -1,42 +1,82 @@
 services:
   pid-annotator:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      platforms:
+        - linux/arm64  # Raspberry Pi 5 specific
     container_name: pid-annotator-web
+    platform: linux/arm64
     ports:
-      - "8080:8080"  # External port 18080 maps to internal port 8080
+      - "5001:5001"  # Map to port 5001 (configurable in CasaOS)
     environment:
-      - PORT=8080
+      - PORT=5001
       - FLASK_ENV=production
+      - TZ=Europe/Copenhagen  # Adjust to your timezone
+      - PYTHONUNBUFFERED=1
     volumes:
-      # Mount existing directories for persistent data
-      - ./uploads:/app/uploads:rw
-      - ./output:/app/output:rw
+      # Named volumes for better CasaOS integration
+      - pid_uploads:/app/uploads:rw
+      - pid_output:/app/output:rw
+      # tmpfs for temporary files to reduce SD card wear
+    tmpfs:
+      - /tmp:size=512M,mode=1777
+      - /app/.cache:size=256M,mode=755
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:${PORT:-8080}/', timeout=5).status==200 else 1)\""]
-      interval: 30s
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5001/ || exit 1"]
+      interval: 45s
       timeout: 10s
       retries: 3
-      start_period: 40s
-    # Resource limits for Raspberry Pi 5 (applied via Compose v2.4 service keys)
-    mem_limit: 2g
-    cpus: 2.0
-    # Logging configuration
+      start_period: 60s
+    # Optimized resource limits for Raspberry Pi 5 (4GB RAM)
+    # For 4GB model: use mem_limit: 1536m, cpus: 2.5
+    # For 8GB model: use mem_limit: 2560m, cpus: 3.0
+    mem_limit: 1536m  # 1.5GB for 4GB Pi 5
+    mem_reservation: 512m  # Minimum guaranteed memory
+    cpus: 2.5  # Use 2.5 of 4 cores (leave 1.5 for system)
+    # Logging configuration - prevent disk fill
     logging:
       driver: "json-file"
       options:
-        max-size: "10m"
+        max-size: "5m"
         max-file: "3"
+        compress: "true"
     networks:
       - pid_network
+    # CasaOS specific labels
+    labels:
+      # App metadata
+      net.casaos.app.name: "PID Annotator"
+      net.casaos.app.version: "1.0"
+      net.casaos.app.author: "Rudi S. Kærgaard"
+      net.casaos.app.description: "Annotate P&ID PDF documents with Excel metadata"
+      net.casaos.app.category: "Utilities"
+      net.casaos.app.icon: "https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/pdf.png"
+      # Port configuration
+      net.casaos.app.web-port: "5001"
+      net.casaos.app.protocol: "http"
+      # Health check
+      net.casaos.app.healthcheck: "http://localhost:5001/"
 
-# Optional: Create named volumes for better data management
+# Named volumes for CasaOS volume management
 volumes:
-  pid_data:
   pid_uploads:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./persistent_uploads
   pid_output:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./persistent_output
 
-# Optional: Create custom network
+# Custom bridge network
 networks:
   pid_network:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-pidannotator

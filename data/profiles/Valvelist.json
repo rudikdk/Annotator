@@ -1,0 +1,22 @@
+{
+  "name": "Valvelist",
+  "description": "",
+  "version": "1.0",
+  "created_at": "2025-10-23T20:16:04.557318",
+  "settings": {
+    "header_row": 6,
+    "tag_column": "LRS Tag no. ",
+    "comment_columns": [
+      "DN Size"
+    ],
+    "highlight_column": "",
+    "highlight_color": "#FFFF00",
+    "annotate_excel": false,
+    "watermark_enabled": true,
+    "watermark_attributes": [
+      "DN Size",
+      "Valve type"
+    ],
+    "watermark_text_color": "#ff0000"
+  }
+}

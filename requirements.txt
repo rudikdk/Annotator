@@ -1,11 +1,33 @@
+# PID Annotator Requirements - Optimized for ARM64 (Raspberry Pi 5)
+# Updated: 2025-01-23
+
+# Web Framework
 Flask==2.3.3
-Flask-SocketIO==5.3.6
-pandas>=2.0.0
-PyMuPDF>=1.23.0
-openpyxl>=3.1.0
 Werkzeug==2.3.7
+
+# WebSocket Support (real-time progress updates)
+Flask-SocketIO==5.3.6
 python-socketio==5.8.0
-# eventlet==0.33.3  # Disabled: Not compatible with Python 3.13 - use threading mode for local dev
+eventlet==0.33.3  # Re-enabled for production (Docker) WebSocket support
+
+# Production WSGI Server
 gunicorn==21.2.0
-reportlab
-PyPDF2
+
+# Data Processing
+pandas>=2.0.0
+
+# PDF Processing
+PyMuPDF>=1.23.0  # ARM64 wheels available
+PyPDF2>=3.0.0    # Specify version for stability
+
+# Excel Processing
+openpyxl>=3.1.0
+
+# PDF Generation & Watermarking
+reportlab>=4.0.0
+
+# Optional: Performance improvements for ARM64
+# These are automatically used if available, ignored if not
+# Uncomment if you experience performance issues:
+# numpy>=1.24.0  # Faster pandas operations on ARM64
+# Pillow>=10.0.0  # Better image handling in PDFs

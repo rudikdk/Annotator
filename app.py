@@ -94,11 +94,11 @@ cleanup_old_files()
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {
     'pdf': {'pdf'},
-    'excel': {'xlsx', 'xls'}
+    'excel': {'xlsx', 'xls', 'csv'}
 }
 
 # Combined allowed extensions for unified upload
-ALL_ALLOWED_EXTENSIONS = {'pdf', 'xlsx', 'xls'}
+ALL_ALLOWED_EXTENSIONS = {'pdf', 'xlsx', 'xls', 'csv'}
 
 def allowed_file(filename, file_type):
     return '.' in filename and \
@@ -285,17 +285,45 @@ def reload_columns():
     """Reload Excel columns with new header row"""
     data = request.get_json()
     header_row = data.get('header_row', 6)
-    
+
     if 'excel_file' not in session:
         return jsonify({'success': False, 'message': 'No Excel file uploaded'})
-    
+
     excel_path = os.path.join(app.config['UPLOAD_FOLDER'], session['excel_file'])
     result = reload_excel_columns(excel_path, header_row)
-    
+
     if result['success']:
         session['excel_columns'] = result['columns']
         session['default_tag_column'] = result['default_tag_column']
-    
+
+    return jsonify(result)
+
+@app.route('/select_excel', methods=['POST'])
+def select_excel():
+    """Select an Excel file and load its columns"""
+    data = request.get_json()
+    excel_file = data.get('excel_file')
+    header_row = data.get('header_row', 6)
+
+    if not excel_file:
+        return jsonify({'success': False, 'message': 'No Excel file specified'})
+
+    # Validate file exists
+    excel_path = os.path.join(app.config['UPLOAD_FOLDER'], excel_file)
+    if not os.path.exists(excel_path):
+        return jsonify({'success': False, 'message': f'Excel file not found: {excel_file}'})
+
+    # Update session with selected Excel file
+    session['excel_file'] = excel_file
+
+    # Load columns
+    result = reload_excel_columns(excel_path, header_row)
+
+    if result['success']:
+        session['excel_columns'] = result['columns']
+        session['default_tag_column'] = result['default_tag_column']
+        print(f"[SESSION] Selected Excel file updated: {excel_file}")
+
     return jsonify(result)
 
 @app.route('/process', methods=['POST'])
@@ -305,22 +333,84 @@ def process_files():
         # Get form data
         data = request.get_json()
 
-        # Validate required files (allow auto-discovery from mounted uploads if session is empty)
-        pdf_files = session.get('pdf_files', [])
-        excel_in_session = session.get('excel_file')
-        if not pdf_files or not excel_in_session:
-            try_attach_existing_files_to_session()
-            pdf_files = session.get('pdf_files', [])
-            excel_in_session = session.get('excel_file')
-        if not pdf_files or not excel_in_session:
-            return jsonify({'success': False, 'message': 'Please upload PDF and Excel files'})
+        # Get selected PDFs and Excel from request
+        selected_pdfs = data.get('selected_pdfs', [])
+        selected_excel = data.get('selected_excel', None)
 
-        # Get file paths
-        excel_path = os.path.join(app.config['UPLOAD_FOLDER'], session['excel_file'])
+        # Validate Excel file - use selected_excel from frontend if provided
+        if selected_excel:
+            excel_file = selected_excel
+            print(f"[APP DEBUG] Using selected Excel file: {excel_file}")
+        else:
+            # Fallback to session for backward compatibility
+            excel_file = session.get('excel_file')
+            if not excel_file:
+                try_attach_existing_files_to_session()
+                excel_file = session.get('excel_file')
+            print(f"[APP DEBUG] Using Excel file from session: {excel_file}")
+
+        if not excel_file:
+            return jsonify({'success': False, 'message': 'Please select an Excel/CSV file'})
+
+        # Validate that selected Excel file exists on disk
+        uploads_dir = Path(app.config['UPLOAD_FOLDER'])
+        excel_path_obj = uploads_dir / excel_file
+        if not excel_path_obj.exists():
+            return jsonify({'success': False, 'message': f'Selected Excel file not found: {excel_file}'})
+
+        # Convert to string for compatibility with processing functions
+        excel_path = str(excel_path_obj)
+
+        # Use selected PDFs directly from request (they come from workspace which lists actual files)
+        if selected_pdfs:
+            pdf_files = selected_pdfs
+            print(f"[APP DEBUG] Processing {len(pdf_files)} selected PDF(s)")
+
+            # Validate that selected files actually exist on disk
+            uploads_dir = Path(app.config['UPLOAD_FOLDER'])
+            valid_pdf_files = []
+            for pdf_file in pdf_files:
+                pdf_path = uploads_dir / pdf_file
+                if pdf_path.exists():
+                    valid_pdf_files.append(pdf_file)
+                else:
+                    print(f"[APP WARNING] Selected PDF not found: {pdf_file}")
+
+            if not valid_pdf_files:
+                return jsonify({'success': False, 'message': 'None of the selected PDF files exist on disk'})
+
+            pdf_files = valid_pdf_files
+            print(f"[APP DEBUG] Validated {len(pdf_files)} PDF file(s) exist on disk")
+        else:
+            # Fallback: use PDFs from session (backward compatibility)
+            pdf_files = session.get('pdf_files', [])
+            if not pdf_files:
+                try_attach_existing_files_to_session()
+                pdf_files = session.get('pdf_files', [])
+            if not pdf_files:
+                return jsonify({'success': False, 'message': 'No PDF files selected'})
+            print(f"[APP DEBUG] No PDF selection provided, using all {len(pdf_files)} PDF(s) from session")
+
+        # Get file paths (excel_path already set during validation above)
         pdf_paths = [os.path.join(app.config['UPLOAD_FOLDER'], pdf_file) for pdf_file in pdf_files]
 
-        # Get original PDF names for clean output naming
-        original_pdf_names = session.get('original_pdf_names', [])
+        # Get original PDF names for clean output naming (matching the selected PDFs)
+        all_original_names = session.get('original_pdf_names', [])
+        all_session_pdfs = session.get('pdf_files', [])
+        original_pdf_names = []
+        for pdf_file in pdf_files:
+            try:
+                idx = all_session_pdfs.index(pdf_file)
+                if idx < len(all_original_names):
+                    original_pdf_names.append(all_original_names[idx])
+                else:
+                    # Fallback: use filename without session ID
+                    session_id = session.get('session_id', 'default')
+                    original_pdf_names.append(pdf_file[len(f"{session_id}_"):] if pdf_file.startswith(f"{session_id}_") else pdf_file)
+            except ValueError:
+                # Fallback
+                session_id = session.get('session_id', 'default')
+                original_pdf_names.append(pdf_file[len(f"{session_id}_"):] if pdf_file.startswith(f"{session_id}_") else pdf_file)
 
         # Get processing parameters
         header_row = data.get('header_row', 6)
@@ -564,34 +654,47 @@ def download_file():
     if not output_files:
         return jsonify({'success': False, 'message': 'No output files available'})
 
-    # Single file download
-    if len(output_files) == 1:
-        print(f"[APP DEBUG] Single file download mode")
-        output_path = os.path.join(app.config['OUTPUT_FOLDER'], output_files[0])
-        if not os.path.exists(output_path):
-            print(f"[APP ERROR] Output file not found: {output_path}")
-            return jsonify({'success': False, 'message': 'Output file not found'})
+    # Return JSON with file info for download
+    # Note: Files might be in output folder OR uploads folder (if already moved to workspace)
+    file_urls = []
+    for filename in output_files:
+        # Check if file exists in either location
+        output_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+        uploads_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
 
-        # Use clean filename for download
-        clean_name = get_clean_filename(output_files[0])
-        print(f"[APP DEBUG] Sending single file: {clean_name}")
-        return send_file(output_path, as_attachment=True, download_name=clean_name)
+        if os.path.exists(output_path) or os.path.exists(uploads_path):
+            file_urls.append(f'/download_file/{filename}')
+        else:
+            print(f"[APP WARNING] File not found in output or uploads: {filename}")
+
+    if not file_urls:
+        print(f"[APP ERROR] No output files found")
+        return jsonify({'success': False, 'message': 'Output files not found'})
+
+    # Single file download
+    if len(file_urls) == 1:
+        print(f"[APP DEBUG] Single file download mode")
+        response_data = {
+            'success': True,
+            'multiple_files': False,
+            'file_count': 1,
+            'files': file_urls,
+            'output_files': output_files,  # Include original filenames for workspace management
+            'message': '1 file ready for download'
+        }
+        print(f"[APP DEBUG] Returning JSON response for single file: {response_data}")
+        return jsonify(response_data)
 
     # Multiple files - return JSON with file list for sequential download
     else:
         print(f"[APP DEBUG] Multiple files download mode")
-        file_urls = []
-        for filename in output_files:
-            file_url = f'/download_file/{filename}'
-            file_urls.append(file_url)
-            print(f"[APP DEBUG] Added file URL: {file_url}")
-
         response_data = {
             'success': True,
             'multiple_files': True,
-            'file_count': len(output_files),
+            'file_count': len(file_urls),
             'files': file_urls,
-            'message': f'{len(output_files)} files ready for download'
+            'output_files': output_files,  # Include original filenames for workspace management
+            'message': f'{len(file_urls)} files ready for download'
         }
         print(f"[APP DEBUG] Returning JSON response: {response_data}")
         return jsonify(response_data)
@@ -611,13 +714,25 @@ def download_single_file(filename):
     if filename not in output_files:
         return jsonify({'success': False, 'message': 'File not found'})
 
+    # Check both output and uploads folders (files might have been moved to workspace)
     output_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
-    if not os.path.exists(output_path):
+    uploads_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+
+    file_path = None
+    if os.path.exists(output_path):
+        file_path = output_path
+        print(f"[DOWNLOAD] Found file in output folder: {filename}")
+    elif os.path.exists(uploads_path):
+        file_path = uploads_path
+        print(f"[DOWNLOAD] Found file in uploads folder (workspace): {filename}")
+
+    if not file_path:
+        print(f"[DOWNLOAD ERROR] File not found in either folder: {filename}")
         return jsonify({'success': False, 'message': 'File not found'})
 
     # Use clean filename for download
     clean_name = get_clean_filename(filename)
-    return send_file(output_path, as_attachment=True, download_name=clean_name)
+    return send_file(file_path, as_attachment=True, download_name=clean_name)
 
 @app.route('/progress/<task_id>')
 def get_progress(task_id):
@@ -675,7 +790,7 @@ def cleanup_test_output():
 
 @app.route('/cleanup_after_download', methods=['POST'])
 def cleanup_after_download():
-    """Delete uploaded and output files after successful download"""
+    """Delete Excel output files after download (PDFs stay in workspace)"""
     try:
         session_id = session.get('session_id', 'default')
         current_task = session.get('current_task')
@@ -690,59 +805,36 @@ def cleanup_after_download():
             print(f"[CLEANUP] Test run detected - preserving uploads")
             return cleanup_test_output()
 
-        # Full run cleanup - delete everything
+        # For full runs, only delete Excel output files (PDFs are already in workspace)
         print(f"[CLEANUP] Starting post-download cleanup for session {session_id}")
 
-        # Delete session-specific files from uploads directory
-        uploads_dir = Path(app.config['UPLOAD_FOLDER'])
-        deleted_uploads = 0
-        for file_path in uploads_dir.glob(f'{session_id}_*'):
-            if file_path.is_file():
-                try:
-                    file_path.unlink()
-                    deleted_uploads += 1
-                    print(f"[CLEANUP] Deleted upload file: {file_path.name}")
-                except Exception as e:
-                    print(f"[CLEANUP ERROR] Failed to delete upload file {file_path.name}: {e}")
-
-        # Delete session-specific files from output directory
+        # Delete only Excel files from output directory (PDFs already moved to workspace)
         output_dir = Path(app.config['OUTPUT_FOLDER'])
         deleted_outputs = 0
-        for file_path in output_dir.glob(f'{session_id}_*'):
+        for file_path in output_dir.glob(f'{session_id}_*.xlsx'):
             if file_path.is_file():
                 try:
                     file_path.unlink()
                     deleted_outputs += 1
-                    print(f"[CLEANUP] Deleted output file: {file_path.name}")
+                    print(f"[CLEANUP] Deleted Excel output file: {file_path.name}")
                 except Exception as e:
                     print(f"[CLEANUP ERROR] Failed to delete output file {file_path.name}: {e}")
 
-        # Clear session data
-        session.pop('pdf_files', None)
-        session.pop('original_pdf_names', None)
-        session.pop('pdf_file', None)
-        session.pop('original_pdf_name', None)
-        session.pop('excel_file', None)
-        session.pop('excel_columns', None)
-        session.pop('default_tag_column', None)
-        session.pop('current_task', None)
-
-        # Clean up output_files_data for this task
+        # Don't clear session data - files remain in workspace for reprocessing
+        # Only clear task-specific data
         if current_task and current_task in output_files_data:
             del output_files_data[current_task]
             print(f"[CLEANUP] Cleared output_files_data for task {current_task}")
 
-        # Clean up progress_data for this task
         if current_task and current_task in progress_data:
             del progress_data[current_task]
             print(f"[CLEANUP] Cleared progress_data for task {current_task}")
 
-        print(f"[CLEANUP] Cleanup complete. Deleted {deleted_uploads} upload file(s) and {deleted_outputs} output file(s)")
+        print(f"[CLEANUP] Cleanup complete. Deleted {deleted_outputs} Excel output file(s). PDFs remain in workspace.")
 
         return jsonify({
             'success': True,
-            'message': f'Files cleaned up successfully',
-            'deleted_uploads': deleted_uploads,
+            'message': f'Excel outputs cleaned up. PDFs remain in workspace.',
             'deleted_outputs': deleted_outputs
         })
 
@@ -751,6 +843,218 @@ def cleanup_after_download():
         return jsonify({
             'success': False,
             'message': f'Error during cleanup: {str(e)}'
+        })
+
+@app.route('/delete_file', methods=['POST'])
+def delete_file():
+    """Delete a single file from the workspace"""
+    try:
+        data = request.get_json()
+        filename = data.get('filename')
+
+        if not filename:
+            return jsonify({'success': False, 'message': 'No filename provided'})
+
+        session_id = session.get('session_id', 'default')
+
+        # Security: ensure filename belongs to current session
+        if not filename.startswith(f"{session_id}_"):
+            return jsonify({'success': False, 'message': 'Invalid file access'})
+
+        # Try to find and delete file from uploads or output folder
+        deleted = False
+        file_path = None
+
+        uploads_path = Path(app.config['UPLOAD_FOLDER']) / filename
+        output_path = Path(app.config['OUTPUT_FOLDER']) / filename
+
+        if uploads_path.exists():
+            uploads_path.unlink()
+            file_path = uploads_path
+            deleted = True
+            print(f"[FILE DELETE] Deleted from uploads: {filename}")
+        elif output_path.exists():
+            output_path.unlink()
+            file_path = output_path
+            deleted = True
+            print(f"[FILE DELETE] Deleted from output: {filename}")
+
+        if not deleted:
+            return jsonify({'success': False, 'message': 'File not found'})
+
+        # Remove from session data
+        if 'pdf_files' in session and filename in session['pdf_files']:
+            pdf_index = session['pdf_files'].index(filename)
+            session['pdf_files'].pop(pdf_index)
+            if 'original_pdf_names' in session and pdf_index < len(session['original_pdf_names']):
+                session['original_pdf_names'].pop(pdf_index)
+            print(f"[FILE DELETE] Removed from pdf_files session")
+
+        if session.get('excel_file') == filename:
+            session.pop('excel_file', None)
+            session.pop('excel_columns', None)
+            session.pop('default_tag_column', None)
+            print(f"[FILE DELETE] Removed excel_file from session")
+
+        # Also remove from output_files_data if present
+        current_task = session.get('current_task')
+        if current_task and current_task in output_files_data:
+            task_data = output_files_data[current_task]
+            if 'output_files' in task_data and filename in task_data['output_files']:
+                task_data['output_files'].remove(filename)
+                print(f"[FILE DELETE] Removed from output_files_data")
+
+        return jsonify({
+            'success': True,
+            'message': f'File deleted successfully: {filename}'
+        })
+
+    except Exception as e:
+        print(f"[FILE DELETE ERROR] {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting file: {str(e)}'
+        })
+
+@app.route('/add_outputs_to_workspace', methods=['POST'])
+def add_outputs_to_workspace():
+    """Move output PDFs from output folder to workspace (uploads folder) after processing"""
+    try:
+        data = request.get_json()
+        output_files = data.get('output_files', [])
+
+        session_id = session.get('session_id', 'default')
+        uploads_dir = Path(app.config['UPLOAD_FOLDER'])
+        output_dir = Path(app.config['OUTPUT_FOLDER'])
+
+        moved_pdfs = []
+
+        for filename in output_files:
+            # Only move PDF files (not Excel outputs)
+            if not filename.endswith('.pdf'):
+                continue
+
+            output_path = output_dir / filename
+            upload_path = uploads_dir / filename
+
+            # Move file from output to uploads folder
+            if output_path.exists():
+                import shutil
+                shutil.move(str(output_path), str(upload_path))
+                print(f"[WORKSPACE] Moved {filename} to workspace")
+
+                # Extract original name for session tracking
+                original_name = filename[len(f"{session_id}_"):]
+
+                # Add to session pdf_files
+                if 'pdf_files' not in session:
+                    session['pdf_files'] = []
+                if 'original_pdf_names' not in session:
+                    session['original_pdf_names'] = []
+
+                if filename not in session['pdf_files']:
+                    session['pdf_files'].append(filename)
+                    session['original_pdf_names'].append(original_name)
+
+                moved_pdfs.append(filename)
+
+        # Mark session as modified to ensure Flask persists the changes
+        if moved_pdfs:
+            session.modified = True
+
+        print(f"[WORKSPACE] Added {len(moved_pdfs)} PDFs to workspace")
+
+        return jsonify({
+            'success': True,
+            'message': f'{len(moved_pdfs)} PDFs added to workspace',
+            'moved_files': moved_pdfs
+        })
+
+    except Exception as e:
+        print(f"[WORKSPACE ERROR] {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error adding outputs to workspace: {str(e)}'
+        })
+
+@app.route('/list_workspace_files', methods=['GET'])
+def list_workspace_files():
+    """Get list of all files in the workspace (uploads + outputs)"""
+    try:
+        session_id = session.get('session_id', 'default')
+        uploads_dir = Path(app.config['UPLOAD_FOLDER'])
+        output_dir = Path(app.config['OUTPUT_FOLDER'])
+
+        files_data = {
+            'excel': [],
+            'pdfs': []
+        }
+
+        # Scan uploads folder
+        for file_path in uploads_dir.glob(f'{session_id}_*'):
+            if file_path.is_file():
+                original_name = file_path.name[len(f"{session_id}_"):]
+                file_ext = file_path.suffix.lower()
+                file_size = file_path.stat().st_size
+
+                if file_ext in ['.xlsx', '.xls', '.csv']:
+                    files_data['excel'].append({
+                        'name': original_name,
+                        'filename': file_path.name,
+                        'size': file_size,
+                        'uploadedAt': file_path.stat().st_mtime,
+                        'type': file_ext[1:]  # Remove dot
+                    })
+                elif file_ext == '.pdf':
+                    is_annotated = '_annotated_' in original_name
+                    is_test = '_TEST_' in original_name
+                    files_data['pdfs'].append({
+                        'name': original_name,
+                        'filename': file_path.name,
+                        'size': file_size,
+                        'uploadedAt': file_path.stat().st_mtime,
+                        'isAnnotated': is_annotated,
+                        'isTest': is_test
+                    })
+
+        # Scan output folder for PDFs (outputs that haven't been moved to uploads yet)
+        for file_path in output_dir.glob(f'{session_id}_*.pdf'):
+            if file_path.is_file():
+                original_name = file_path.name[len(f"{session_id}_"):]
+                file_size = file_path.stat().st_size
+                is_annotated = '_annotated_' in original_name
+                is_test = '_TEST_' in original_name
+
+                # Check if already in pdfs list (avoid duplicates)
+                if not any(f['filename'] == file_path.name for f in files_data['pdfs']):
+                    files_data['pdfs'].append({
+                        'name': original_name,
+                        'filename': file_path.name,
+                        'size': file_size,
+                        'uploadedAt': file_path.stat().st_mtime,
+                        'isAnnotated': is_annotated,
+                        'isTest': is_test,
+                        'inOutput': True  # Mark as being in output folder
+                    })
+
+        # Sort files by upload time (most recent first)
+        files_data['pdfs'].sort(key=lambda x: x['uploadedAt'], reverse=True)
+        files_data['excel'].sort(key=lambda x: x['uploadedAt'], reverse=True)
+
+        print(f"[WORKSPACE LIST] Found {len(files_data['excel'])} Excel/CSV files and {len(files_data['pdfs'])} PDFs")
+
+        return jsonify({
+            'success': True,
+            'files': files_data,
+            'total': len(files_data['excel']) + len(files_data['pdfs'])
+        })
+
+    except Exception as e:
+        print(f"[WORKSPACE LIST ERROR] {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error listing files: {str(e)}',
+            'files': {'excel': [], 'pdfs': []}
         })
 
 @app.route('/clear_session', methods=['POST'])
@@ -795,6 +1099,405 @@ def clear_session():
         return jsonify({
             'success': False,
             'message': f'Error clearing session: {str(e)}'
+        })
+
+# Configuration Profile Management
+PROFILES_FOLDER = str(APP_ROOT / 'data' / 'profiles')
+os.makedirs(PROFILES_FOLDER, exist_ok=True)
+
+def get_builtin_templates():
+    """Return built-in configuration templates"""
+    return [
+        {
+            "name": "Minimal Setup",
+            "description": "Only tag highlighting, no comments or watermarks",
+            "version": "1.0",
+            "builtin": True,
+            "settings": {
+                "header_row": 6,
+                "tag_column": None,
+                "comment_columns": [],
+                "highlight_column": "",
+                "highlight_color": "#FFFF00",
+                "annotate_excel": False,
+                "watermark_enabled": False,
+                "watermark_attributes": [],
+                "watermark_text_color": "#000000"
+            }
+        },
+        {
+            "name": "Standard Documentation",
+            "description": "Tag highlighting with basic comments",
+            "version": "1.0",
+            "builtin": True,
+            "settings": {
+                "header_row": 6,
+                "tag_column": None,
+                "comment_columns": [],
+                "highlight_column": "",
+                "highlight_color": "#FFFF00",
+                "annotate_excel": False,
+                "watermark_enabled": False,
+                "watermark_attributes": [],
+                "watermark_text_color": "#000000"
+            }
+        },
+        {
+            "name": "Production Ready",
+            "description": "All features enabled - comprehensive annotations",
+            "version": "1.0",
+            "builtin": True,
+            "settings": {
+                "header_row": 6,
+                "tag_column": None,
+                "comment_columns": [],
+                "highlight_column": "",
+                "highlight_color": "#FF0000",
+                "annotate_excel": True,
+                "watermark_enabled": True,
+                "watermark_attributes": [],
+                "watermark_text_color": "#000000"
+            }
+        },
+        {
+            "name": "Quick Review",
+            "description": "Optimized for test runs and quick validation",
+            "version": "1.0",
+            "builtin": True,
+            "settings": {
+                "header_row": 6,
+                "tag_column": None,
+                "comment_columns": [],
+                "highlight_column": "",
+                "highlight_color": "#00FF00",
+                "annotate_excel": False,
+                "watermark_enabled": False,
+                "watermark_attributes": [],
+                "watermark_text_color": "#000000"
+            }
+        },
+        {
+            "name": "Excel Focus",
+            "description": "Prioritizes Excel annotation with highlighting",
+            "version": "1.0",
+            "builtin": True,
+            "settings": {
+                "header_row": 6,
+                "tag_column": None,
+                "comment_columns": [],
+                "highlight_column": "",
+                "highlight_color": "#90EE90",
+                "annotate_excel": True,
+                "watermark_enabled": False,
+                "watermark_attributes": [],
+                "watermark_text_color": "#000000"
+            }
+        }
+    ]
+
+def validate_profile_data(data):
+    """Validate profile data structure"""
+    required_fields = ['name', 'settings']
+    settings_fields = [
+        'header_row', 'tag_column', 'comment_columns',
+        'highlight_column', 'highlight_color', 'annotate_excel',
+        'watermark_enabled', 'watermark_attributes', 'watermark_text_color'
+    ]
+
+    # Check required fields
+    for field in required_fields:
+        if field not in data:
+            return False, f"Missing required field: {field}"
+
+    # Check settings fields
+    settings = data.get('settings', {})
+    for field in settings_fields:
+        if field not in settings:
+            return False, f"Missing settings field: {field}"
+
+    # Validate data types
+    if not isinstance(settings['header_row'], int) or settings['header_row'] < 1:
+        return False, "header_row must be a positive integer"
+
+    if not isinstance(settings['comment_columns'], list):
+        return False, "comment_columns must be a list"
+
+    if not isinstance(settings['annotate_excel'], bool):
+        return False, "annotate_excel must be a boolean"
+
+    if not isinstance(settings['watermark_enabled'], bool):
+        return False, "watermark_enabled must be a boolean"
+
+    if not isinstance(settings['watermark_attributes'], list):
+        return False, "watermark_attributes must be a list"
+
+    return True, "Valid"
+
+@app.route('/get_builtin_templates', methods=['GET'])
+def get_templates():
+    """Get built-in configuration templates"""
+    try:
+        templates = get_builtin_templates()
+        return jsonify({
+            'success': True,
+            'templates': templates
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error loading templates: {str(e)}'
+        })
+
+@app.route('/save_profile', methods=['POST'])
+def save_profile():
+    """Save current configuration as a named profile"""
+    try:
+        data = request.get_json()
+
+        # Validate profile data
+        is_valid, message = validate_profile_data(data)
+        if not is_valid:
+            return jsonify({
+                'success': False,
+                'message': f'Invalid profile data: {message}'
+            })
+
+        # Create profile object
+        profile = {
+            'name': data['name'],
+            'description': data.get('description', ''),
+            'version': '1.0',
+            'created_at': datetime.now().isoformat(),
+            'settings': data['settings']
+        }
+
+        # Sanitize filename
+        filename = secure_filename(data['name']) + '.json'
+        filepath = os.path.join(PROFILES_FOLDER, filename)
+
+        # Save to file
+        with open(filepath, 'w') as f:
+            json.dump(profile, f, indent=2)
+
+        print(f"[PROFILE] Saved profile: {data['name']}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Profile "{data["name"]}" saved successfully',
+            'filename': filename
+        })
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to save profile: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error saving profile: {str(e)}'
+        })
+
+@app.route('/load_profiles', methods=['GET'])
+def load_profiles():
+    """Get list of all saved profiles"""
+    try:
+        profiles = []
+
+        # Load all JSON files from profiles folder
+        for filename in os.listdir(PROFILES_FOLDER):
+            if filename.endswith('.json'):
+                filepath = os.path.join(PROFILES_FOLDER, filename)
+                try:
+                    with open(filepath, 'r') as f:
+                        profile = json.load(f)
+                        # Add metadata
+                        profile['filename'] = filename
+                        profile['builtin'] = False
+                        profiles.append(profile)
+                except Exception as e:
+                    print(f"[PROFILE WARNING] Failed to load profile {filename}: {str(e)}")
+                    continue
+
+        return jsonify({
+            'success': True,
+            'profiles': profiles,
+            'count': len(profiles)
+        })
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to load profiles: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error loading profiles: {str(e)}',
+            'profiles': []
+        })
+
+@app.route('/load_profile/<filename>', methods=['GET'])
+def load_profile(filename):
+    """Load a specific profile by filename"""
+    try:
+        # Sanitize filename
+        filename = secure_filename(filename)
+        if not filename.endswith('.json'):
+            filename += '.json'
+
+        filepath = os.path.join(PROFILES_FOLDER, filename)
+
+        if not os.path.exists(filepath):
+            return jsonify({
+                'success': False,
+                'message': f'Profile not found: {filename}'
+            })
+
+        with open(filepath, 'r') as f:
+            profile = json.load(f)
+
+        print(f"[PROFILE] Loaded profile: {profile.get('name', filename)}")
+
+        return jsonify({
+            'success': True,
+            'profile': profile
+        })
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to load profile {filename}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error loading profile: {str(e)}'
+        })
+
+@app.route('/delete_profile/<filename>', methods=['DELETE'])
+def delete_profile(filename):
+    """Delete a profile"""
+    try:
+        # Sanitize filename
+        filename = secure_filename(filename)
+        if not filename.endswith('.json'):
+            filename += '.json'
+
+        filepath = os.path.join(PROFILES_FOLDER, filename)
+
+        if not os.path.exists(filepath):
+            return jsonify({
+                'success': False,
+                'message': f'Profile not found: {filename}'
+            })
+
+        os.remove(filepath)
+        print(f"[PROFILE] Deleted profile: {filename}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Profile deleted successfully'
+        })
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to delete profile {filename}: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error deleting profile: {str(e)}'
+        })
+
+@app.route('/export_profile', methods=['POST'])
+def export_profile():
+    """Export a profile as JSON download"""
+    try:
+        data = request.get_json()
+        profile_name = data.get('name')
+
+        if not profile_name:
+            return jsonify({
+                'success': False,
+                'message': 'Profile name is required'
+            })
+
+        # Sanitize filename
+        filename = secure_filename(profile_name) + '.json'
+        filepath = os.path.join(PROFILES_FOLDER, filename)
+
+        if not os.path.exists(filepath):
+            return jsonify({
+                'success': False,
+                'message': f'Profile not found: {profile_name}'
+            })
+
+        # Send file as download
+        return send_file(
+            filepath,
+            as_attachment=True,
+            download_name=filename,
+            mimetype='application/json'
+        )
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to export profile: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error exporting profile: {str(e)}'
+        })
+
+@app.route('/import_profile', methods=['POST'])
+def import_profile():
+    """Import a profile from JSON upload"""
+    try:
+        if 'profile_file' not in request.files:
+            return jsonify({
+                'success': False,
+                'message': 'No file provided'
+            })
+
+        file = request.files['profile_file']
+
+        if file.filename == '':
+            return jsonify({
+                'success': False,
+                'message': 'No file selected'
+            })
+
+        if not file.filename.endswith('.json'):
+            return jsonify({
+                'success': False,
+                'message': 'File must be a JSON file'
+            })
+
+        # Parse JSON
+        try:
+            profile_data = json.load(file)
+        except json.JSONDecodeError as e:
+            return jsonify({
+                'success': False,
+                'message': f'Invalid JSON format: {str(e)}'
+            })
+
+        # Validate profile data
+        is_valid, message = validate_profile_data(profile_data)
+        if not is_valid:
+            return jsonify({
+                'success': False,
+                'message': f'Invalid profile data: {message}'
+            })
+
+        # Save imported profile
+        profile_name = profile_data.get('name', 'imported_profile')
+        filename = secure_filename(profile_name) + '.json'
+        filepath = os.path.join(PROFILES_FOLDER, filename)
+
+        # Update timestamps
+        profile_data['imported_at'] = datetime.now().isoformat()
+
+        with open(filepath, 'w') as f:
+            json.dump(profile_data, f, indent=2)
+
+        print(f"[PROFILE] Imported profile: {profile_name}")
+
+        return jsonify({
+            'success': True,
+            'message': f'Profile "{profile_name}" imported successfully',
+            'profile': profile_data
+        })
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to import profile: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error importing profile: {str(e)}'
         })
 
 @socketio.on('connect')
