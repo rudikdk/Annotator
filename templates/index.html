@@ -1174,6 +1174,77 @@
       );
     }
 
+    function SaveColorPresetModal({ open, onClose, onSave, presetName, setPresetName }) {
+      if (!open) return null;
+
+      function handleSave() {
+        if (!presetName.trim()) {
+          alert("Preset name is required");
+          return;
+        }
+        onSave();
+      }
+
+      function handleKeyDown(e) {
+        if (e.key === 'Enter') {
+          handleSave();
+        }
+      }
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
+          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
+              <h3 className="font-semibold">Save Color Rules Preset</h3>
+              <button
+                onClick={onClose}
+                className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
+                aria-label="Close"
+              >
+                <i className="fa-solid fa-xmark"></i>
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label htmlFor="preset-name" className="block text-sm font-medium mb-1">
+                  Preset Name <span className="text-red-600">*</span>
+                </label>
+                <input
+                  id="preset-name"
+                  type="text"
+                  value={presetName}
+                  onChange={(e) => setPresetName(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  placeholder="e.g., Instrument Types, Process Areas"
+                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                  autoFocus
+                />
+                <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Save your current color rules and default color for reuse
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleSave}
+                  className="flex-1 rounded-lg bg-brand text-white px-4 py-2 font-semibold hover:bg-brand-hover transition-colors"
+                >
+                  <i className="fa-solid fa-save mr-1"></i>
+                  Save Preset
+                </button>
+                <button
+                  onClick={onClose}
+                  className="flex-1 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
     // Tutorial/Onboarding System
     const tutorialSteps = [
       {
@@ -1790,6 +1861,36 @@
       const [commentColumns, setCommentColumns] = useState([]);
       const [highlightColor, setHighlightColor] = useState("#FFFF00");
       const [highlightColumn, setHighlightColumn] = useState("");
+
+      // Color rules state (new advanced color system)
+      const [colorRules, setColorRules] = useState([]); // Array of {id, part, value, match_type, color}
+      const [defaultHighlightColor, setDefaultHighlightColor] = useState("#FFFF00");
+      const [enableDefaultColor, setEnableDefaultColor] = useState(true);
+      const [excelConstraintMode, setExcelConstraintMode] = useState(false);
+      const [excelConstraintLogic, setExcelConstraintLogic] = useState("AND");
+      const [colorRulePanelOpen, setColorRulePanelOpen] = useState(false);
+      const [colorRuleBuilderOpen, setColorRuleBuilderOpen] = useState(false);
+      const [newRulePart, setNewRulePart] = useState(1);
+      const [newRuleValue, setNewRuleValue] = useState('');
+      const [newRuleMatchType, setNewRuleMatchType] = useState('contains');
+      const [newRuleColor, setNewRuleColor] = useState('#FFFF00');
+      const [colorPresets, setColorPresets] = useState({});
+      const [showSaveColorPresetModal, setShowSaveColorPresetModal] = useState(false);
+      const [colorPresetName, setColorPresetName] = useState('');
+      const [selectedColorPreset, setSelectedColorPreset] = useState('');
+
+      // Color preview state
+      const [colorPreviewPanelOpen, setColorPreviewPanelOpen] = useState(false);
+      const [colorPreviewData, setColorPreviewData] = useState(null);
+      const [colorPreviewLoading, setColorPreviewLoading] = useState(false);
+      const [colorPreviewError, setColorPreviewError] = useState(null);
+      const [colorPreviewPage, setColorPreviewPage] = useState(null);
+      const [colorPreviewZoom, setColorPreviewZoom] = useState(100);
+      const [colorPreviewFullscreen, setColorPreviewFullscreen] = useState(false);
+      const colorPreviewContainerRef = useRef(null);
+      const [isColorDragging, setIsColorDragging] = useState(false);
+      const [colorDragStart, setColorDragStart] = useState({ x: 0, y: 0 });
+
       const [annotateExcel, setAnnotateExcel] = useState(true);
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
@@ -1812,6 +1913,12 @@
       const [previewData, setPreviewData] = useState(null);
       const [previewLoading, setPreviewLoading] = useState(false);
       const [previewError, setPreviewError] = useState(null);
+      const [previewZoom, setPreviewZoom] = useState(100);
+      const [previewFullscreen, setPreviewFullscreen] = useState(false);
+      const [previewPage, setPreviewPage] = useState(null);
+      const previewContainerRef = useRef(null);
+      const [isDragging, setIsDragging] = useState(false);
+      const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
       // Tag filtering state
       const [tagFilters, setTagFilters] = useState([]); // Array of {part, value, match_type, action}
@@ -2003,6 +2110,212 @@
           });
       }
 
+      // Color rules handlers
+      function handleAddColorRule() {
+        if (!newRuleValue.trim()) {
+          setToast({ type: "error", text: "Please enter a value to match" });
+          return;
+        }
+
+        const newRule = {
+          id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          part: newRulePart,
+          value: newRuleValue.trim(),
+          match_type: newRuleMatchType,
+          color: newRuleColor
+        };
+
+        setColorRules([...colorRules, newRule]);
+        setColorRuleBuilderOpen(false);
+        // Reset builder fields
+        setNewRulePart(1);
+        setNewRuleValue('');
+        setNewRuleMatchType('contains');
+        setNewRuleColor('#FFFF00');
+        setToast({ type: "success", text: "Color rule added successfully" });
+      }
+
+      function handleRemoveColorRule(ruleId) {
+        const updated = colorRules.filter(r => r.id !== ruleId);
+        setColorRules(updated);
+        setToast({ type: "success", text: "Color rule removed" });
+      }
+
+      function handleClearAllColorRules() {
+        setColorRules([]);
+        setToast({ type: "success", text: "All color rules cleared" });
+      }
+
+      function handleMoveColorRule(ruleId, direction) {
+        const index = colorRules.findIndex(r => r.id === ruleId);
+        if (index === -1) return;
+
+        const newRules = [...colorRules];
+        if (direction === 'up' && index > 0) {
+          [newRules[index], newRules[index - 1]] = [newRules[index - 1], newRules[index]];
+        } else if (direction === 'down' && index < newRules.length - 1) {
+          [newRules[index], newRules[index + 1]] = [newRules[index + 1], newRules[index]];
+        }
+        setColorRules(newRules);
+      }
+
+      function handleSaveColorPreset() {
+        if (!colorPresetName.trim()) {
+          setToast({ type: "error", text: "Please enter a preset name" });
+          return;
+        }
+
+        const preset = {
+          name: colorPresetName.trim(),
+          rules: colorRules,
+          defaultColor: defaultHighlightColor,
+          enableDefaultColor: enableDefaultColor,
+          excelConstraintMode: excelConstraintMode,
+          excelConstraintLogic: excelConstraintLogic,
+          savedAt: new Date().toISOString()
+        };
+
+        const updatedPresets = {
+          ...colorPresets,
+          [colorPresetName.trim()]: preset
+        };
+
+        setColorPresets(updatedPresets);
+        localStorage.setItem('colorPresets', JSON.stringify(updatedPresets));
+        setShowSaveColorPresetModal(false);
+        setColorPresetName('');
+        setToast({ type: "success", text: `Preset "${preset.name}" saved successfully` });
+      }
+
+      function handleLoadColorPreset(presetName) {
+        const preset = colorPresets[presetName];
+        if (!preset) {
+          setToast({ type: "error", text: "Preset not found" });
+          return;
+        }
+
+        setColorRules(preset.rules || []);
+        setDefaultHighlightColor(preset.defaultColor || '#FFFF00');
+        setEnableDefaultColor(preset.enableDefaultColor !== undefined ? preset.enableDefaultColor : true);
+        setExcelConstraintMode(preset.excelConstraintMode || false);
+        setExcelConstraintLogic(preset.excelConstraintLogic || 'AND');
+        setSelectedColorPreset(presetName);
+        setToast({ type: "success", text: `Preset "${presetName}" loaded` });
+      }
+
+      function handleDeleteColorPreset(presetName) {
+        const updatedPresets = { ...colorPresets };
+        delete updatedPresets[presetName];
+        setColorPresets(updatedPresets);
+        localStorage.setItem('colorPresets', JSON.stringify(updatedPresets));
+        if (selectedColorPreset === presetName) {
+          setSelectedColorPreset('');
+        }
+        setToast({ type: "success", text: `Preset "${presetName}" deleted` });
+      }
+
+      function handlePreviewColorRules() {
+        if (!selectedExcel || !tagColumn) {
+          setToast({ type: "error", text: "Please select an Excel file and tag column first" });
+          return;
+        }
+
+        if (selectedPdfs.length === 0) {
+          setToast({ type: "error", text: "Please select a PDF file first" });
+          return;
+        }
+
+        if (colorRules.length === 0 && !defaultHighlightColor) {
+          setToast({ type: "info", text: "No color rules defined. Please add at least one rule." });
+          return;
+        }
+
+        setColorPreviewLoading(true);
+        setColorPreviewPanelOpen(true);
+        setColorPreviewError(null);
+
+        const tag_matching_config = {
+          preset: tagMatchingPreset,
+          min_parts: tagMatchingMinParts,
+          max_parts: tagMatchingMaxParts,
+          separators: tagMatchingSeparators,
+          min_part_length: tagMatchingMinPartLength,
+          max_part_length: tagMatchingMaxPartLength,
+          allow_partial: tagMatchingAllowPartial,
+          custom_regex: tagMatchingCustomRegex
+        };
+
+        fetch("/preview_color_rules", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            pdf_file: selectedPdfs[0],
+            excel_file: selectedExcel,
+            tag_column: tagColumn,
+            header_row: headerRow,
+            color_rules: colorRules,
+            default_highlight_color: defaultHighlightColor,
+            enable_default_color: enableDefaultColor,
+            excel_constraint_mode: excelConstraintMode,
+            excel_constraint_logic: excelConstraintLogic,
+            tag_filters: tagFilters,
+            filter_logic: filterLogic,
+            tag_matching_config: tag_matching_config,
+            page_number: colorPreviewPage
+          })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setColorPreviewLoading(false);
+            if (data.success) {
+              setColorPreviewData(data);
+              logToConsole(`Color preview: ${data.stats.colored_tags}/${data.stats.total_tags} tags colored, ${data.stats.conflict_count} conflicts`);
+            } else {
+              setColorPreviewError(data.message || "Failed to generate preview");
+              setToast({ type: "error", text: data.message || "Failed to generate color preview" });
+              logToConsole(`Error generating color preview: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            setColorPreviewLoading(false);
+            setColorPreviewError(err.message);
+            setToast({ type: "error", text: "Error generating color preview" });
+            logToConsole(`Error generating color preview: ${err.message}`);
+          });
+      }
+
+      function handleColorPreviewPageChange(direction) {
+        if (!colorPreviewData) return;
+
+        const currentPage = colorPreviewData.page_number;
+        const totalPages = colorPreviewData.total_pages;
+
+        let newPage = currentPage;
+        if (direction === 'prev' && currentPage > 1) {
+          newPage = currentPage - 1;
+        } else if (direction === 'next' && currentPage < totalPages) {
+          newPage = currentPage + 1;
+        }
+
+        if (newPage !== currentPage) {
+          setColorPreviewPage(newPage);
+          // Trigger re-preview with new page
+          setTimeout(() => handlePreviewColorRules(), 100);
+        }
+      }
+
+      // Load color presets from localStorage on mount
+      React.useEffect(() => {
+        const savedPresets = localStorage.getItem('colorPresets');
+        if (savedPresets) {
+          try {
+            setColorPresets(JSON.parse(savedPresets));
+          } catch (e) {
+            console.error('Failed to load color presets:', e);
+          }
+        }
+      }, []);
+
       function startProcessing(isTest) {
         // Validate that files are selected
         if (selectedPdfs.length === 0) {
@@ -2050,7 +2363,12 @@
             custom_regex: tagMatchingCustomRegex || null
           },
           tag_filters: tagFilters,  // Send tag filters
-          filter_logic: filterLogic  // Send filter logic (AND/OR)
+          filter_logic: filterLogic,  // Send filter logic (AND/OR)
+          color_rules: colorRules,  // Send color rules
+          default_highlight_color: defaultHighlightColor,  // Send default highlight color
+          enable_default_color: enableDefaultColor,  // Send enable default color flag
+          excel_constraint_mode: excelConstraintMode,  // Send excel constraint mode
+          excel_constraint_logic: excelConstraintLogic  // Send excel constraint logic (AND/OR)
         };
 
         logToConsole(isTest ? `Starting test run (100 tags) with ${selectedPdfs.length} PDF(s)...` : `Starting full processing with ${selectedPdfs.length} PDF(s)...`);
@@ -2453,7 +2771,7 @@
       }
 
       // PDF Preview functions
-      function generatePreview() {
+      function generatePreview(pageNumber = null) {
         if (selectedPdfs.length === 0) {
           setToast({ type: "warning", text: "Please select a PDF file first" });
           return;
@@ -2477,13 +2795,20 @@
           custom_regex: tagMatchingCustomRegex || null
         };
 
+        const requestBody = {
+          pdf_file: pdfFile,
+          tag_matching_config: tagMatchingConfig
+        };
+
+        // Add page_number if specified
+        if (pageNumber !== null) {
+          requestBody.page_number = pageNumber;
+        }
+
         fetch('/preview_pdf_page', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            pdf_file: pdfFile,
-            tag_matching_config: tagMatchingConfig
-          })
+          body: JSON.stringify(requestBody)
         })
           .then(r => r.json())
           .then(data => {
@@ -2503,6 +2828,128 @@
             setToast({ type: "error", text: `Error: ${err.message}` });
           });
       }
+
+      // Zoom control functions
+      function handleZoomIn(previewType) {
+        if (previewType === 'tag') {
+          setPreviewZoom(Math.min(200, previewZoom + 25));
+        } else if (previewType === 'color') {
+          setColorPreviewZoom(Math.min(200, colorPreviewZoom + 25));
+        }
+      }
+
+      function handleZoomOut(previewType) {
+        if (previewType === 'tag') {
+          setPreviewZoom(Math.max(50, previewZoom - 25));
+        } else if (previewType === 'color') {
+          setColorPreviewZoom(Math.max(50, colorPreviewZoom - 25));
+        }
+      }
+
+      function handleZoomReset(previewType) {
+        if (previewType === 'tag') {
+          setPreviewZoom(100);
+        } else if (previewType === 'color') {
+          setColorPreviewZoom(100);
+        }
+      }
+
+      function handleZoomChange(previewType, value) {
+        if (previewType === 'tag') {
+          setPreviewZoom(parseInt(value));
+        } else if (previewType === 'color') {
+          setColorPreviewZoom(parseInt(value));
+        }
+      }
+
+      function toggleFullscreen(previewType) {
+        if (previewType === 'tag') {
+          setPreviewFullscreen(!previewFullscreen);
+        } else if (previewType === 'color') {
+          setColorPreviewFullscreen(!colorPreviewFullscreen);
+        }
+      }
+
+      // Mouse wheel zoom handler
+      function handleWheel(e, previewType) {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? -10 : 10;
+
+          if (previewType === 'tag') {
+            setPreviewZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+          } else if (previewType === 'color') {
+            setColorPreviewZoom(prev => Math.max(50, Math.min(200, prev + delta)));
+          }
+        }
+      }
+
+      // Mouse drag handlers for tag preview
+      function handleMouseDown(e, previewType) {
+        if (e.button !== 0) return; // Only left mouse button
+
+        if (previewType === 'tag') {
+          setIsDragging(true);
+          setDragStart({
+            x: e.clientX - (previewContainerRef.current?.scrollLeft || 0),
+            y: e.clientY - (previewContainerRef.current?.scrollTop || 0)
+          });
+        } else if (previewType === 'color') {
+          setIsColorDragging(true);
+          setColorDragStart({
+            x: e.clientX - (colorPreviewContainerRef.current?.scrollLeft || 0),
+            y: e.clientY - (colorPreviewContainerRef.current?.scrollTop || 0)
+          });
+        }
+        e.currentTarget.style.cursor = 'grabbing';
+      }
+
+      function handleMouseMove(e, previewType) {
+        if (previewType === 'tag' && isDragging && previewContainerRef.current) {
+          e.preventDefault();
+          const x = e.clientX - dragStart.x;
+          const y = e.clientY - dragStart.y;
+          previewContainerRef.current.scrollLeft = -x;
+          previewContainerRef.current.scrollTop = -y;
+        } else if (previewType === 'color' && isColorDragging && colorPreviewContainerRef.current) {
+          e.preventDefault();
+          const x = e.clientX - colorDragStart.x;
+          const y = e.clientY - colorDragStart.y;
+          colorPreviewContainerRef.current.scrollLeft = -x;
+          colorPreviewContainerRef.current.scrollTop = -y;
+        }
+      }
+
+      function handleMouseUp(e, previewType) {
+        if (previewType === 'tag') {
+          setIsDragging(false);
+        } else if (previewType === 'color') {
+          setIsColorDragging(false);
+        }
+        e.currentTarget.style.cursor = 'grab';
+      }
+
+      // Handle page change for tag preview
+      function handlePreviewPageChange(pageNumber) {
+        setPreviewPage(pageNumber);
+        // Regenerate preview with new page
+        setTimeout(() => generatePreview(pageNumber), 100);
+      }
+
+      // Keyboard handler for fullscreen ESC
+      useEffect(() => {
+        function handleEscKey(e) {
+          if (e.key === 'Escape') {
+            if (previewFullscreen) setPreviewFullscreen(false);
+            if (colorPreviewFullscreen) setColorPreviewFullscreen(false);
+          }
+        }
+
+        if (previewFullscreen || colorPreviewFullscreen) {
+          document.addEventListener('keydown', handleEscKey);
+          return () => document.removeEventListener('keydown', handleEscKey);
+        }
+      }, [previewFullscreen, colorPreviewFullscreen]);
 
       // Load workspace files on mount
       useEffect(() => {
@@ -3405,9 +3852,15 @@
 
                   {previewPanelOpen && (
                     <div className="mt-3 space-y-4 border-l-2 border-brand/30 pl-4">
-                      <div className="text-sm text-zinc-600 dark:text-zinc-400 mb-3">
-                        <i className="fa-solid fa-info-circle mr-2"></i>
-                        Preview shows how custom tag matching will work on page {selectedPdfs.length > 0 ? '5 (or page 2 if PDF has only 2 pages)' : 'N/A'} with yellow highlights on found tags.
+                      <div className="text-sm text-zinc-600 dark:text-zinc-400 mb-3 space-y-1">
+                        <div>
+                          <i className="fa-solid fa-info-circle mr-2"></i>
+                          Preview shows how custom tag matching will work on page {selectedPdfs.length > 0 ? '5 (or page 2 if PDF has only 2 pages)' : 'N/A'} with yellow highlights on found tags.
+                        </div>
+                        <div className="text-xs text-zinc-500 dark:text-zinc-500 italic pl-5">
+                          <i className="fa-solid fa-mouse-pointer mr-1"></i>
+                          Tip: Hold Ctrl + Scroll to zoom, click and drag to pan
+                        </div>
                       </div>
 
                       {/* Generate Preview Button */}
@@ -3452,7 +3905,18 @@
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
                               <div className="text-zinc-500 dark:text-zinc-400 mb-1">Page</div>
-                              <div className="font-semibold">{previewData.page_number} of {previewData.total_pages}</div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={previewData.page_number}
+                                  onChange={(e) => handlePreviewPageChange(parseInt(e.target.value))}
+                                  className="px-2 py-1 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-sm font-semibold"
+                                >
+                                  {Array.from({ length: previewData.total_pages }, (_, i) => i + 1).map(page => (
+                                    <option key={page} value={page}>{page}</option>
+                                  ))}
+                                </select>
+                                <span className="text-zinc-500 dark:text-zinc-400">of {previewData.total_pages}</span>
+                              </div>
                             </div>
                             <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
                               <div className="text-zinc-500 dark:text-zinc-400 mb-1">Tags Found</div>
@@ -3471,14 +3935,80 @@
                             </code>
                           </div>
 
-                          {/* Preview Image */}
-                          <div className="border-2 border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden bg-white dark:bg-zinc-900">
-                            <img
-                              src={previewData.image}
-                              alt={`PDF Preview - Page ${previewData.page_number}`}
-                              className="w-full h-auto"
-                              style={{ maxHeight: '600px', objectFit: 'contain' }}
-                            />
+                          {/* Preview Image with Zoom Controls */}
+                          <div className="space-y-2">
+                            {/* Zoom Control Toolbar */}
+                            <div className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => handleZoomOut('tag')}
+                                  disabled={previewZoom <= 50}
+                                  className="px-2 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                                  title="Zoom Out"
+                                >
+                                  <i className="fa-solid fa-minus"></i>
+                                </button>
+                                <input
+                                  type="range"
+                                  min="50"
+                                  max="200"
+                                  step="25"
+                                  value={previewZoom}
+                                  onChange={(e) => handleZoomChange('tag', e.target.value)}
+                                  className="w-32"
+                                />
+                                <button
+                                  onClick={() => handleZoomIn('tag')}
+                                  disabled={previewZoom >= 200}
+                                  className="px-2 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                                  title="Zoom In"
+                                >
+                                  <i className="fa-solid fa-plus"></i>
+                                </button>
+                                <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 min-w-[3rem] text-center">
+                                  {previewZoom}%
+                                </span>
+                                <button
+                                  onClick={() => handleZoomReset('tag')}
+                                  className="px-2 py-1 text-xs rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
+                                  title="Reset Zoom"
+                                >
+                                  <i className="fa-solid fa-undo mr-1"></i>
+                                  Reset
+                                </button>
+                              </div>
+                              <button
+                                onClick={() => toggleFullscreen('tag')}
+                                className="px-3 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
+                                title="Fullscreen"
+                              >
+                                <i className="fa-solid fa-expand mr-1"></i>
+                                Fullscreen
+                              </button>
+                            </div>
+
+                            {/* Preview Image Container */}
+                            <div
+                              ref={previewContainerRef}
+                              className="border-2 border-zinc-200 dark:border-zinc-700 rounded-lg overflow-auto bg-white dark:bg-zinc-900"
+                              style={{ maxHeight: '600px', cursor: isDragging ? 'grabbing' : 'grab' }}
+                              onWheel={(e) => handleWheel(e, 'tag')}
+                              onMouseDown={(e) => handleMouseDown(e, 'tag')}
+                              onMouseMove={(e) => handleMouseMove(e, 'tag')}
+                              onMouseUp={(e) => handleMouseUp(e, 'tag')}
+                              onMouseLeave={(e) => handleMouseUp(e, 'tag')}
+                            >
+                              <img
+                                src={previewData.image}
+                                alt={`PDF Preview - Page ${previewData.page_number}`}
+                                className="h-auto mx-auto block select-none"
+                                style={{
+                                  width: `${previewZoom}%`,
+                                  objectFit: 'contain'
+                                }}
+                                draggable="false"
+                              />
+                            </div>
                           </div>
 
                           {/* Found Tags List */}
@@ -3623,45 +4153,319 @@
                 <div className="comment-columns-tutorial">
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Comment Columns</h3>
                   <div>
+                    {/* Advanced Color Rules Section */}
                     <div className="mb-4">
-                      <label htmlFor="comment-highlight-color" className="block text-sm font-medium mb-1">
-                        Attribute Highlight Color
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <input
-                          id="comment-highlight-color"
-                          type="color"
-                          value={highlightColor}
-                          onChange={(e) => setHighlightColor(e.target.value)}
-                          className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
-                        />
-                        <span className="text-sm text-zinc-500 dark:text-zinc-400">Choose Color</span>
+                      <div
+                        className="flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-lg transition-colors"
+                        onClick={() => setColorRulePanelOpen(!colorRulePanelOpen)}
+                      >
+                        <h4 className="text-sm font-semibold text-zinc-600 dark:text-zinc-300">
+                          Attribute Highlight Color Rules
+                          {colorRules.length > 0 && (
+                            <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand/20 text-brand dark:bg-brand/30">
+                              {colorRules.length} {colorRules.length === 1 ? 'rule' : 'rules'}
+                            </span>
+                          )}
+                        </h4>
+                        <i className={`fa-solid fa-chevron-${colorRulePanelOpen ? 'up' : 'down'} text-zinc-400 dark:text-zinc-500 text-sm`}></i>
                       </div>
-                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        Used when the selected attribute has a value.
-                      </div>
-                      <div className="mt-4">
-                        <label htmlFor="highlight-attribute" className="block text-sm font-medium mb-1">
-                          Highlight Attribute (Column)
-                        </label>
-                        <select
-                          id="highlight-attribute"
-                          value={highlightColumn}
-                          onChange={(e) => setHighlightColumn(e.target.value)}
-                          className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                        >
-                          <option value="">None</option>
-                          {excelColumns.filter((c) => c !== tagColumn).map((c) => (
-                            <option key={c} value={c}>
-                              {c}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                          Tags will be highlighted in the chosen color when this attribute has any non-empty value.
+
+                      {colorRulePanelOpen && (
+                        <div className="mt-3 space-y-4 border-l-2 border-brand/30 pl-4">
+                          {/* Info Box */}
+                          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="flex items-start gap-2">
+                              <i className="fa-solid fa-info-circle text-blue-600 dark:text-blue-400 mt-0.5"></i>
+                              <div className="text-xs text-blue-700 dark:text-blue-300">
+                                <strong>How it works:</strong> When a tag is found in the PDF, the system checks its parts against your rules.
+                                If a rule matches, that color is applied. If no rules match, the default color is used.
+                                The last matching rule wins if multiple rules match the same tag.
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Default Color - Make Optional */}
+                          <div>
+                            <div className="flex items-center gap-3 mb-2">
+                              <input
+                                type="checkbox"
+                                checked={enableDefaultColor}
+                                onChange={(e) => setEnableDefaultColor(e.target.checked)}
+                                className="accent-brand w-4 h-4"
+                              />
+                              <label className="text-sm font-medium">Enable Default Highlight Color</label>
+                            </div>
+
+                            {enableDefaultColor && (
+                              <div className="ml-6">
+                                <label htmlFor="default-highlight-color" className="block text-sm font-medium mb-1">
+                                  Default Color
+                                </label>
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    id="default-highlight-color"
+                                    type="color"
+                                    value={defaultHighlightColor}
+                                    onChange={(e) => setDefaultHighlightColor(e.target.value)}
+                                    className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
+                                  />
+                                  <span className="text-sm text-zinc-500 dark:text-zinc-400">{defaultHighlightColor}</span>
+                                </div>
+                                <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                                  Applied to found tags when no color rules match
+                                </div>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Active Color Rules */}
+                          {colorRules.length > 0 && (
+                            <div>
+                              <label className="block text-sm font-medium mb-2">Active Color Rules</label>
+                              <div className="space-y-2">
+                                {colorRules.map((rule, index) => (
+                                  <div key={rule.id} className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                    <div
+                                      className="w-6 h-6 rounded border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
+                                      style={{ backgroundColor: rule.color }}
+                                      title={rule.color}
+                                    ></div>
+                                    <div className="flex-1 min-w-0">
+                                      <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                        Part {rule.part} {rule.match_type === 'exact' ? '=' : '≈'} <strong>{rule.value}</strong>
+                                      </div>
+                                      <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                        {rule.match_type === 'exact' ? 'Exact match' : 'Contains match'}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-1">
+                                      <button
+                                        onClick={() => handleMoveColorRule(rule.id, 'up')}
+                                        disabled={index === 0}
+                                        className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                                        title="Move up"
+                                      >
+                                        <i className="fa-solid fa-arrow-up text-xs"></i>
+                                      </button>
+                                      <button
+                                        onClick={() => handleMoveColorRule(rule.id, 'down')}
+                                        disabled={index === colorRules.length - 1}
+                                        className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                                        title="Move down"
+                                      >
+                                        <i className="fa-solid fa-arrow-down text-xs"></i>
+                                      </button>
+                                      <button
+                                        onClick={() => handleRemoveColorRule(rule.id)}
+                                        className="p-1 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                        title="Remove rule"
+                                      >
+                                        <i className="fa-solid fa-times"></i>
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                              <button
+                                onClick={handleClearAllColorRules}
+                                className="mt-2 text-sm text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                              >
+                                Clear All Rules
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Add Rule Button */}
+                          {!colorRuleBuilderOpen && (
+                            <button
+                              onClick={() => setColorRuleBuilderOpen(true)}
+                              className="w-full py-2 px-4 bg-brand/10 hover:bg-brand/20 text-brand dark:bg-brand/20 dark:hover:bg-brand/30 rounded-lg transition-colors"
+                            >
+                              <i className="fa-solid fa-plus mr-2"></i>
+                              Add Color Rule
+                            </button>
+                          )}
+
+                          {/* Rule Builder */}
+                          {colorRuleBuilderOpen && (
+                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700 space-y-3">
+                              <div className="flex justify-between items-center">
+                                <h5 className="font-medium text-sm">Add Color Rule</h5>
+                                <button
+                                  onClick={() => setColorRuleBuilderOpen(false)}
+                                  className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                                >
+                                  <i className="fa-solid fa-times"></i>
+                                </button>
+                              </div>
+
+                              {/* Part Selector */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Tag Part</label>
+                                <select
+                                  value={newRulePart}
+                                  onChange={(e) => setNewRulePart(Number(e.target.value))}
+                                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                >
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                                    <option key={n} value={n}>Part {n}</option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Match Type */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Match Type</label>
+                                <div className="flex gap-3">
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name="newRuleMatchType"
+                                      value="exact"
+                                      checked={newRuleMatchType === 'exact'}
+                                      onChange={(e) => setNewRuleMatchType(e.target.value)}
+                                      className="w-4 h-4 text-brand focus:ring-brand/60"
+                                    />
+                                    <span className="text-sm">Exact</span>
+                                  </label>
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name="newRuleMatchType"
+                                      value="contains"
+                                      checked={newRuleMatchType === 'contains'}
+                                      onChange={(e) => setNewRuleMatchType(e.target.value)}
+                                      className="w-4 h-4 text-brand focus:ring-brand/60"
+                                    />
+                                    <span className="text-sm">Contains</span>
+                                  </label>
+                                </div>
+                              </div>
+
+                              {/* Value Input */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Value</label>
+                                <input
+                                  type="text"
+                                  value={newRuleValue}
+                                  onChange={(e) => setNewRuleValue(e.target.value)}
+                                  placeholder="e.g., HV, PV, TI"
+                                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                />
+                              </div>
+
+                              {/* Color Picker */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Highlight Color</label>
+                                <div className="flex items-center gap-3">
+                                  <input
+                                    type="color"
+                                    value={newRuleColor}
+                                    onChange={(e) => setNewRuleColor(e.target.value)}
+                                    className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
+                                  />
+                                  <span className="text-sm text-zinc-500 dark:text-zinc-400">{newRuleColor}</span>
+                                </div>
+                              </div>
+
+                              {/* Add Button */}
+                              <button
+                                onClick={handleAddColorRule}
+                                className="w-full py-2 px-4 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors"
+                              >
+                                Add Rule
+                              </button>
+                            </div>
+                          )}
+
+                          {/* Preset Management */}
+                          <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+                            <label className="block text-sm font-medium mb-2">Presets</label>
+                            <div className="flex gap-2">
+                              <select
+                                value={selectedColorPreset}
+                                onChange={(e) => {
+                                  if (e.target.value) {
+                                    handleLoadColorPreset(e.target.value);
+                                  }
+                                }}
+                                className="flex-1 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 text-sm"
+                              >
+                                <option value="">-- Load Preset --</option>
+                                {Object.keys(colorPresets).map(name => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                              </select>
+                              <button
+                                onClick={() => setShowSaveColorPresetModal(true)}
+                                disabled={colorRules.length === 0}
+                                className="px-3 py-2 bg-brand/10 hover:bg-brand/20 text-brand dark:bg-brand/20 dark:hover:bg-brand/30 rounded-lg transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                                title="Save current rules as preset"
+                              >
+                                <i className="fa-solid fa-save"></i>
+                              </button>
+                              {selectedColorPreset && (
+                                <button
+                                  onClick={() => handleDeleteColorPreset(selectedColorPreset)}
+                                  className="px-3 py-2 bg-red-100 hover:bg-red-200 text-red-600 dark:bg-red-900/30 dark:hover:bg-red-900/50 rounded-lg transition-colors text-sm"
+                                  title="Delete preset"
+                                >
+                                  <i className="fa-solid fa-trash"></i>
+                                </button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                      </div>
+                      )}
                     </div>
+
+                    {/* Excel Constraint Mode */}
+                    <div className="pt-3 border-t border-zinc-200 dark:border-zinc-700">
+                      <div className="flex items-center gap-3 mb-2">
+                        <input
+                          type="checkbox"
+                          checked={excelConstraintMode}
+                          onChange={(e) => setExcelConstraintMode(e.target.checked)}
+                          className="accent-brand w-4 h-4"
+                        />
+                        <label className="text-sm font-medium">Only color tags from Excel list</label>
+                      </div>
+
+                      {excelConstraintMode && (
+                        <div className="ml-6 mt-2">
+                          <label className="block text-sm font-medium mb-2">Excel Constraint Logic</label>
+                          <div className="flex gap-4">
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="excel-constraint-logic"
+                                value="AND"
+                                checked={excelConstraintLogic === 'AND'}
+                                onChange={(e) => setExcelConstraintLogic(e.target.value)}
+                                className="accent-brand w-4 h-4"
+                              />
+                              <span className="text-sm">
+                                AND <span className="text-xs text-zinc-500 dark:text-zinc-400">(Tag must be in Excel AND match color rule)</span>
+                              </span>
+                            </label>
+                            <label className="flex items-center gap-2 cursor-pointer">
+                              <input
+                                type="radio"
+                                name="excel-constraint-logic"
+                                value="OR"
+                                checked={excelConstraintLogic === 'OR'}
+                                onChange={(e) => setExcelConstraintLogic(e.target.value)}
+                                className="accent-brand w-4 h-4"
+                              />
+                              <span className="text-sm">
+                                OR <span className="text-xs text-zinc-500 dark:text-400">(Color ALL matching text OR Excel tags)</span>
+                              </span>
+                            </label>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <div className="mb-3 flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -3719,6 +4523,223 @@
                     </div>
                   </div>
                 </div>
+
+                {/* Color Preview Panel */}
+                {colorRules.length > 0 && (
+                  <div>
+                    <div
+                      className="flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-lg transition-colors"
+                      onClick={() => setColorPreviewPanelOpen(!colorPreviewPanelOpen)}
+                    >
+                      <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">
+                        Color Highlight Preview
+                        {colorPreviewData && colorPreviewData.stats && (
+                          <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400">
+                            {colorPreviewData.stats.colored_tags}/{colorPreviewData.stats.total_tags} colored
+                          </span>
+                        )}
+                      </h3>
+                      <i className={`fa-solid fa-chevron-${colorPreviewPanelOpen ? 'up' : 'down'} text-zinc-400 dark:text-zinc-500 text-sm`}></i>
+                    </div>
+
+                    {colorPreviewPanelOpen && (
+                      <div className="mt-3 space-y-4">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handlePreviewColorRules}
+                            disabled={colorPreviewLoading || selectedPdfs.length === 0 || !selectedExcel}
+                            className="flex-1 py-2 px-4 bg-brand text-white rounded-lg hover:bg-brand-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {colorPreviewLoading ? (
+                              <>
+                                <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Generating Preview...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fa-solid fa-eye mr-2"></i>
+                                Generate Preview
+                              </>
+                            )}
+                          </button>
+                        </div>
+
+                        {colorPreviewError && (
+                          <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                            <div className="flex items-center text-red-700 dark:text-red-400">
+                              <i className="fa-solid fa-exclamation-circle mr-2"></i>
+                              <span className="text-sm">{colorPreviewError}</span>
+                            </div>
+                          </div>
+                        )}
+
+                        {colorPreviewData && (
+                          <div className="space-y-3">
+                            {/* Page Navigation */}
+                            <div className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg">
+                              <button
+                                onClick={() => handleColorPreviewPageChange('prev')}
+                                disabled={colorPreviewData.page_number <= 1}
+                                className="px-3 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                <i className="fa-solid fa-arrow-left mr-1"></i>
+                                Previous
+                              </button>
+                              <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                                Page {colorPreviewData.page_number} of {colorPreviewData.total_pages}
+                              </span>
+                              <button
+                                onClick={() => handleColorPreviewPageChange('next')}
+                                disabled={colorPreviewData.page_number >= colorPreviewData.total_pages}
+                                className="px-3 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                Next
+                                <i className="fa-solid fa-arrow-right ml-1"></i>
+                              </button>
+                            </div>
+
+                            {/* Stats */}
+                            {colorPreviewData.stats && (
+                              <div className="grid grid-cols-3 gap-2 text-center">
+                                <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{colorPreviewData.stats.total_tags}</div>
+                                  <div className="text-xs text-blue-700 dark:text-blue-300">Total Tags</div>
+                                </div>
+                                <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">{colorPreviewData.stats.colored_tags}</div>
+                                  <div className="text-xs text-green-700 dark:text-green-300">Colored</div>
+                                </div>
+                                <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
+                                  <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{colorPreviewData.stats.conflict_count}</div>
+                                  <div className="text-xs text-amber-700 dark:text-amber-300">Conflicts</div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Conflicts Warning */}
+                            {colorPreviewData.conflicts && colorPreviewData.conflicts.length > 0 && (
+                              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                                <div className="flex items-start gap-2">
+                                  <i className="fa-solid fa-exclamation-triangle text-amber-600 dark:text-amber-400 mt-0.5"></i>
+                                  <div className="flex-1">
+                                    <div className="text-sm font-medium text-amber-800 dark:text-amber-300 mb-1">
+                                      Multiple Rules Matched ({colorPreviewData.conflicts.length} tags)
+                                    </div>
+                                    <div className="text-xs text-amber-700 dark:text-amber-400">
+                                      Tags: {colorPreviewData.conflicts.map(c => c.tag).join(', ')}
+                                    </div>
+                                    <div className="text-xs text-amber-600 dark:text-amber-500 mt-1">
+                                      The last matching rule's color was applied.
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Preview Image with Zoom Controls */}
+                            {colorPreviewData.image && (
+                              <div className="space-y-2">
+                                {/* Zoom Control Toolbar */}
+                                <div className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                  <div className="flex items-center gap-2">
+                                    <button
+                                      onClick={() => handleZoomOut('color')}
+                                      disabled={colorPreviewZoom <= 50}
+                                      className="px-2 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                                      title="Zoom Out"
+                                    >
+                                      <i className="fa-solid fa-minus"></i>
+                                    </button>
+                                    <input
+                                      type="range"
+                                      min="50"
+                                      max="200"
+                                      step="25"
+                                      value={colorPreviewZoom}
+                                      onChange={(e) => handleZoomChange('color', e.target.value)}
+                                      className="w-32"
+                                    />
+                                    <button
+                                      onClick={() => handleZoomIn('color')}
+                                      disabled={colorPreviewZoom >= 200}
+                                      className="px-2 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                                      title="Zoom In"
+                                    >
+                                      <i className="fa-solid fa-plus"></i>
+                                    </button>
+                                    <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 min-w-[3rem] text-center">
+                                      {colorPreviewZoom}%
+                                    </span>
+                                    <button
+                                      onClick={() => handleZoomReset('color')}
+                                      className="px-2 py-1 text-xs rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
+                                      title="Reset Zoom"
+                                    >
+                                      <i className="fa-solid fa-undo mr-1"></i>
+                                      Reset
+                                    </button>
+                                  </div>
+                                  <button
+                                    onClick={() => toggleFullscreen('color')}
+                                    className="px-3 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
+                                    title="Fullscreen"
+                                  >
+                                    <i className="fa-solid fa-expand mr-1"></i>
+                                    Fullscreen
+                                  </button>
+                                </div>
+
+                                {/* Preview Image Container */}
+                                <div
+                                  ref={colorPreviewContainerRef}
+                                  className="border border-zinc-200 dark:border-zinc-700 rounded-lg overflow-auto bg-white dark:bg-zinc-900"
+                                  style={{ maxHeight: '600px', cursor: isColorDragging ? 'grabbing' : 'grab' }}
+                                  onWheel={(e) => handleWheel(e, 'color')}
+                                  onMouseDown={(e) => handleMouseDown(e, 'color')}
+                                  onMouseMove={(e) => handleMouseMove(e, 'color')}
+                                  onMouseUp={(e) => handleMouseUp(e, 'color')}
+                                  onMouseLeave={(e) => handleMouseUp(e, 'color')}
+                                >
+                                  <img
+                                    src={colorPreviewData.image}
+                                    alt="PDF Preview with Color Highlights"
+                                    className="h-auto mx-auto block select-none"
+                                    style={{
+                                      width: `${colorPreviewZoom}%`,
+                                      objectFit: 'contain'
+                                    }}
+                                    draggable="false"
+                                  />
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Legend */}
+                            {colorPreviewData.legend && colorPreviewData.legend.length > 0 && (
+                              <div>
+                                <label className="block text-sm font-medium mb-2">Color Legend</label>
+                                <div className="space-y-1 max-h-40 overflow-y-auto">
+                                  {colorPreviewData.legend.map((item, idx) => (
+                                    <div key={idx} className="flex items-center gap-2 p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded text-xs">
+                                      <div
+                                        className="w-4 h-4 rounded border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
+                                        style={{ backgroundColor: item.color }}
+                                      ></div>
+                                      <span className="font-mono font-medium">{item.tag}</span>
+                                      {item.has_conflict && (
+                                        <i className="fa-solid fa-exclamation-triangle text-amber-500 text-xs" title="Multiple rules matched"></i>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="excel-annotation-tutorial">
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Excel Annotation</h3>
@@ -3979,6 +5000,13 @@
             onClose={() => setShowImportProfileModal(false)}
             onImport={importProfileFile}
           />
+          <SaveColorPresetModal
+            open={showSaveColorPresetModal}
+            onClose={() => setShowSaveColorPresetModal(false)}
+            onSave={handleSaveColorPreset}
+            presetName={colorPresetName}
+            setPresetName={setColorPresetName}
+          />
           <TutorialOverlay
             active={tutorialActive}
             currentStep={tutorialStep}
@@ -3988,6 +5016,176 @@
             onComplete={completeTutorial}
           />
           <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} onStartTutorial={startTutorial} />
+
+          {/* Fullscreen Preview Modal - Tag Matching */}
+          {previewFullscreen && previewData && (
+            <div
+              className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4"
+              onClick={() => setPreviewFullscreen(false)}
+            >
+              <div className="relative w-full h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
+                {/* Fullscreen Header */}
+                <div className="flex items-center justify-between mb-4 bg-black bg-opacity-50 p-3 rounded-lg">
+                  <div className="text-white">
+                    <div className="text-sm opacity-75">PDF Tag Matching Preview</div>
+                    <div className="font-semibold">Page {previewData.page_number} of {previewData.total_pages} - {previewData.tag_count} tags found</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Zoom Controls */}
+                    <button
+                      onClick={() => handleZoomOut('tag')}
+                      disabled={previewZoom <= 50}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <i className="fa-solid fa-minus"></i>
+                    </button>
+                    <input
+                      type="range"
+                      min="50"
+                      max="200"
+                      step="25"
+                      value={previewZoom}
+                      onChange={(e) => handleZoomChange('tag', e.target.value)}
+                      className="w-32"
+                    />
+                    <button
+                      onClick={() => handleZoomIn('tag')}
+                      disabled={previewZoom >= 200}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <i className="fa-solid fa-plus"></i>
+                    </button>
+                    <span className="text-white font-medium min-w-[3.5rem] text-center">
+                      {previewZoom}%
+                    </span>
+                    <button
+                      onClick={() => handleZoomReset('tag')}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white"
+                    >
+                      <i className="fa-solid fa-undo mr-1"></i>
+                      Reset
+                    </button>
+                    {/* Close Button */}
+                    <button
+                      onClick={() => setPreviewFullscreen(false)}
+                      className="px-3 py-2 text-sm rounded bg-red-600 hover:bg-red-700 text-white ml-2"
+                    >
+                      <i className="fa-solid fa-times mr-1"></i>
+                      Close (ESC)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fullscreen Image */}
+                <div className="flex-1 overflow-auto">
+                  <img
+                    src={previewData.image}
+                    alt={`PDF Preview - Page ${previewData.page_number}`}
+                    className="mx-auto h-auto block"
+                    style={{
+                      width: `${previewZoom}%`,
+                      objectFit: 'contain'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Fullscreen Preview Modal - Color Highlights */}
+          {colorPreviewFullscreen && colorPreviewData && (
+            <div
+              className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4"
+              onClick={() => setColorPreviewFullscreen(false)}
+            >
+              <div className="relative w-full h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
+                {/* Fullscreen Header */}
+                <div className="flex items-center justify-between mb-4 bg-black bg-opacity-50 p-3 rounded-lg">
+                  <div className="text-white">
+                    <div className="text-sm opacity-75">Color Highlight Preview</div>
+                    <div className="font-semibold">
+                      Page {colorPreviewData.page_number} of {colorPreviewData.total_pages}
+                      {colorPreviewData.stats && ` - ${colorPreviewData.stats.colored_tags}/${colorPreviewData.stats.total_tags} colored`}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {/* Page Navigation */}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleColorPreviewPageChange('prev'); }}
+                      disabled={colorPreviewData.page_number <= 1}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <i className="fa-solid fa-arrow-left mr-1"></i>
+                      Previous
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleColorPreviewPageChange('next'); }}
+                      disabled={colorPreviewData.page_number >= colorPreviewData.total_pages}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      Next
+                      <i className="fa-solid fa-arrow-right ml-1"></i>
+                    </button>
+                    {/* Zoom Controls */}
+                    <button
+                      onClick={() => handleZoomOut('color')}
+                      disabled={colorPreviewZoom <= 50}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed ml-2"
+                    >
+                      <i className="fa-solid fa-minus"></i>
+                    </button>
+                    <input
+                      type="range"
+                      min="50"
+                      max="200"
+                      step="25"
+                      value={colorPreviewZoom}
+                      onChange={(e) => handleZoomChange('color', e.target.value)}
+                      className="w-32"
+                    />
+                    <button
+                      onClick={() => handleZoomIn('color')}
+                      disabled={colorPreviewZoom >= 200}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
+                    >
+                      <i className="fa-solid fa-plus"></i>
+                    </button>
+                    <span className="text-white font-medium min-w-[3.5rem] text-center">
+                      {colorPreviewZoom}%
+                    </span>
+                    <button
+                      onClick={() => handleZoomReset('color')}
+                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white"
+                    >
+                      <i className="fa-solid fa-undo mr-1"></i>
+                      Reset
+                    </button>
+                    {/* Close Button */}
+                    <button
+                      onClick={() => setColorPreviewFullscreen(false)}
+                      className="px-3 py-2 text-sm rounded bg-red-600 hover:bg-red-700 text-white ml-2"
+                    >
+                      <i className="fa-solid fa-times mr-1"></i>
+                      Close (ESC)
+                    </button>
+                  </div>
+                </div>
+
+                {/* Fullscreen Image */}
+                <div className="flex-1 overflow-auto">
+                  <img
+                    src={colorPreviewData.image}
+                    alt="PDF Preview with Color Highlights"
+                    className="mx-auto h-auto block"
+                    style={{
+                      width: `${colorPreviewZoom}%`,
+                      objectFit: 'contain'
+                    }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       );
     }

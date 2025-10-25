@@ -328,6 +328,87 @@ def apply_tag_filters(tag, filters, filter_logic="AND"):
         return any(matches) if matches else False
 
 
+def apply_color_rules(tag, row_data, color_rules, default_color="#FFFF00"):
+    """
+    Apply color rules to a tag and return the appropriate highlight color.
+    Colors are applied based on tag part matching - if tag is found and matches a rule, it gets colored.
+
+    Args:
+        tag: Tag string to check (e.g., "A-HV-001-A")
+        row_data: Pandas Series containing the Excel row data for this tag (unused, kept for compatibility)
+        color_rules: List of color rule dictionaries, each containing:
+            - part: Part number (1-based index, e.g., 2 for second part)
+            - value: Value to match
+            - match_type: "exact" or "contains"
+            - color: Hex color code (e.g., "#0000FF")
+            - id: Unique identifier for the rule
+        default_color: Fallback color if no rules match
+
+    Returns:
+        tuple: (color_hex, matched_rule_id, conflicts)
+            - color_hex: The color to use (or default_color if no match)
+            - matched_rule_id: ID of the matched rule (or None)
+            - conflicts: List of rule IDs that also matched (empty if no conflicts)
+    """
+    if not color_rules:
+        return default_color, None, []
+
+    if not tag or tag.lower() == "nan":
+        return None, None, []
+
+    # Parse tag into parts
+    tag_parts = parse_tag_parts(tag)
+
+    if not tag_parts:
+        return None, None, []
+
+    # Track all matching rules (last match wins, but we report conflicts)
+    matched_color = None
+    matched_rule_id = None
+    all_matched_rule_ids = []
+
+    # Iterate through rules (last matching rule wins)
+    for rule in color_rules:
+        part = rule.get('part', 1)
+        value = rule.get('value', '').strip()
+        match_type = rule.get('match_type', 'exact')
+        color = rule.get('color', '#FFFF00')
+        rule_id = rule.get('id', '')
+
+        # Check if tag part matches
+        part_index = part - 1  # Convert to 0-based
+
+        # Skip if tag doesn't have this part
+        if part_index < 0 or part_index >= len(tag_parts):
+            continue
+
+        tag_part = tag_parts[part_index].upper()
+        value_upper = value.upper()
+
+        # Check if this rule matches
+        matches = False
+        if match_type == 'exact':
+            matches = (tag_part == value_upper)
+        elif match_type == 'contains':
+            matches = (value_upper in tag_part)
+
+        if matches:
+            # Track this match
+            all_matched_rule_ids.append(rule_id)
+            # Update matched color (last match wins)
+            matched_color = color
+            matched_rule_id = rule_id
+
+    # Determine conflicts (if more than one rule matched)
+    conflicts = all_matched_rule_ids[:-1] if len(all_matched_rule_ids) > 1 else []
+
+    # If no rules matched, use default color
+    if not matched_color:
+        return default_color, None, []
+
+    return matched_color, matched_rule_id, conflicts
+
+
 def analyze_tag_parts(excel_path, tag_column, header_row=6, top_n=20):
     """
     Analyze an Excel file and extract the most common values for each tag part.
@@ -735,6 +816,95 @@ def _hex_to_rgb01(hex_color):
     return (0, 0, 0)
 
 
+def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight_color="#FFFF00",
+                                  enable_default_color=True, excel_tags_set=None,
+                                  excel_constraint_mode=False, excel_constraint_logic="AND",
+                                  progress_callback=None):
+    """
+    Apply color rules to ALL text in the PDF that matches tag patterns, with optional Excel constraints.
+
+    Args:
+        doc: PyMuPDF document object
+        tag_index: Pre-built tag index from build_tag_index()
+        color_rules: List of color rule dictionaries
+        default_highlight_color: Default color for tags that don't match any rule
+        enable_default_color: Whether to use default color for unmatched tags
+        excel_tags_set: Set of tags from Excel (after filtering)
+        excel_constraint_mode: Whether to constrain coloring to Excel tags
+        excel_constraint_logic: "AND" or "OR" logic for Excel constraint
+        progress_callback: Optional progress callback function
+
+    Returns:
+        dict: Statistics about colored tags
+    """
+    if not color_rules:
+        return {'total_tags': 0, 'colored_tags': 0}
+
+    colored_count = 0
+    total_count = 0
+
+    # Initialize excel_tags_set if not provided
+    if excel_tags_set is None:
+        excel_tags_set = set()
+
+    # Process all tags found in the PDF
+    for tag_text, locations in tag_index.items():
+        total_count += len(locations)
+
+        # Check if tag is in Excel list
+        in_excel = tag_text in excel_tags_set
+
+        # Determine color for this tag
+        highlight_color, matched_rule_id, conflicts = apply_color_rules(
+            tag_text, None, color_rules, default_highlight_color if enable_default_color else None
+        )
+
+        # Determine if this tag should be colored based on constraint mode
+        should_color = False
+        if not excel_constraint_mode:
+            # No constraint - color if rules match
+            should_color = (highlight_color is not None)
+        elif excel_constraint_logic == 'AND':
+            # AND logic: Tag must be in Excel AND match a color rule
+            should_color = in_excel and (matched_rule_id is not None)
+        elif excel_constraint_logic == 'OR':
+            # OR logic: Color if tag matches rules OR is in Excel
+            should_color = (highlight_color is not None) or in_excel
+            # If in Excel but no rule matched, use default color
+            if in_excel and not highlight_color and enable_default_color:
+                highlight_color = default_highlight_color
+
+        if not should_color or not highlight_color:
+            continue
+
+        # Apply color to all occurrences of this tag
+        for page_num, rects, original_tag in locations:
+            try:
+                page = doc[page_num]
+
+                # Add highlight annotation
+                hl = page.add_highlight_annot(rects)
+
+                # Convert hex color to RGB
+                try:
+                    r, g, b = _hex_to_rgb01(highlight_color)
+                    hl.set_colors(stroke=(r, g, b))
+                except Exception:
+                    hl.set_colors(stroke=(1, 1, 0))  # Fallback to yellow
+
+                hl.update()
+                colored_count += 1
+
+            except Exception as e:
+                print(f"Error coloring tag {tag_text} on page {page_num}: {e}")
+                continue
+
+    return {
+        'total_tags': total_count,
+        'colored_tags': colored_count
+    }
+
+
 def process_annotations_from_index(
     doc,
     df,
@@ -754,7 +924,8 @@ def process_annotations_from_index(
     config=None,
     tag_filters=None,
     filter_logic="AND",
-    page_bookmark_map=None
+    page_bookmark_map=None,
+    color_rules=None
 ):
     """
     Process annotations using the pre-built tag index for optimal performance.
@@ -764,7 +935,7 @@ def process_annotations_from_index(
         df: DataFrame with Excel data
         tag_index: Pre-built tag index from build_tag_index()
         tag_col: Column name containing tags
-        column_color_pairs: list of (column, color)
+        column_color_pairs: list of (column, color) - DEPRECATED, use color_rules instead
         selected_comment_columns: which columns to include in notes
         annotation_type: "highlight_only" or "note_only"
         watermark_enabled: enable watermark placement
@@ -773,12 +944,13 @@ def process_annotations_from_index(
         max_tags: optional limit
         update_progress: progress callback
         watermark_items_by_page: dict(page_num -> [ {text,x,y,font_size} ])
-        default_highlight_color: hex color used when highlighting due to comments (no column rule)
+        default_highlight_color: hex color used when no color rules match but attribute has value
         header_row: Excel header row number (1-based) for row number tracking
         config: TagMatchingConfig instance (uses default if not provided)
         tag_filters: List of filter rules to apply to tags (optional)
         filter_logic: "AND" or "OR" for combining multiple filters (default: "AND")
         page_bookmark_map: dict mapping page numbers to bookmark titles (optional)
+        color_rules: List of color rule dicts (part, value, match_type, color, attribute_column, id)
 
     Returns:
         tuple: (found_tags, skipped_tags, processed_tags_set, report_data)
@@ -802,7 +974,8 @@ def process_annotations_from_index(
         'found': [],  # List of {tag, pages, occurrence_count, excel_row}
         'not_found': [],  # List of {tag, excel_row, reason}
         'duplicates': {},  # Dict of {tag: [excel_rows]}
-        'validation_warnings': []  # List of {tag, excel_row, warning}
+        'validation_warnings': [],  # List of {tag, excel_row, warning}
+        'color_conflicts': []  # List of {tag, excel_row, matched_rule_id, conflict_rule_ids}
     }
 
     # Track which tags appear multiple times in Excel (duplicates)
@@ -920,44 +1093,48 @@ def process_annotations_from_index(
             page = doc[page_num]
             
             try:
-                # Check if we should add highlighting based on color rules
-                has_color_rule_match = False
-                if column_color_pairs:
+                # Determine highlight color using new color rules system
+                highlight_color = None
+                matched_rule_id = None
+                conflicts = []
+
+                # Use new color_rules system if provided
+                if color_rules:
+                    highlight_color, matched_rule_id, conflicts = apply_color_rules(
+                        tag, row, color_rules, default_highlight_color
+                    )
+
+                    # Track conflicts for reporting
+                    if conflicts:
+                        report_data['color_conflicts'].append({
+                            'tag': tag,
+                            'excel_row': excel_row,
+                            'matched_rule_id': matched_rule_id,
+                            'conflict_rule_ids': conflicts
+                        })
+                # Fall back to legacy column_color_pairs system for backward compatibility
+                elif column_color_pairs:
                     for column, color in column_color_pairs:
                         if column and column in df.columns:
                             if pd.notna(row[column]) and str(row[column]).strip() != "":
-                                has_color_rule_match = True
+                                highlight_color = color
                                 break
 
-                # Add highlight annotation if color rule matches or comments are selected
-                should_add_highlight = has_color_rule_match or note_text
+                # Add highlight annotation if color determined or comments are selected
+                should_add_highlight = (highlight_color is not None) or note_text
                 if should_add_highlight:
                     hl = page.add_highlight_annot(rects)
 
                     # Set highlight color
-                    if has_color_rule_match:
-                        if column_color_pairs:
-                            for column, color in column_color_pairs:
-                                if column and column in df.columns:
-                                    if pd.notna(row[column]) and str(row[column]).strip() != "":
-                                        if color and color.startswith('#'):
-                                            try:
-                                                color_hex = color.lstrip('#')
-                                                r = int(color_hex[0:2], 16) / 255.0
-                                                g = int(color_hex[2:4], 16) / 255.0
-                                                b = int(color_hex[4:6], 16) / 255.0
-                                                hl.set_colors(stroke=(r, g, b))
-                                            except:
-                                                hl.set_colors(stroke=(1, 1, 0))  # Fallback to yellow
-                                        else:
-                                            # Handle predefined colors
-                                            color_map = {
-                                                "blue": (0, 0, 1), "green": (0, 1, 0), "red": (1, 0, 0),
-                                                "purple": (0.5, 0, 0.5), "orange": (1, 0.65, 0)
-                                            }
-                                            hl.set_colors(stroke=color_map.get(color, (1, 1, 0)))
-                                        break
-                    else:
+                    if highlight_color:
+                        # Convert hex color to RGB
+                        try:
+                            r, g, b = _hex_to_rgb01(highlight_color)
+                            hl.set_colors(stroke=(r, g, b))
+                        except Exception:
+                            hl.set_colors(stroke=(1, 1, 0))  # Fallback to yellow
+                    elif note_text:
+                        # No color rule matched, but we have comments - use default
                         try:
                             r, g, b = _hex_to_rgb01(default_highlight_color or "#FFFF00")
                             hl.set_colors(stroke=(r, g, b))
@@ -1166,7 +1343,11 @@ def annotate_pdf_with_progress(
     use_streaming=None,
     tag_matching_config=None,
     tag_filters=None,
-    filter_logic="AND"
+    filter_logic="AND",
+    color_rules=None,
+    enable_default_color=True,
+    excel_constraint_mode=False,
+    excel_constraint_logic="AND"
 ):
     """
     Annotate PDF with tags from Excel file with progress tracking.
@@ -1202,7 +1383,8 @@ def annotate_pdf_with_progress(
             tag_column, header_row, selected_comment_columns, task_id,
             progress_callback, annotation_type, watermark_enabled,
             watermark_attribute, watermark_text_color, watermark_background_enabled,
-            default_highlight_color, tag_matching_config, tag_filters, filter_logic
+            default_highlight_color, tag_matching_config, tag_filters, filter_logic,
+            color_rules, enable_default_color, excel_constraint_mode, excel_constraint_logic
         )
     else:
         return _annotate_pdf_standard(
@@ -1210,7 +1392,8 @@ def annotate_pdf_with_progress(
             tag_column, header_row, selected_comment_columns, task_id,
             progress_callback, annotation_type, watermark_enabled,
             watermark_attribute, watermark_text_color, watermark_background_enabled,
-            default_highlight_color, tag_matching_config, tag_filters, filter_logic
+            default_highlight_color, tag_matching_config, tag_filters, filter_logic,
+            color_rules, enable_default_color, excel_constraint_mode, excel_constraint_logic
         )
 
 
@@ -1219,7 +1402,8 @@ def _annotate_pdf_standard(
     tag_column, header_row, selected_comment_columns, task_id,
     progress_callback, annotation_type, watermark_enabled,
     watermark_attribute, watermark_text_color, watermark_background_enabled,
-    default_highlight_color, tag_matching_config=None, tag_filters=None, filter_logic="AND"
+    default_highlight_color, tag_matching_config=None, tag_filters=None, filter_logic="AND",
+    color_rules=None, enable_default_color=True, excel_constraint_mode=False, excel_constraint_logic="AND"
 ):
     """Standard annotation mode - loads entire PDF into memory."""
     # Use default config if not provided
@@ -1309,16 +1493,38 @@ def _annotate_pdf_standard(
     update_progress(60, "Extracting PDF bookmarks...")
     page_bookmark_map = build_page_bookmark_map(doc)
 
-    # PHASE 2: Process annotations using index (60-90% progress)
+    # Build Excel tags set for color rule filtering
+    excel_tags_set = set()
+    if tag_filters:
+        update_progress(61, "Applying tag filters to Excel data...")
+        for tag in tags:
+            if apply_tag_filters(tag, tag_filters, filter_logic):
+                excel_tags_set.add(tag)
+    else:
+        excel_tags_set = set(tags)
+
+    # PHASE 1.5: Apply color rules to ALL matching text in PDF (if color rules provided)
+    if color_rules:
+        update_progress(62, "Applying color rules to all matching text...")
+        color_stats = apply_color_rules_to_all_text(
+            doc, tag_index, color_rules, default_highlight_color,
+            enable_default_color=enable_default_color,
+            excel_tags_set=excel_tags_set,
+            excel_constraint_mode=excel_constraint_mode,
+            excel_constraint_logic=excel_constraint_logic
+        )
+        print(f"Colored {color_stats['colored_tags']} out of {color_stats['total_tags']} tag occurrences based on color rules.")
+
+    # PHASE 2: Process annotations using index (65-90% progress)
     def annotation_progress_callback(progress, status):
-        # Map annotation progress (0-100%) to overall progress (60-90%)
-        overall_progress = 60 + int(progress * 0.3)
+        # Map annotation progress (0-100%) to overall progress (65-90%)
+        overall_progress = 65 + int(progress * 0.25)
         update_progress(overall_progress, status)
 
     # Collect watermark placements per page during processing
     watermark_items_by_page = defaultdict(list)
 
-    update_progress(62, "Processing annotations using optimized index...")
+    update_progress(65, "Processing Excel annotations and comments...")
     found_tags, skipped_tags, processed_tags, report_data = process_annotations_from_index(
         doc=doc,
         df=df,
@@ -1338,7 +1544,8 @@ def _annotate_pdf_standard(
         config=config,
         tag_filters=tag_filters,
         filter_logic=filter_logic,
-        page_bookmark_map=page_bookmark_map
+        page_bookmark_map=page_bookmark_map,
+        color_rules=color_rules
     )
 
     # Save intermediate annotated PDF (highlights/notes only)
@@ -1494,7 +1701,8 @@ def _annotate_pdf_streaming(
     tag_column, header_row, selected_comment_columns, task_id,
     progress_callback, annotation_type, watermark_enabled,
     watermark_attribute, watermark_text_color, watermark_background_enabled,
-    default_highlight_color, tag_matching_config=None, tag_filters=None, filter_logic="AND"
+    default_highlight_color, tag_matching_config=None, tag_filters=None, filter_logic="AND",
+    color_rules=None, enable_default_color=True, excel_constraint_mode=False, excel_constraint_logic="AND"
 ):
     """Streaming annotation mode - for large PDFs, processes in chunks with memory management."""
     # Use default config if not provided
@@ -1588,7 +1796,8 @@ def _annotate_pdf_streaming(
         config=config,
         tag_filters=tag_filters,
         filter_logic=filter_logic,
-        page_bookmark_map=page_bookmark_map
+        page_bookmark_map=page_bookmark_map,
+        color_rules=color_rules
     )
 
     update_progress(85, "Saving annotated PDF (streaming mode)...")

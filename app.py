@@ -533,10 +533,20 @@ def process_files():
             print(f"[APP INFO] Excel annotation disabled for .xls file: {excel_path}")
             annotate_excel = False
 
-        # Highlight settings
-        highlight_column = data.get('highlight_column', '')
-        highlight_color = data.get('highlight_color', '#FFFF00')
-        column_color_pairs = [(highlight_column, highlight_color)] if highlight_column else []
+        # Highlight settings - support both new color_rules and legacy column_color_pairs
+        color_rules = data.get('color_rules', [])
+        default_highlight_color = data.get('default_highlight_color', '#FFFF00')
+        enable_default_color = data.get('enable_default_color', True)
+        excel_constraint_mode = data.get('excel_constraint_mode', False)
+        excel_constraint_logic = data.get('excel_constraint_logic', 'AND')
+
+        # Legacy support for old single-color system
+        if not color_rules:
+            highlight_column = data.get('highlight_column', '')
+            highlight_color = data.get('highlight_color', '#FFFF00')
+            column_color_pairs = [(highlight_column, highlight_color)] if highlight_column else []
+        else:
+            column_color_pairs = []  # Not used when color_rules provided
 
         # Watermark settings
         watermark_enabled = data.get('watermark_enabled', False)
@@ -597,7 +607,7 @@ def process_files():
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
                           watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
-                          tag_matching_config, tag_filters, filter_logic):
+                          tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color):
             try:
                 output_files = []
                 output_display_names = []  # Clean names for user display/download
@@ -608,7 +618,8 @@ def process_files():
                     'found': [],
                     'not_found': [],
                     'duplicates': {},
-                    'validation_warnings': []
+                    'validation_warnings': [],
+                    'color_conflicts': []
                 }
 
                 # Process each PDF file
@@ -679,7 +690,12 @@ def process_files():
                         watermark_background_enabled=watermark_background_enabled,
                         tag_matching_config=tag_matching_config,
                         tag_filters=tag_filters,
-                        filter_logic=filter_logic
+                        filter_logic=filter_logic,
+                        color_rules=color_rules,
+                        default_highlight_color=default_highlight_color,
+                        enable_default_color=enable_default_color,
+                        excel_constraint_mode=excel_constraint_mode,
+                        excel_constraint_logic=excel_constraint_logic
                     )
 
                     # Collect all found tags from all PDFs
@@ -697,6 +713,7 @@ def process_files():
                             else:
                                 aggregated_report['duplicates'][tag] = rows
                         aggregated_report['validation_warnings'].extend(report_data.get('validation_warnings', []))
+                        aggregated_report['color_conflicts'].extend(report_data.get('color_conflicts', []))
 
                     # Ensure progress reaches the end of this file's segment
                     progress_callback(task_id, file_end, f"Finished file {i+1}/{total_files}: {original_name}")
@@ -875,7 +892,7 @@ def process_files():
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
                           watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
-                          tag_matching_config, tag_filters, filter_logic)
+                          tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color)
 
         return jsonify({
             'success': True,
@@ -1374,6 +1391,7 @@ def preview_pdf_page():
         data = request.get_json()
         pdf_file = data.get('pdf_file')
         tag_matching_config = data.get('tag_matching_config', None)
+        requested_page = data.get('page_number', None)  # 1-indexed page number from frontend
 
         if not pdf_file:
             return jsonify({'success': False, 'message': 'No PDF file specified'})
@@ -1400,15 +1418,20 @@ def preview_pdf_page():
         doc = fitz.open(pdf_path)
         total_pages = len(doc)
 
-        # Select page: page 5 (index 4) if available, page 2 (index 1) if only 2 pages, else last page
-        if total_pages >= 5:
-            page_num = 4  # Page 5 (0-indexed)
-        elif total_pages == 2:
-            page_num = 1  # Page 2 (0-indexed)
-        elif total_pages > 2:
-            page_num = min(4, total_pages - 1)  # Up to page 5 or last page
+        # Select page
+        if requested_page is not None:
+            # Use requested page (convert from 1-indexed to 0-indexed)
+            page_num = max(0, min(requested_page - 1, total_pages - 1))
         else:
-            page_num = total_pages - 1  # Last page
+            # Default behavior: page 5 (index 4) if available, page 2 (index 1) if only 2 pages, else last page
+            if total_pages >= 5:
+                page_num = 4  # Page 5 (0-indexed)
+            elif total_pages == 2:
+                page_num = 1  # Page 2 (0-indexed)
+            elif total_pages > 2:
+                page_num = min(4, total_pages - 1)  # Up to page 5 or last page
+            else:
+                page_num = total_pages - 1  # Last page
 
         page = doc[page_num]
 
@@ -1466,6 +1489,226 @@ def preview_pdf_page():
         return jsonify({
             'success': False,
             'message': f'Error generating preview: {str(e)}'
+        })
+
+
+@app.route('/preview_color_rules', methods=['POST'])
+def preview_color_rules():
+    """Generate a preview of a PDF page with colored highlights based on color rules"""
+    try:
+        import fitz
+        from io import BytesIO
+        import base64
+        import pandas as pd
+
+        data = request.get_json()
+        pdf_file = data.get('pdf_file')
+        excel_file = data.get('excel_file')
+        tag_column = data.get('tag_column')
+        header_row = data.get('header_row', 6)
+        color_rules = data.get('color_rules', [])
+        default_highlight_color = data.get('default_highlight_color', '#FFFF00')
+        enable_default_color = data.get('enable_default_color', True)
+        excel_constraint_mode = data.get('excel_constraint_mode', False)
+        excel_constraint_logic = data.get('excel_constraint_logic', 'AND')
+        tag_filters = data.get('tag_filters', [])
+        filter_logic = data.get('filter_logic', 'AND')
+        tag_matching_config = data.get('tag_matching_config', None)
+        page_number = data.get('page_number', None)  # Optional - specific page to preview
+
+        if not pdf_file:
+            return jsonify({'success': False, 'message': 'No PDF file specified'})
+
+        if not excel_file:
+            return jsonify({'success': False, 'message': 'No Excel file specified'})
+
+        # Get file paths
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
+        excel_path = os.path.join(app.config['UPLOAD_FOLDER'], excel_file)
+
+        if not os.path.exists(pdf_path):
+            return jsonify({'success': False, 'message': f'PDF file not found: {pdf_file}'})
+
+        if not os.path.exists(excel_path):
+            return jsonify({'success': False, 'message': f'Excel file not found: {excel_file}'})
+
+        # Import necessary functions
+        from pid_annotator_core import TagMatchingConfig, generate_regex_pattern, parse_tag_parts, apply_color_rules
+
+        # Load tag matching configuration
+        if tag_matching_config:
+            config = TagMatchingConfig.from_dict(tag_matching_config)
+        else:
+            config = TagMatchingConfig.get_default_preset()
+
+        # Generate regex pattern
+        tag_pattern = generate_regex_pattern(config)
+
+        # Load Excel data
+        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        if is_xls:
+            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
+        else:
+            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+
+        df = df.dropna(axis=1, how="all")
+
+        # Validate tag column
+        if tag_column not in df.columns:
+            return jsonify({'success': False, 'message': f'Tag column "{tag_column}" not found in Excel file'})
+
+        # Create a mapping of tags to their row data for color rule application
+        tag_to_row = {}
+        for idx, row in df.iterrows():
+            tag = str(row[tag_column]).strip()
+            if tag and tag.lower() != 'nan':
+                tag_to_row[tag] = row
+
+        # Build filtered Excel tags set if filters are enabled
+        excel_tags_set = set()
+        if tag_filters:
+            from pid_annotator_core import apply_tag_filters
+            for tag in tag_to_row.keys():
+                if apply_tag_filters(tag, tag_filters, filter_logic):
+                    excel_tags_set.add(tag)
+        else:
+            excel_tags_set = set(tag_to_row.keys())
+
+        # Open PDF
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+
+        # Select page
+        if page_number is not None:
+            page_num = max(0, min(page_number - 1, total_pages - 1))  # Convert to 0-indexed and clamp
+        else:
+            # Default selection logic: page 5 if available, else last page
+            if total_pages >= 5:
+                page_num = 4  # Page 5 (0-indexed)
+            elif total_pages == 2:
+                page_num = 1  # Page 2 (0-indexed)
+            elif total_pages > 2:
+                page_num = min(4, total_pages - 1)
+            else:
+                page_num = total_pages - 1
+
+        page = doc[page_num]
+
+        # Extract text and find all tags on this page
+        page_text = page.get_text()
+        found_tags = tag_pattern.findall(page_text)
+        unique_tags = list(set(found_tags))
+
+        # Track tags by color and build legend
+        legend = []
+        conflicts = []
+        color_to_tags = {}
+
+        # Apply color rules to ALL tags found on page (based on constraint mode)
+        for tag in unique_tags:
+            # Check if tag is in Excel list
+            in_excel = tag in excel_tags_set
+
+            # Apply color rules to this tag
+            highlight_color, matched_rule_id, conflict_rule_ids = apply_color_rules(
+                tag, None, color_rules, default_highlight_color if enable_default_color else None
+            )
+
+            # Determine if this tag should be colored based on constraint mode
+            should_color = False
+            if not excel_constraint_mode:
+                # No constraint - color if rules match
+                should_color = (highlight_color is not None)
+            elif excel_constraint_logic == 'AND':
+                # AND logic: Tag must be in Excel AND match a color rule
+                should_color = in_excel and (matched_rule_id is not None)
+            elif excel_constraint_logic == 'OR':
+                # OR logic: Color if tag matches rules OR is in Excel
+                should_color = (highlight_color is not None) or in_excel
+                # If in Excel but no rule matched, use default color
+                if in_excel and not highlight_color and enable_default_color:
+                    highlight_color = default_highlight_color
+
+            # Track conflicts
+            if conflict_rule_ids and should_color:
+                conflicts.append({
+                    'tag': tag,
+                    'matched_rule_id': matched_rule_id,
+                    'conflict_rule_ids': conflict_rule_ids
+                })
+
+            # Find positions of this tag and highlight them
+            instances = page.search_for(tag)
+            for inst in instances:
+                if should_color and highlight_color:
+                    # Convert hex to RGB
+                    from pid_annotator_core import _hex_to_rgb01
+                    r, g, b = _hex_to_rgb01(highlight_color)
+
+                    # Add highlight annotation
+                    highlight = page.add_highlight_annot(inst)
+                    highlight.set_colors(stroke=[r, g, b])
+                    highlight.update()
+
+                    # Track for legend
+                    if highlight_color not in color_to_tags:
+                        color_to_tags[highlight_color] = []
+                    if tag not in color_to_tags[highlight_color]:
+                        color_to_tags[highlight_color].append(tag)
+
+            # Add to legend
+            if should_color and highlight_color:
+                legend.append({
+                    'tag': tag,
+                    'color': highlight_color,
+                    'rule_id': matched_rule_id,
+                    'has_conflict': len(conflict_rule_ids) > 0,
+                    'in_excel': in_excel
+                })
+
+        # Render page as image
+        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+        pix = page.get_pixmap(matrix=mat)
+
+        # Convert to PNG bytes
+        img_bytes = pix.tobytes("png")
+
+        # Encode as base64 for JSON response
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+
+        # Close document
+        doc.close()
+
+        # Calculate stats
+        total_tags_on_page = len(unique_tags)
+        colored_tags = len([t for t in legend if t['color']])
+        uncolored_tags = total_tags_on_page - colored_tags
+
+        return jsonify({
+            'success': True,
+            'page_number': page_num + 1,  # 1-indexed for display
+            'total_pages': total_pages,
+            'found_tags': unique_tags,
+            'tag_count': len(unique_tags),
+            'legend': legend,
+            'conflicts': conflicts,
+            'stats': {
+                'total_tags': total_tags_on_page,
+                'colored_tags': colored_tags,
+                'uncolored_tags': uncolored_tags,
+                'conflict_count': len(conflicts)
+            },
+            'image': f'data:image/png;base64,{img_base64}',
+            'pattern_used': tag_pattern.pattern,
+            'config': config.to_dict()
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'Error generating color preview: {str(e)}'
         })
 
 
