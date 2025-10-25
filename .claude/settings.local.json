@@ -12,7 +12,9 @@
       "Bash(python3:*)",
       "Bash(python:*)",
       "Bash(where:*)",
-      "Bash(py:*)"
+      "Bash(py:*)",
+      "Bash(tasklist:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

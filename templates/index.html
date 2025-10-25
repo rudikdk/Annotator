@@ -1891,6 +1891,21 @@
       const [isColorDragging, setIsColorDragging] = useState(false);
       const [colorDragStart, setColorDragStart] = useState({ x: 0, y: 0 });
 
+      // Floating Preview Modal state
+      const [previewModalOpen, setPreviewModalOpen] = useState(false);
+      const [previewModalPage, setPreviewModalPage] = useState(1);
+      const [previewModalZoom, setPreviewModalZoom] = useState(100);
+      const [previewModalData, setPreviewModalData] = useState(null);
+      const [previewModalLoading, setPreviewModalLoading] = useState(false);
+      const [isModalDragging, setIsModalDragging] = useState(false);
+      const [modalDragStart, setModalDragStart] = useState({ x: 0, y: 0 });
+      const previewModalContainerRef = useRef(null);
+
+      // Tag Matching Preview Modal state (ADDED - These were missing!)
+      const [previewFullscreen, setPreviewFullscreen] = useState(false);
+      const [previewData, setPreviewData] = useState(null);
+      const [previewZoom, setPreviewZoom] = useState(100);
+
       const [annotateExcel, setAnnotateExcel] = useState(true);
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
@@ -1907,18 +1922,6 @@
       const [tagMatchingAllowPartial, setTagMatchingAllowPartial] = useState(false);
       const [tagMatchingCustomRegex, setTagMatchingCustomRegex] = useState('');
       const [tagMatchingPanelOpen, setTagMatchingPanelOpen] = useState(false);
-
-      // PDF Preview state
-      const [previewPanelOpen, setPreviewPanelOpen] = useState(false);
-      const [previewData, setPreviewData] = useState(null);
-      const [previewLoading, setPreviewLoading] = useState(false);
-      const [previewError, setPreviewError] = useState(null);
-      const [previewZoom, setPreviewZoom] = useState(100);
-      const [previewFullscreen, setPreviewFullscreen] = useState(false);
-      const [previewPage, setPreviewPage] = useState(null);
-      const previewContainerRef = useRef(null);
-      const [isDragging, setIsDragging] = useState(false);
-      const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
 
       // Tag filtering state
       const [tagFilters, setTagFilters] = useState([]); // Array of {part, value, match_type, action}
@@ -2225,11 +2228,6 @@
           return;
         }
 
-        if (colorRules.length === 0 && !defaultHighlightColor) {
-          setToast({ type: "info", text: "No color rules defined. Please add at least one rule." });
-          return;
-        }
-
         setColorPreviewLoading(true);
         setColorPreviewPanelOpen(true);
         setColorPreviewError(null);
@@ -2261,7 +2259,14 @@
             tag_filters: tagFilters,
             filter_logic: filterLogic,
             tag_matching_config: tag_matching_config,
-            page_number: colorPreviewPage
+            page_number: colorPreviewPage,
+            // NEW: Include comment and watermark settings for full preview
+            comment_columns: commentColumns,
+            watermark_enabled: watermarkEnabled,
+            watermark_attributes: watermarkAttributes,
+            watermark_text_color: watermarkTextColor,
+            watermark_background_enabled: watermarkBackgroundEnabled,
+            annotation_type: "highlight_only"
           })
         })
           .then((r) => r.json())
@@ -2269,7 +2274,8 @@
             setColorPreviewLoading(false);
             if (data.success) {
               setColorPreviewData(data);
-              logToConsole(`Color preview: ${data.stats.colored_tags}/${data.stats.total_tags} tags colored, ${data.stats.conflict_count} conflicts`);
+              const statsMsg = `${data.stats.colored_tags}/${data.stats.total_tags} colored, ${data.stats.comments_added || 0} comments, ${data.stats.watermarks_added || 0} watermarks`;
+              logToConsole(`Color preview: ${statsMsg}`);
             } else {
               setColorPreviewError(data.message || "Failed to generate preview");
               setToast({ type: "error", text: data.message || "Failed to generate color preview" });
@@ -2303,6 +2309,175 @@
           setTimeout(() => handlePreviewColorRules(), 100);
         }
       }
+
+      // Floating Preview Modal functions
+      function openPreviewModal() {
+        if (selectedPdfs.length === 0 || !selectedExcel) {
+          setToast({ type: "warning", text: "Please upload PDF and Excel files first" });
+          return;
+        }
+        setPreviewModalOpen(true);
+        // Load preview without specifying page - backend will choose smart default (total_pages / 3)
+        setPreviewModalPage(null);
+        loadPreviewModalPage(null);
+      }
+
+      function closePreviewModal() {
+        setPreviewModalOpen(false);
+        setPreviewModalData(null);
+      }
+
+      function loadPreviewModalPage(pageNum) {
+        setPreviewModalLoading(true);
+
+        const requestBody = {
+          selected_pdfs: selectedPdfs,
+          selected_excel: selectedExcel,
+          tag_column: tagColumn,
+          header_row: headerRow,
+          page_number: pageNum,
+          color_rules: colorRules,
+          default_highlight_color: defaultHighlightColor,
+          enable_default_color: enableDefaultColor,
+          excel_constraint_mode: excelConstraintMode,
+          excel_constraint_logic: excelConstraintLogic,
+          tag_filters: tagFilters,
+          filter_logic: filterLogic,
+          tag_matching_config: {
+            preset: tagMatchingPreset,
+            min_parts: tagMatchingMinParts,
+            max_parts: tagMatchingMaxParts,
+            separators: tagMatchingSeparators,
+            min_part_length: tagMatchingMinPartLength,
+            max_part_length: tagMatchingMaxPartLength,
+            allow_partial: tagMatchingAllowPartial,
+            custom_regex: tagMatchingCustomRegex
+          },
+          // Include ALL settings for complete preview
+          comment_columns: commentColumns,
+          watermark_enabled: watermarkEnabled,
+          watermark_attributes: watermarkAttributes,
+          watermark_text_color: watermarkTextColor,
+          watermark_background_enabled: watermarkBackgroundEnabled
+        };
+
+        // Use the new comprehensive preview endpoint that generates actual PDF
+        fetch('/generate_full_preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(requestBody)
+        })
+          .then(r => r.json())
+          .then(data => {
+            setPreviewModalLoading(false);
+            if (data.success) {
+              setPreviewModalData(data);
+              // Update page number to match the actual page that was processed
+              setPreviewModalPage(data.page_number);
+              const statsMsg = `Page ${data.page_number} of ${data.total_pages}, ${data.stats.colored_tags}/${data.stats.total_tags} tags colored`;
+              logToConsole(`Preview generated: ${statsMsg}`);
+              setToast({ type: "success", text: `Preview ready! Page ${data.page_number} processed successfully.` });
+            } else {
+              setToast({ type: "error", text: data.message || 'Failed to load preview' });
+            }
+          })
+          .catch(err => {
+            setPreviewModalLoading(false);
+            setToast({ type: "error", text: `Error: ${err.message}` });
+          });
+      }
+
+      function handleModalPageChange(direction) {
+        if (!previewModalData) return;
+
+        const newPage = direction === 'next'
+          ? Math.min(previewModalPage + 1, previewModalData.total_pages)
+          : Math.max(previewModalPage - 1, 1);
+
+        if (newPage !== previewModalPage) {
+          setPreviewModalPage(newPage);
+          setTimeout(() => loadPreviewModalPage(newPage), 100);
+        }
+      }
+
+      function handleModalGoToPage(pageNum) {
+        if (!previewModalData || pageNum < 1 || pageNum > previewModalData.total_pages) return;
+        setPreviewModalPage(pageNum);
+        setTimeout(() => loadPreviewModalPage(pageNum), 100);
+      }
+
+      function handleModalZoom(action, value = null) {
+        if (action === 'in') {
+          setPreviewModalZoom(prev => Math.min(400, prev + 25));
+        } else if (action === 'out') {
+          setPreviewModalZoom(prev => Math.max(25, prev - 25));
+        } else if (action === 'reset') {
+          setPreviewModalZoom(100);
+        } else if (action === 'fitWidth') {
+          // Calculate zoom to fit width (approximate)
+          const containerWidth = previewModalContainerRef.current?.clientWidth || 800;
+          const zoom = Math.floor((containerWidth / 800) * 100);
+          setPreviewModalZoom(Math.max(25, Math.min(400, zoom)));
+        } else if (action === 'fitHeight') {
+          // Calculate zoom to fit height (approximate)
+          const containerHeight = previewModalContainerRef.current?.clientHeight || 600;
+          const zoom = Math.floor((containerHeight / 1000) * 100);
+          setPreviewModalZoom(Math.max(25, Math.min(400, zoom)));
+        } else if (value !== null) {
+          setPreviewModalZoom(parseInt(value));
+        }
+      }
+
+      function handleModalWheel(e) {
+        if (e.ctrlKey || e.metaKey) {
+          e.preventDefault();
+          const delta = e.deltaY > 0 ? -10 : 10;
+          setPreviewModalZoom(prev => Math.max(25, Math.min(400, prev + delta)));
+        }
+      }
+
+      function handleModalMouseDown(e) {
+        if (e.button !== 0) return;
+        setIsModalDragging(true);
+        setModalDragStart({
+          x: e.clientX - (previewModalContainerRef.current?.scrollLeft || 0),
+          y: e.clientY - (previewModalContainerRef.current?.scrollTop || 0)
+        });
+        e.currentTarget.style.cursor = 'grabbing';
+      }
+
+      function handleModalMouseMove(e) {
+        if (isModalDragging && previewModalContainerRef.current) {
+          e.preventDefault();
+          const x = e.clientX - modalDragStart.x;
+          const y = e.clientY - modalDragStart.y;
+          previewModalContainerRef.current.scrollLeft = -x;
+          previewModalContainerRef.current.scrollTop = -y;
+        }
+      }
+
+      function handleModalMouseUp(e) {
+        setIsModalDragging(false);
+        e.currentTarget.style.cursor = 'grab';
+      }
+
+      // Keyboard shortcuts for modal
+      useEffect(() => {
+        function handleModalKeyPress(e) {
+          if (!previewModalOpen) return;
+
+          if (e.key === 'Escape') {
+            closePreviewModal();
+          } else if (e.key === 'ArrowLeft') {
+            handleModalPageChange('prev');
+          } else if (e.key === 'ArrowRight') {
+            handleModalPageChange('next');
+          }
+        }
+
+        window.addEventListener('keydown', handleModalKeyPress);
+        return () => window.removeEventListener('keydown', handleModalKeyPress);
+      }, [previewModalOpen, previewModalPage, previewModalData]);
 
       // Load color presets from localStorage on mount
       React.useEffect(() => {
@@ -2770,103 +2945,44 @@
           });
       }
 
-      // PDF Preview functions
-      function generatePreview(pageNumber = null) {
-        if (selectedPdfs.length === 0) {
-          setToast({ type: "warning", text: "Please select a PDF file first" });
-          return;
-        }
-
-        setPreviewLoading(true);
-        setPreviewError(null);
-
-        // Use the first selected PDF
-        const pdfFile = selectedPdfs[0];
-
-        // Build tag matching config
-        const tagMatchingConfig = {
-          preset: tagMatchingPreset,
-          min_parts: tagMatchingMinParts,
-          max_parts: tagMatchingMaxParts,
-          separators: tagMatchingSeparators,
-          min_part_length: tagMatchingMinPartLength,
-          max_part_length: tagMatchingMaxPartLength,
-          allow_partial_match: tagMatchingAllowPartial,
-          custom_regex: tagMatchingCustomRegex || null
-        };
-
-        const requestBody = {
-          pdf_file: pdfFile,
-          tag_matching_config: tagMatchingConfig
-        };
-
-        // Add page_number if specified
-        if (pageNumber !== null) {
-          requestBody.page_number = pageNumber;
-        }
-
-        fetch('/preview_pdf_page', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(requestBody)
-        })
-          .then(r => r.json())
-          .then(data => {
-            setPreviewLoading(false);
-            if (data.success) {
-              setPreviewData(data);
-              setPreviewPanelOpen(true);
-              logToConsole(`Preview generated: Page ${data.page_number}/${data.total_pages}, Found ${data.tag_count} tags`);
-            } else {
-              setPreviewError(data.message || 'Failed to generate preview');
-              setToast({ type: "error", text: data.message || 'Failed to generate preview' });
-            }
-          })
-          .catch(err => {
-            setPreviewLoading(false);
-            setPreviewError(err.message);
-            setToast({ type: "error", text: `Error: ${err.message}` });
-          });
-      }
-
       // Zoom control functions
       function handleZoomIn(previewType) {
-        if (previewType === 'tag') {
-          setPreviewZoom(Math.min(200, previewZoom + 25));
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setColorPreviewZoom(Math.min(200, colorPreviewZoom + 25));
+        } else if (previewType === 'tag') {
+          setPreviewZoom(Math.min(200, previewZoom + 25));
         }
       }
 
       function handleZoomOut(previewType) {
-        if (previewType === 'tag') {
-          setPreviewZoom(Math.max(50, previewZoom - 25));
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setColorPreviewZoom(Math.max(50, colorPreviewZoom - 25));
+        } else if (previewType === 'tag') {
+          setPreviewZoom(Math.max(50, previewZoom - 25));
         }
       }
 
       function handleZoomReset(previewType) {
-        if (previewType === 'tag') {
-          setPreviewZoom(100);
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setColorPreviewZoom(100);
+        } else if (previewType === 'tag') {
+          setPreviewZoom(100);
         }
       }
 
       function handleZoomChange(previewType, value) {
-        if (previewType === 'tag') {
-          setPreviewZoom(parseInt(value));
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setColorPreviewZoom(parseInt(value));
+        } else if (previewType === 'tag') {
+          setPreviewZoom(parseInt(value));
         }
       }
 
       function toggleFullscreen(previewType) {
-        if (previewType === 'tag') {
-          setPreviewFullscreen(!previewFullscreen);
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setColorPreviewFullscreen(!colorPreviewFullscreen);
+        } else if (previewType === 'tag') {
+          setPreviewFullscreen(!previewFullscreen);
         }
       }
 
@@ -2876,25 +2992,17 @@
           e.preventDefault();
           const delta = e.deltaY > 0 ? -10 : 10;
 
-          if (previewType === 'tag') {
-            setPreviewZoom(prev => Math.max(50, Math.min(200, prev + delta)));
-          } else if (previewType === 'color') {
+          if (previewType === 'color') {
             setColorPreviewZoom(prev => Math.max(50, Math.min(200, prev + delta)));
           }
         }
       }
 
-      // Mouse drag handlers for tag preview
+      // Mouse drag handlers for color preview
       function handleMouseDown(e, previewType) {
         if (e.button !== 0) return; // Only left mouse button
 
-        if (previewType === 'tag') {
-          setIsDragging(true);
-          setDragStart({
-            x: e.clientX - (previewContainerRef.current?.scrollLeft || 0),
-            y: e.clientY - (previewContainerRef.current?.scrollTop || 0)
-          });
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setIsColorDragging(true);
           setColorDragStart({
             x: e.clientX - (colorPreviewContainerRef.current?.scrollLeft || 0),
@@ -2905,13 +3013,7 @@
       }
 
       function handleMouseMove(e, previewType) {
-        if (previewType === 'tag' && isDragging && previewContainerRef.current) {
-          e.preventDefault();
-          const x = e.clientX - dragStart.x;
-          const y = e.clientY - dragStart.y;
-          previewContainerRef.current.scrollLeft = -x;
-          previewContainerRef.current.scrollTop = -y;
-        } else if (previewType === 'color' && isColorDragging && colorPreviewContainerRef.current) {
+        if (previewType === 'color' && isColorDragging && colorPreviewContainerRef.current) {
           e.preventDefault();
           const x = e.clientX - colorDragStart.x;
           const y = e.clientY - colorDragStart.y;
@@ -2921,35 +3023,25 @@
       }
 
       function handleMouseUp(e, previewType) {
-        if (previewType === 'tag') {
-          setIsDragging(false);
-        } else if (previewType === 'color') {
+        if (previewType === 'color') {
           setIsColorDragging(false);
         }
         e.currentTarget.style.cursor = 'grab';
-      }
-
-      // Handle page change for tag preview
-      function handlePreviewPageChange(pageNumber) {
-        setPreviewPage(pageNumber);
-        // Regenerate preview with new page
-        setTimeout(() => generatePreview(pageNumber), 100);
       }
 
       // Keyboard handler for fullscreen ESC
       useEffect(() => {
         function handleEscKey(e) {
           if (e.key === 'Escape') {
-            if (previewFullscreen) setPreviewFullscreen(false);
             if (colorPreviewFullscreen) setColorPreviewFullscreen(false);
           }
         }
 
-        if (previewFullscreen || colorPreviewFullscreen) {
+        if (colorPreviewFullscreen) {
           document.addEventListener('keydown', handleEscKey);
           return () => document.removeEventListener('keydown', handleEscKey);
         }
-      }, [previewFullscreen, colorPreviewFullscreen]);
+      }, [colorPreviewFullscreen]);
 
       // Load workspace files on mount
       useEffect(() => {
@@ -3840,211 +3932,6 @@
                   )}
                 </div>
 
-                {/* PDF Tag Matching Preview */}
-                <div>
-                  <div
-                    className="flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-lg transition-colors"
-                    onClick={() => setPreviewPanelOpen(!previewPanelOpen)}
-                  >
-                    <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">PDF Preview - Tag Matching Demo</h3>
-                    <i className={`fa-solid fa-chevron-${previewPanelOpen ? 'up' : 'down'} text-zinc-400 dark:text-zinc-500 text-sm`}></i>
-                  </div>
-
-                  {previewPanelOpen && (
-                    <div className="mt-3 space-y-4 border-l-2 border-brand/30 pl-4">
-                      <div className="text-sm text-zinc-600 dark:text-zinc-400 mb-3 space-y-1">
-                        <div>
-                          <i className="fa-solid fa-info-circle mr-2"></i>
-                          Preview shows how custom tag matching will work on page {selectedPdfs.length > 0 ? '5 (or page 2 if PDF has only 2 pages)' : 'N/A'} with yellow highlights on found tags.
-                        </div>
-                        <div className="text-xs text-zinc-500 dark:text-zinc-500 italic pl-5">
-                          <i className="fa-solid fa-mouse-pointer mr-1"></i>
-                          Tip: Hold Ctrl + Scroll to zoom, click and drag to pan
-                        </div>
-                      </div>
-
-                      {/* Generate Preview Button */}
-                      <button
-                        onClick={generatePreview}
-                        disabled={selectedPdfs.length === 0 || previewLoading}
-                        className={`
-                          w-full px-4 py-2 rounded-lg font-medium transition-all
-                          ${selectedPdfs.length === 0 || previewLoading
-                            ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
-                            : 'bg-brand text-white hover:bg-brand-dark active:scale-95'
-                          }
-                        `}
-                      >
-                        {previewLoading ? (
-                          <>
-                            <i className="fa-solid fa-spinner fa-spin mr-2"></i>
-                            Generating Preview...
-                          </>
-                        ) : (
-                          <>
-                            <i className="fa-solid fa-eye mr-2"></i>
-                            Generate Preview
-                          </>
-                        )}
-                      </button>
-
-                      {/* Preview Error */}
-                      {previewError && (
-                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                          <div className="flex items-center text-red-700 dark:text-red-400">
-                            <i className="fa-solid fa-exclamation-triangle mr-2"></i>
-                            <span className="text-sm">{previewError}</span>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Preview Display */}
-                      {previewData && (
-                        <div className="space-y-4">
-                          {/* Preview Info */}
-                          <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                              <div className="text-zinc-500 dark:text-zinc-400 mb-1">Page</div>
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={previewData.page_number}
-                                  onChange={(e) => handlePreviewPageChange(parseInt(e.target.value))}
-                                  className="px-2 py-1 rounded border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 text-sm font-semibold"
-                                >
-                                  {Array.from({ length: previewData.total_pages }, (_, i) => i + 1).map(page => (
-                                    <option key={page} value={page}>{page}</option>
-                                  ))}
-                                </select>
-                                <span className="text-zinc-500 dark:text-zinc-400">of {previewData.total_pages}</span>
-                              </div>
-                            </div>
-                            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                              <div className="text-zinc-500 dark:text-zinc-400 mb-1">Tags Found</div>
-                              <div className="font-semibold text-brand">{previewData.tag_count}</div>
-                            </div>
-                          </div>
-
-                          {/* Pattern Info */}
-                          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                            <div className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-1">
-                              <i className="fa-solid fa-code mr-2"></i>
-                              Regex Pattern Used
-                            </div>
-                            <code className="text-xs text-blue-800 dark:text-blue-400 font-mono break-all">
-                              {previewData.pattern_used}
-                            </code>
-                          </div>
-
-                          {/* Preview Image with Zoom Controls */}
-                          <div className="space-y-2">
-                            {/* Zoom Control Toolbar */}
-                            <div className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => handleZoomOut('tag')}
-                                  disabled={previewZoom <= 50}
-                                  className="px-2 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
-                                  title="Zoom Out"
-                                >
-                                  <i className="fa-solid fa-minus"></i>
-                                </button>
-                                <input
-                                  type="range"
-                                  min="50"
-                                  max="200"
-                                  step="25"
-                                  value={previewZoom}
-                                  onChange={(e) => handleZoomChange('tag', e.target.value)}
-                                  className="w-32"
-                                />
-                                <button
-                                  onClick={() => handleZoomIn('tag')}
-                                  disabled={previewZoom >= 200}
-                                  className="px-2 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed"
-                                  title="Zoom In"
-                                >
-                                  <i className="fa-solid fa-plus"></i>
-                                </button>
-                                <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 min-w-[3rem] text-center">
-                                  {previewZoom}%
-                                </span>
-                                <button
-                                  onClick={() => handleZoomReset('tag')}
-                                  className="px-2 py-1 text-xs rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
-                                  title="Reset Zoom"
-                                >
-                                  <i className="fa-solid fa-undo mr-1"></i>
-                                  Reset
-                                </button>
-                              </div>
-                              <button
-                                onClick={() => toggleFullscreen('tag')}
-                                className="px-3 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
-                                title="Fullscreen"
-                              >
-                                <i className="fa-solid fa-expand mr-1"></i>
-                                Fullscreen
-                              </button>
-                            </div>
-
-                            {/* Preview Image Container */}
-                            <div
-                              ref={previewContainerRef}
-                              className="border-2 border-zinc-200 dark:border-zinc-700 rounded-lg overflow-auto bg-white dark:bg-zinc-900"
-                              style={{ maxHeight: '600px', cursor: isDragging ? 'grabbing' : 'grab' }}
-                              onWheel={(e) => handleWheel(e, 'tag')}
-                              onMouseDown={(e) => handleMouseDown(e, 'tag')}
-                              onMouseMove={(e) => handleMouseMove(e, 'tag')}
-                              onMouseUp={(e) => handleMouseUp(e, 'tag')}
-                              onMouseLeave={(e) => handleMouseUp(e, 'tag')}
-                            >
-                              <img
-                                src={previewData.image}
-                                alt={`PDF Preview - Page ${previewData.page_number}`}
-                                className="h-auto mx-auto block select-none"
-                                style={{
-                                  width: `${previewZoom}%`,
-                                  objectFit: 'contain'
-                                }}
-                                draggable="false"
-                              />
-                            </div>
-                          </div>
-
-                          {/* Found Tags List */}
-                          {previewData.found_tags && previewData.found_tags.length > 0 && (
-                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg">
-                              <div className="text-sm font-medium mb-3 text-zinc-700 dark:text-zinc-300">
-                                <i className="fa-solid fa-tags mr-2"></i>
-                                Found Tags ({previewData.found_tags.length})
-                              </div>
-                              <div className="flex flex-wrap gap-2">
-                                {previewData.found_tags.sort().map((tag, idx) => (
-                                  <span
-                                    key={idx}
-                                    className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded text-xs font-mono text-zinc-800 dark:text-zinc-200"
-                                  >
-                                    {tag}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {previewData.found_tags && previewData.found_tags.length === 0 && (
-                            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                              <div className="flex items-center text-amber-700 dark:text-amber-400">
-                                <i className="fa-solid fa-info-circle mr-2"></i>
-                                <span className="text-sm">No tags found on this page matching the current pattern.</span>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
                 <div>
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Configuration Profiles</h3>
                   <div className="space-y-4">
@@ -4600,7 +4487,7 @@
 
                             {/* Stats */}
                             {colorPreviewData.stats && (
-                              <div className="grid grid-cols-3 gap-2 text-center">
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
                                 <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
                                   <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{colorPreviewData.stats.total_tags}</div>
                                   <div className="text-xs text-blue-700 dark:text-blue-300">Total Tags</div>
@@ -4609,9 +4496,13 @@
                                   <div className="text-2xl font-bold text-green-600 dark:text-green-400">{colorPreviewData.stats.colored_tags}</div>
                                   <div className="text-xs text-green-700 dark:text-green-300">Colored</div>
                                 </div>
-                                <div className="p-2 bg-amber-50 dark:bg-amber-900/20 rounded-lg">
-                                  <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{colorPreviewData.stats.conflict_count}</div>
-                                  <div className="text-xs text-amber-700 dark:text-amber-300">Conflicts</div>
+                                <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{colorPreviewData.stats.comments_added || 0}</div>
+                                  <div className="text-xs text-purple-700 dark:text-purple-300">Comments</div>
+                                </div>
+                                <div className="p-2 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg">
+                                  <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">{colorPreviewData.stats.watermarks_added || 0}</div>
+                                  <div className="text-xs text-cyan-700 dark:text-cyan-300">Watermarks</div>
                                 </div>
                               </div>
                             )}
@@ -4719,18 +4610,33 @@
                               <div>
                                 <label className="block text-sm font-medium mb-2">Color Legend</label>
                                 <div className="space-y-1 max-h-40 overflow-y-auto">
-                                  {colorPreviewData.legend.map((item, idx) => (
-                                    <div key={idx} className="flex items-center gap-2 p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded text-xs">
-                                      <div
-                                        className="w-4 h-4 rounded border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
-                                        style={{ backgroundColor: item.color }}
-                                      ></div>
-                                      <span className="font-mono font-medium">{item.tag}</span>
-                                      {item.has_conflict && (
-                                        <i className="fa-solid fa-exclamation-triangle text-amber-500 text-xs" title="Multiple rules matched"></i>
-                                      )}
-                                    </div>
-                                  ))}
+                                  {colorPreviewData.legend.map((item, idx) => {
+                                    // Extract the tag string properly
+                                    let tagText = '';
+                                    if (typeof item.tag === 'string') {
+                                      tagText = item.tag;
+                                    } else if (item.tag && typeof item.tag === 'object') {
+                                      // If item.tag is an object, try to extract the tag property
+                                      tagText = item.tag.tag || JSON.stringify(item.tag);
+                                    } else {
+                                      tagText = String(item.tag || 'Unknown');
+                                    }
+
+                                    return (
+                                      <div key={idx} className="flex items-center gap-2 p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded text-xs">
+                                        <div
+                                          className="w-4 h-4 rounded border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
+                                          style={{ backgroundColor: item.color }}
+                                        ></div>
+                                        <span className="font-mono font-medium">
+                                          {tagText}
+                                        </span>
+                                        {item.has_conflict && (
+                                          <i className="fa-solid fa-exclamation-triangle text-amber-500 text-xs" title="Multiple rules matched"></i>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
                                 </div>
                               </div>
                             )}
@@ -5183,6 +5089,280 @@
                     }}
                   />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Floating Action Button */}
+          {selectedPdfs.length > 0 && selectedExcel && (
+            <button
+              onClick={openPreviewModal}
+              className="fixed z-50 bg-brand hover:bg-brand-dark text-white shadow-lg hover:shadow-xl transition-all active:scale-95 md:bottom-8 md:right-8 md:w-16 md:h-16 md:rounded-full bottom-4 left-4 right-4 h-12 rounded-xl flex items-center justify-center gap-2"
+              title="Preview Highlights"
+            >
+              <i className="fa-solid fa-eye text-lg"></i>
+              <span className="md:hidden text-sm font-medium">
+                Preview Highlights
+                {colorPreviewData && (
+                  <span className="ml-2 opacity-75">
+                    ({colorPreviewData.stats.colored_tags}/{colorPreviewData.stats.total_tags})
+                  </span>
+                )}
+              </span>
+              {colorPreviewData && (
+                <span className="hidden md:block absolute -top-2 -right-2 bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold shadow">
+                  {colorPreviewData.stats.colored_tags}/{colorPreviewData.stats.total_tags}
+                </span>
+              )}
+            </button>
+          )}
+
+          {/* Preview Modal */}
+          {previewModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50" onClick={closePreviewModal}>
+              <div className="bg-white dark:bg-zinc-900 rounded-lg shadow-2xl w-full h-full max-w-[90vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                {/* Modal Header */}
+                <div className="flex-shrink-0 border-b border-zinc-200 dark:border-zinc-700 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
+                      Preview Highlights
+                    </h2>
+                    <button
+                      onClick={closePreviewModal}
+                      className="p-2 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors"
+                      title="Close (ESC)"
+                    >
+                      <i className="fa-solid fa-times text-xl text-zinc-600 dark:text-zinc-400"></i>
+                    </button>
+                  </div>
+
+                  {/* Controls */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    {/* Page Navigation */}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => handleModalPageChange('prev')}
+                        disabled={previewModalPage <= 1 || previewModalLoading}
+                        className="px-3 py-2 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        title="Previous Page (←)"
+                      >
+                        <i className="fa-solid fa-chevron-left"></i>
+                      </button>
+
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm text-zinc-600 dark:text-zinc-400">Page</span>
+                        <input
+                          type="number"
+                          min="1"
+                          max={previewModalData?.total_pages || 1}
+                          value={previewModalPage}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value);
+                            if (!isNaN(val)) {
+                              setPreviewModalPage(val);
+                            }
+                          }}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              handleModalGoToPage(previewModalPage);
+                            }
+                          }}
+                          className="w-16 px-2 py-1 text-center border border-zinc-300 dark:border-zinc-600 bg-white dark:bg-zinc-800 rounded text-sm font-semibold"
+                        />
+                        <button
+                          onClick={() => handleModalGoToPage(previewModalPage)}
+                          className="px-2 py-1 bg-brand hover:bg-brand-dark text-white rounded text-sm font-medium transition-colors"
+                        >
+                          Go
+                        </button>
+                        <span className="text-sm text-zinc-500 dark:text-zinc-400">
+                          of {previewModalData?.total_pages || '?'}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => handleModalPageChange('next')}
+                        disabled={!previewModalData || previewModalPage >= previewModalData.total_pages || previewModalLoading}
+                        className="px-3 py-2 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+                        title="Next Page (→)"
+                      >
+                        <i className="fa-solid fa-chevron-right"></i>
+                      </button>
+                    </div>
+
+                    {/* Zoom Controls */}
+                    <div className="flex items-center gap-2 ml-auto">
+                      <button
+                        onClick={() => handleModalZoom('out')}
+                        disabled={previewModalZoom <= 25}
+                        className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Zoom Out"
+                      >
+                        <i className="fa-solid fa-minus"></i>
+                      </button>
+
+                      <input
+                        type="range"
+                        min="25"
+                        max="400"
+                        step="25"
+                        value={previewModalZoom}
+                        onChange={(e) => handleModalZoom('set', e.target.value)}
+                        className="w-24 md:w-32"
+                      />
+
+                      <button
+                        onClick={() => handleModalZoom('in')}
+                        disabled={previewModalZoom >= 400}
+                        className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Zoom In"
+                      >
+                        <i className="fa-solid fa-plus"></i>
+                      </button>
+
+                      <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 min-w-[3.5rem] text-center">
+                        {previewModalZoom}%
+                      </span>
+
+                      <button
+                        onClick={() => handleModalZoom('reset')}
+                        className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded text-xs"
+                        title="Reset Zoom"
+                      >
+                        <i className="fa-solid fa-undo"></i>
+                      </button>
+
+                      <button
+                        onClick={() => handleModalZoom('fitWidth')}
+                        className="hidden md:block px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded text-xs"
+                        title="Fit Width"
+                      >
+                        <i className="fa-solid fa-arrows-left-right"></i>
+                      </button>
+
+                      <button
+                        onClick={() => handleModalZoom('fitHeight')}
+                        className="hidden md:block px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded text-xs"
+                        title="Fit Height"
+                      >
+                        <i className="fa-solid fa-arrows-up-down"></i>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Stats & Download */}
+                  {previewModalData && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex flex-wrap items-center gap-4 text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-zinc-600 dark:text-zinc-400">Colored:</span>
+                          <span className="font-bold text-brand">
+                            {previewModalData.stats.colored_tags} / {previewModalData.stats.total_tags}
+                          </span>
+                        </div>
+                        {previewModalData.stats.conflict_count > 0 && (
+                          <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
+                            <i className="fa-solid fa-exclamation-triangle"></i>
+                            <span>{previewModalData.stats.conflict_count} conflicts</span>
+                          </div>
+                        )}
+                      </div>
+                      {previewModalData.download_url && (
+                        <button
+                          onClick={() => {
+                            window.location.href = previewModalData.download_url;
+                            setToast({ type: "success", text: `Downloading ${previewModalData.preview_clean_name}` });
+                          }}
+                          className="px-4 py-2 bg-success hover:bg-success-hover text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                          title="Download single-page annotated PDF"
+                        >
+                          <i className="fa-solid fa-download"></i>
+                          <span className="hidden sm:inline">Download Preview PDF</span>
+                          <span className="sm:hidden">Download</span>
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Body */}
+                <div className="flex-1 overflow-hidden p-4">
+                  {previewModalLoading ? (
+                    <div className="flex items-center justify-center h-full">
+                      <div className="text-center">
+                        <i className="fa-solid fa-spinner fa-spin text-4xl text-brand mb-3"></i>
+                        <p className="text-zinc-600 dark:text-zinc-400">Loading preview...</p>
+                      </div>
+                    </div>
+                  ) : previewModalData ? (
+                    <div
+                      ref={previewModalContainerRef}
+                      className="w-full h-full overflow-auto bg-zinc-100 dark:bg-zinc-950 rounded-lg"
+                      style={{ cursor: isModalDragging ? 'grabbing' : 'grab' }}
+                      onWheel={handleModalWheel}
+                      onMouseDown={handleModalMouseDown}
+                      onMouseMove={handleModalMouseMove}
+                      onMouseUp={handleModalMouseUp}
+                      onMouseLeave={handleModalMouseUp}
+                    >
+                      <img
+                        src={previewModalData.image}
+                        alt={`Preview - Page ${previewModalPage}`}
+                        className="mx-auto block select-none"
+                        style={{
+                          width: `${previewModalZoom}%`,
+                          objectFit: 'contain'
+                        }}
+                        draggable="false"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center h-full">
+                      <p className="text-zinc-500 dark:text-zinc-400">No preview data</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Modal Footer */}
+                {previewModalData && previewModalData.legend && (
+                  <div className="flex-shrink-0 border-t border-zinc-200 dark:border-zinc-700 p-4 max-h-32 overflow-y-auto">
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Legend:</span>
+                      {(Array.isArray(previewModalData.legend) ? previewModalData.legend : Object.entries(previewModalData.legend)).map((item, idx) => {
+                        // Handle both array format and object format
+                        let color, tagText;
+                        if (Array.isArray(item)) {
+                          // Object.entries format: [color, description]
+                          [color, tagText] = item;
+                          // If tagText is still an object, extract the tag property
+                          if (typeof tagText === 'object' && tagText !== null) {
+                            tagText = tagText.tag || JSON.stringify(tagText);
+                          }
+                        } else {
+                          // Array item format: {color, tag, ...}
+                          color = item.color;
+                          if (typeof item.tag === 'string') {
+                            tagText = item.tag;
+                          } else if (item.tag && typeof item.tag === 'object') {
+                            tagText = item.tag.tag || JSON.stringify(item.tag);
+                          } else {
+                            tagText = String(item.tag || 'Unknown');
+                          }
+                        }
+
+                        return (
+                          <div key={idx} className="flex items-center gap-2">
+                            <div
+                              className="w-4 h-4 rounded border border-zinc-300 dark:border-zinc-600"
+                              style={{ backgroundColor: color }}
+                            ></div>
+                            <span className="text-sm text-zinc-700 dark:text-zinc-300">{tagText}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

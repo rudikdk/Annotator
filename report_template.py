@@ -213,6 +213,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     not_found = report_data.get('not_found', [])
     duplicates = report_data.get('duplicates', {})
     validation_warnings = report_data.get('validation_warnings', [])
+    page_stats = report_data.get('page_stats', {})
 
     total_tags = len(found) + len(not_found)
     found_count = len(found)
@@ -274,6 +275,54 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         for item in validation_warnings
     ])
 
+    # Process page statistics
+    page_stats_list = []
+    if page_stats:
+        for page_num in sorted(page_stats.keys()):
+            stats = page_stats[page_num]
+            colored_count = stats.get('colored_count', 0)
+            total_count = stats.get('total_count', 0)
+            percentage = (colored_count / total_count * 100) if total_count > 0 else 0
+            page_stats_list.append({
+                'page': page_num + 1,  # Convert from 0-indexed to 1-indexed
+                'colored_count': colored_count,
+                'total_count': total_count,
+                'percentage': percentage
+            })
+
+    page_stats_count = len(page_stats_list)
+
+    # Calculate page stats summary
+    if page_stats_list:
+        total_pages_with_tags = len([p for p in page_stats_list if p['total_count'] > 0])
+        total_pages_with_colored = len([p for p in page_stats_list if p['colored_count'] > 0])
+        pages_no_colored = total_pages_with_tags - total_pages_with_colored
+        most_tagged_page = max(page_stats_list, key=lambda x: x['total_count']) if page_stats_list else None
+        avg_tags_per_page = sum(p['total_count'] for p in page_stats_list) / len(page_stats_list) if page_stats_list else 0
+    else:
+        total_pages_with_tags = 0
+        total_pages_with_colored = 0
+        pages_no_colored = 0
+        most_tagged_page = None
+        avg_tags_per_page = 0
+
+    page_stats_rows_html = '\n'.join([
+        f'''                    <tr>
+                        <td class="page-number">{item["page"]}</td>
+                        <td>{item["colored_count"]}</td>
+                        <td>{item["total_count"]}</td>
+                        <td>
+                            <div class="flex items-center gap-2">
+                                <div class="percentage-bar-container">
+                                    <div class="percentage-bar" style="width: {item["percentage"]}%"></div>
+                                </div>
+                                <span class="text-sm">{item["percentage"]:.1f}%</span>
+                            </div>
+                        </td>
+                    </tr>'''
+        for item in page_stats_list
+    ])
+
     # Build optional sections with collapsible support
     duplicates_section = ''
     if duplicate_count > 0:
@@ -322,6 +371,59 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         </div>
         '''
 
+    # Build page statistics section
+    page_stats_section = ''
+    if page_stats_count > 0:
+        summary_html = ''
+        if most_tagged_page:
+            summary_html = f'''
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+                    <div class="stat-mini-card">
+                        <div class="stat-mini-label">Pages with Tags</div>
+                        <div class="stat-mini-value">{total_pages_with_tags}</div>
+                    </div>
+                    <div class="stat-mini-card">
+                        <div class="stat-mini-label">Pages with Colored Tags</div>
+                        <div class="stat-mini-value">{total_pages_with_colored}</div>
+                    </div>
+                    <div class="stat-mini-card">
+                        <div class="stat-mini-label">Most Tagged Page</div>
+                        <div class="stat-mini-value">Page {most_tagged_page['page']} ({most_tagged_page['total_count']} tags)</div>
+                    </div>
+                    <div class="stat-mini-card">
+                        <div class="stat-mini-label">Avg Tags per Page</div>
+                        <div class="stat-mini-value">{avg_tags_per_page:.1f}</div>
+                    </div>
+                </div>
+            '''
+
+        page_stats_section = f'''
+        <div class="section collapsible" id="pageStatsSection">
+            <h2 onclick="toggleSection('pageStatsSection')">
+                <span>
+                    <span style="color: #0ea5e9;">📊</span> Tags Per Page Analysis <span class="badge">{page_stats_count} pages</span>
+                </span>
+                <span class="toggle-icon">▼</span>
+            </h2>
+            <div class="section-content">
+                {summary_html}
+                <table id="pageStatsTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('pageStatsTable', 0)">Page # <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 1)">Colored Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 2)">Total Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 3)">Percentage <span class="sort-icon">↕</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+{page_stats_rows_html}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        '''
+
     # Build settings footer
     settings_html = ''
     if settings:
@@ -343,7 +445,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         'found': found,
         'not_found': not_found,
         'duplicates': duplicates_list,
-        'validation_warnings': validation_warnings
+        'validation_warnings': validation_warnings,
+        'page_stats': page_stats_list
     })
 
     html = f'''<!DOCTYPE html>
@@ -555,6 +658,68 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             font-size: 13px;
         }}
 
+        .page-number {{
+            font-weight: 600;
+            color: #2563eb;
+        }}
+
+        .stat-mini-card {{
+            background: #f9fafb;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 3px solid #0ea5e9;
+        }}
+
+        .stat-mini-label {{
+            font-size: 11px;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }}
+
+        .stat-mini-value {{
+            font-size: 18px;
+            font-weight: bold;
+            color: #111827;
+        }}
+
+        .percentage-bar-container {{
+            width: 100px;
+            height: 12px;
+            background: #e5e7eb;
+            border-radius: 6px;
+            overflow: hidden;
+        }}
+
+        .percentage-bar {{
+            height: 100%;
+            background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+            transition: width 0.3s ease;
+        }}
+
+        .grid {{
+            display: grid;
+        }}
+
+        .grid-cols-2 {{
+            grid-template-columns: repeat(2, 1fr);
+        }}
+
+        .gap-4 {{
+            gap: 1rem;
+        }}
+
+        .mb-4 {{
+            margin-bottom: 1rem;
+        }}
+
+        @media (min-width: 768px) {{
+            .md\\:grid-cols-4 {{
+                grid-template-columns: repeat(4, 1fr);
+            }}
+        }}
+
         footer {{
             padding: 30px;
             background: #f9fafb;
@@ -723,6 +888,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
 {warnings_section}
 
+{page_stats_section}
+
         <footer>
             <h3>Processing Settings</h3>
             <ul>
@@ -789,7 +956,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         // Search functionality
         document.getElementById('searchBox').addEventListener('input', function(e) {{
             const searchTerm = e.target.value.toLowerCase();
-            const tables = ['foundTable', 'notFoundTable', 'duplicatesTable', 'warningsTable'];
+            const tables = ['foundTable', 'notFoundTable', 'duplicatesTable', 'warningsTable', 'pageStatsTable'];
 
             tables.forEach(tableId => {{
                 const table = document.getElementById(tableId);
@@ -837,7 +1004,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 {{ id: 'foundTable', name: 'Found Tags', headers: ['Tag', 'Pages', 'Bookmarks', 'Occurrences', 'Excel Row'] }},
                 {{ id: 'notFoundTable', name: 'Not Found Tags', headers: ['Tag', 'Excel Row', 'Reason'] }},
                 {{ id: 'duplicatesTable', name: 'Duplicate Tags', headers: ['Tag', 'Excel Rows', 'Count'] }},
-                {{ id: 'warningsTable', name: 'Validation Warnings', headers: ['Tag', 'Excel Row', 'Warning'] }}
+                {{ id: 'warningsTable', name: 'Validation Warnings', headers: ['Tag', 'Excel Row', 'Warning'] }},
+                {{ id: 'pageStatsTable', name: 'Page Statistics', headers: ['Page #', 'Colored Tags', 'Total Tags', 'Percentage'] }}
             ];
 
             sections.forEach(section => {{
