@@ -316,6 +316,10 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             if source_label:
                 entry['source_pdf'] = source_label
 
+            tag_details = stats.get('tag_details')
+            if isinstance(tag_details, list):
+                entry['tag_details'] = list(tag_details)
+
             entries.append(entry)
 
         return entries
@@ -357,6 +361,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 }
                 if 'source_pdf' in item:
                     entry['source_pdf'] = item['source_pdf']
+                if isinstance(item.get('tag_details'), list):
+                    entry['tag_details'] = list(item['tag_details'])
                 page_stats_list.append(entry)
 
     include_source_pdf = any(item.get('source_pdf') for item in page_stats_list)
@@ -378,27 +384,102 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         avg_tags_per_page = 0
 
     page_stats_rows = []
-    for item in page_stats_list:
+    page_stats_column_count = 5 + (1 if include_source_pdf else 0)
+    for idx, item in enumerate(page_stats_list):
         source_column = ''
         if include_source_pdf:
             source_value = item.get('source_pdf', 'N/A')
             source_column = f"\n                        <td class=\"pdf-name\">{source_value}</td>"
 
-        row_html = f'''                    <tr>
-                        <td class="page-number">{item["page"]}</td>{source_column}
+        detail_id = f"pageStatsDetail{idx}"
+        tag_details = item.get('tag_details') or []
+        detail_count = len(tag_details)
+        has_details = detail_count > 0
+        detail_label = 'match' if detail_count == 1 else 'matches'
+
+        toggle_button_html = ''
+        if has_details:
+            toggle_button_html = (
+                f"<button type=\"button\" class=\"page-detail-toggle\" "
+                f"aria-expanded=\"false\" aria-controls=\"{detail_id}\" "
+                f"onclick=\"return togglePageDetail('{detail_id}', this);\">"
+                f"<span class=\"chevron\">▼</span>"
+                f"</button>"
+            )
+
+        row_attributes = 'class="page-summary-row"'
+        if has_details:
+            row_attributes += f' data-detail-id="{detail_id}"'
+
+        row_html = f'''                    <tr {row_attributes}>
+                        <td class="page-number">
+                            <div class="page-summary-cell">
+                                {toggle_button_html}
+                                <span>{item["page"]}</span>
+                            </div>
+                        </td>{source_column}
                         <td class="bookmark-title">{item["bookmark"]}</td>
                         <td>{item["colored_count"]}</td>
                         <td>{item["total_count"]}</td>
                         <td>
-                            <div class="flex items-center gap-2">
+                            <div class="percentage-row">
                                 <div class="percentage-bar-container">
                                     <div class="percentage-bar" style="width: {item["percentage"]}%"></div>
                                 </div>
-                                <span class="text-sm">{item["percentage"]:.1f}%</span>
+                                <span class="percentage-value">{item["percentage"]:.1f}%</span>
                             </div>
                         </td>
                     </tr>'''
-        page_stats_rows.append(row_html)
+
+        if has_details:
+            detail_entries = []
+            for detail in tag_details:
+                detected_text = detail.get('found_text') or detail.get('tag') or 'N/A'
+                normalized_tag = detail.get('tag') or 'N/A'
+                excel_match = bool(detail.get('in_excel'))
+                colored_match = bool(detail.get('colored'))
+                excel_class = 'status-success' if excel_match else 'status-muted'
+                excel_label = 'Matched' if excel_match else 'Not Matched'
+                colored_class = 'status-success' if colored_match else 'status-warning'
+                colored_label = 'Colored' if colored_match else 'Not Colored'
+
+                detail_entries.append(
+                    f'''                                    <tr>
+                                        <td>{detected_text}</td>
+                                        <td class="detail-tag">{normalized_tag}</td>
+                                        <td><span class="status-badge {excel_class}">{excel_label}</span></td>
+                                        <td><span class="status-badge {colored_class}">{colored_label}</span></td>
+                                    </tr>'''
+                )
+
+            detail_rows_html = '\n'.join(detail_entries)
+            detail_row = f'''                    <tr id="{detail_id}" class="page-detail-row hidden">
+                        <td colspan="{page_stats_column_count}">
+                            <div class="page-detail-panel">
+                                <div class="page-detail-header">
+                                    <span class="page-detail-title">Tags detected on this page</span>
+                                    <span class="badge">{detail_count} {detail_label}</span>
+                                </div>
+                                <table class="tag-detail-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Detected Text</th>
+                                            <th>Matched Tag</th>
+                                            <th>Excel</th>
+                                            <th>Highlighted</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+{detail_rows_html}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>'''
+        else:
+            detail_row = ''
+
+        page_stats_rows.append(row_html + ('\n' + detail_row if detail_row else ''))
 
     page_stats_rows_html = '\n'.join(page_stats_rows)
 
@@ -839,6 +920,136 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             transition: width 0.3s ease;
         }}
 
+        .percentage-row {{
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }}
+
+        .percentage-value {{
+            font-size: 13px;
+            color: #374151;
+            font-weight: 500;
+        }}
+
+        .page-summary-cell {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .page-detail-toggle {{
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 9999px;
+            background: #e0e7ff;
+            color: #312e81;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }}
+
+        .page-detail-toggle:hover {{
+            background: #c7d2fe;
+        }}
+
+        .page-detail-toggle:focus {{
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+        }}
+
+        .page-detail-toggle .chevron {{
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }}
+
+        .page-detail-toggle.open .chevron {{
+            transform: rotate(180deg);
+        }}
+
+        .page-detail-row td {{
+            background: #f8fafc;
+            padding: 0;
+        }}
+
+        .page-detail-panel {{
+            background: #ffffff;
+            padding: 16px 20px;
+            border-top: 1px solid #e2e8f0;
+        }}
+
+        .page-detail-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+
+        .page-detail-title {{
+            font-size: 15px;
+            font-weight: 600;
+            color: #0f172a;
+        }}
+
+        .tag-detail-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        .tag-detail-table th,
+        .tag-detail-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 13px;
+            text-align: left;
+        }}
+
+        .tag-detail-table th {{
+            background: #eff6ff;
+            color: #1e3a8a;
+            font-weight: 600;
+        }}
+
+        .tag-detail-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        .detail-tag {{
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #1d4ed8;
+        }}
+
+        .status-badge {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }}
+
+        .status-success {{
+            background: #dcfce7;
+            color: #15803d;
+        }}
+
+        .status-warning {{
+            background: #fee2e2;
+            color: #b91c1c;
+        }}
+
+        .status-muted {{
+            background: #e5e7eb;
+            color: #374151;
+        }}
+
         .grid {{
             display: grid;
         }}
@@ -1097,12 +1308,49 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             }}
         }}
 
+        function togglePageDetail(detailId, trigger) {{
+            const row = document.getElementById(detailId);
+            if (!row) {{
+                return false;
+            }}
+
+            const isHidden = row.classList.toggle('hidden');
+
+            if (isHidden) {{
+                row.style.display = 'none';
+            }} else {{
+                row.style.display = '';
+            }}
+
+            if (trigger) {{
+                trigger.classList.toggle('open', !isHidden);
+                trigger.setAttribute('aria-expanded', String(!isHidden));
+            }}
+
+            return false;
+        }}
+
         // Table sorting
         function sortTable(tableId, column) {{
             const table = document.getElementById(tableId);
             const tbody = table.querySelector('tbody');
-            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const allRows = Array.from(tbody.querySelectorAll('tr'));
             const th = table.querySelectorAll('th')[column];
+
+            const isPageStatsTable = tableId === 'pageStatsTable';
+            const detailRowMap = {{}};
+
+            let rows = allRows;
+            if (isPageStatsTable) {{
+                rows = [];
+                allRows.forEach(row => {{
+                    if (row.classList.contains('page-detail-row')) {{
+                        detailRowMap[row.id] = row;
+                    }} else {{
+                        rows.push(row);
+                    }}
+                }});
+            }}
 
             // Toggle sort direction
             const isAsc = th.classList.contains('sorted-asc');
@@ -1136,7 +1384,18 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             }});
 
             // Re-append sorted rows
-            rows.forEach(row => tbody.appendChild(row));
+            tbody.innerHTML = '';
+
+            rows.forEach(row => {{
+                tbody.appendChild(row);
+
+                if (isPageStatsTable) {{
+                    const detailId = row.getAttribute('data-detail-id');
+                    if (detailId && detailRowMap[detailId]) {{
+                        tbody.appendChild(detailRowMap[detailId]);
+                    }}
+                }}
+            }});
         }}
 
         // Search functionality
@@ -1147,6 +1406,26 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             tables.forEach(tableId => {{
                 const table = document.getElementById(tableId);
                 if (!table) return;
+
+                if (tableId === 'pageStatsTable') {{
+                    const summaryRows = Array.from(table.querySelectorAll('tbody tr.page-summary-row'));
+                    summaryRows.forEach(row => {{
+                        const detailId = row.getAttribute('data-detail-id');
+                        const detailRow = detailId ? document.getElementById(detailId) : null;
+
+                        const combinedText = (row.textContent + (detailRow ? detailRow.textContent : '')).toLowerCase();
+                        const isMatch = combinedText.includes(searchTerm);
+
+                        row.style.display = isMatch ? '' : 'none';
+
+                        if (detailRow) {{
+                            detailRow.style.display = isMatch
+                                ? (detailRow.classList.contains('hidden') ? 'none' : '')
+                                : 'none';
+                        }}
+                    }});
+                    return;
+                }}
 
                 const rows = table.querySelectorAll('tbody tr');
                 rows.forEach(row => {{

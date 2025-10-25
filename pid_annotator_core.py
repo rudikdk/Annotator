@@ -843,7 +843,25 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
 
     colored_count = 0
     total_count = 0
-    page_stats = {}  # {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title'}}
+    page_stats = {}  # {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title', 'tag_details': []}}
+    detail_lookup = {}
+    seen_occurrences = set()
+    colored_occurrences = set()
+
+    def _make_occurrence_key(page_num, rects, original_tag):
+        if rects:
+            coords = tuple(
+                (
+                    round(rect.x0, 3),
+                    round(rect.y0, 3),
+                    round(rect.x1, 3),
+                    round(rect.y1, 3),
+                )
+                for rect in rects
+            )
+        else:
+            coords = tuple()
+        return (page_num, original_tag.upper(), coords)
 
     # Initialize excel_tags_set if not provided
     if excel_tags_set is None:
@@ -851,8 +869,6 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
 
     # Process all tags found in the PDF
     for tag_text, locations in tag_index.items():
-        total_count += len(locations)
-
         # Check if tag is in Excel list
         in_excel = tag_text in excel_tags_set
 
@@ -878,20 +894,47 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
 
         # Track page-level statistics for all tags
         for page_num, rects, original_tag in locations:
+            occurrence_key = _make_occurrence_key(page_num, rects, original_tag)
+
             # Initialize page stats if not exists
             if page_num not in page_stats:
                 # Get bookmark title for this page
                 bookmark_title = page_bookmark_map.get(page_num, 'N/A') if page_bookmark_map else 'N/A'
-                page_stats[page_num] = {'colored_count': 0, 'total_count': 0, 'bookmark': bookmark_title}
+                page_stats[page_num] = {
+                    'colored_count': 0,
+                    'total_count': 0,
+                    'bookmark': bookmark_title,
+                    'tag_details': []
+                }
+
+            # Skip duplicate occurrences that arise from variant tag keys
+            if occurrence_key in seen_occurrences:
+                continue
+
+            seen_occurrences.add(occurrence_key)
+            total_count += 1
 
             # Increment total count for this page
             page_stats[page_num]['total_count'] += 1
+
+            detail_entry = {
+                'tag': tag_text,
+                'found_text': original_tag,
+                'in_excel': bool(in_excel),
+                'colored': False
+            }
+            page_stats[page_num]['tag_details'].append(detail_entry)
+            detail_lookup[occurrence_key] = detail_entry
 
         if not should_color or not highlight_color:
             continue
 
         # Apply color to all occurrences of this tag
         for page_num, rects, original_tag in locations:
+            occurrence_key = _make_occurrence_key(page_num, rects, original_tag)
+            if occurrence_key in colored_occurrences:
+                continue
+
             try:
                 page = doc[page_num]
 
@@ -908,8 +951,14 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
                 hl.update()
                 colored_count += 1
 
+                colored_occurrences.add(occurrence_key)
+
                 # Increment colored count for this page
                 page_stats[page_num]['colored_count'] += 1
+
+                detail_entry = detail_lookup.get(occurrence_key)
+                if detail_entry:
+                    detail_entry['colored'] = True
 
             except Exception as e:
                 print(f"Error coloring tag {tag_text} on page {page_num}: {e}")
@@ -936,11 +985,27 @@ def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None
         dict: Page statistics {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title'}}
     """
     page_stats = {}
+    seen_occurrences = set()
+
+    def _make_occurrence_key(page_num, rects, original_tag):
+        if rects:
+            coords = tuple(
+                (
+                    round(rect.x0, 3),
+                    round(rect.y0, 3),
+                    round(rect.x1, 3),
+                    round(rect.y1, 3),
+                )
+                for rect in rects
+            )
+        else:
+            coords = tuple()
+        return (page_num, original_tag.upper(), coords)
 
     # Process all tags found in the PDF
     for tag_text, locations in tag_index.items():
         # Check if tag is in Excel list (for "colored" count)
-        in_excel = excel_tags_set and tag_text in excel_tags_set
+        in_excel = bool(excel_tags_set) and tag_text in excel_tags_set
 
         # Track page-level statistics for all tags
         for page_num, rects, original_tag in locations:
@@ -948,7 +1013,18 @@ def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None
             if page_num not in page_stats:
                 # Get bookmark title for this page
                 bookmark_title = page_bookmark_map.get(page_num, 'N/A') if page_bookmark_map else 'N/A'
-                page_stats[page_num] = {'colored_count': 0, 'total_count': 0, 'bookmark': bookmark_title}
+                page_stats[page_num] = {
+                    'colored_count': 0,
+                    'total_count': 0,
+                    'bookmark': bookmark_title,
+                    'tag_details': []
+                }
+
+            occurrence_key = _make_occurrence_key(page_num, rects, original_tag)
+            if occurrence_key in seen_occurrences:
+                continue
+
+            seen_occurrences.add(occurrence_key)
 
             # Increment total count for this page
             page_stats[page_num]['total_count'] += 1
@@ -956,6 +1032,13 @@ def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None
             # Increment colored count if tag is in Excel
             if in_excel:
                 page_stats[page_num]['colored_count'] += 1
+
+            page_stats[page_num]['tag_details'].append({
+                'tag': tag_text,
+                'found_text': original_tag,
+                'in_excel': bool(in_excel),
+                'colored': bool(in_excel)
+            })
 
     return page_stats
 
