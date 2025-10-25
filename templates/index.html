@@ -1270,21 +1270,21 @@
 
     // Tutorial/Onboarding System
     const baseDemoRows = [
-      { tag: 'P-101A', description: 'Feed Pump', service: 'Condensate', status: 'Active' },
-      { tag: 'P-101B', description: 'Standby Pump', service: 'Condensate', status: 'Standby' },
-      { tag: 'TIC-204', description: 'Temp Indicator Controller', service: 'Reboiler', status: 'Alarm High' },
+      { tag: 'P-101A', description: 'Condensate Pump A', service: 'Condensate Return', status: 'Running' },
+      { tag: 'P-101B', description: 'Condensate Pump B', service: 'Condensate Return', status: 'Standby' },
+      { tag: 'TIC-204', description: 'Column Reboiler TIC', service: 'Steam Control', status: 'High Alarm' },
     ];
 
     const baseTagMetadata = [
-      { label: 'Matched Tags', value: '38', tone: 'brand' },
-      { label: 'With Comments', value: '21', tone: 'success' },
-      { label: 'Needs Review', value: '5', tone: 'warning' },
+      { label: 'Tags Located', value: '38', tone: 'brand' },
+      { label: 'With Comments', value: '18', tone: 'success' },
+      { label: 'Needs Follow-up', value: '4', tone: 'warning' },
     ];
 
     const baseHighlightRules = [
-      { label: 'Status = Alarm High', color: '#f97316', description: 'Orange highlight for alarm states' },
-      { label: 'Service contains Steam', color: '#2563eb', description: 'Blue highlight for steam circuits' },
-      { label: 'Any Notes present', color: '#22c55e', description: 'Green highlight when comments exist' },
+      { label: 'Status = High Alarm', color: '#f97316', description: 'Highlight alarm conditions' },
+      { label: 'Service contains Steam', color: '#2563eb', description: 'Highlight steam circuits' },
+      { label: 'Notes column populated', color: '#22c55e', description: 'Highlight rows with comments' },
     ];
 
     const basePdfStats = {
@@ -1305,7 +1305,7 @@
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'Upload the Excel list first, then drop in one or more PID drawings. The mock data below shows how tags and highlights line up once processing starts.',
+        blurb: 'Upload the tag register (Excel) first, then add one or more PID drawings. The sample below shows how the matches look after processing.',
       },
       headerRow: {
         excelRows: baseDemoRows.map((row, index) => ({
@@ -1315,7 +1315,7 @@
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'The system assumes headers live on row 6 by default. Adjust the header row so the correct column titles are used during parsing.',
+        blurb: 'Headers default to row 6. Update this value if your titles sit elsewhere so each column is read correctly.',
       },
       tagColumn: {
         excelRows: baseDemoRows.map((row) => ({
@@ -1325,27 +1325,27 @@
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'Select the column that contains the tag identifiers. The preview highlights how each Excel tag is matched back to the drawings.',
+        blurb: 'Select the column that stores the tag IDs. The preview confirms what will be matched against the drawings.',
       },
       profile: {
         excelRows: baseDemoRows,
         tagMetadata: [
           ...baseTagMetadata,
-          { label: 'Template', value: 'Refinery Startup', tone: 'brand' },
+          { label: 'Template', value: 'Standard Operations', tone: 'brand' },
         ],
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'Profiles capture your preferred header row, tag columns, watermark settings, and highlight palettes so recurring jobs are only a click away.',
+        blurb: 'Profiles store the header row, tag column, watermark settings, and highlight rules so repeat jobs start with one click.',
       },
       comments: {
         excelRows: baseDemoRows.map((row) => ({
           ...row,
-          notes: row.tag === 'TIC-204' ? 'Investigate alarm logic' : '—',
+          notes: row.tag === 'TIC-204' ? 'Alarm acknowledged with operator' : '—',
         })),
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'Choose which Excel columns flow into the annotation card. In this demo the Notes column injects troubleshooting tips directly into the PDF.',
+        blurb: 'Choose which Excel columns feed the annotation card. Here the Notes field becomes a short comment on the markup.',
       },
       highlighting: {
         excelRows: baseDemoRows,
@@ -1355,17 +1355,17 @@
           active: idx !== 1 ? true : false,
         })),
         pdfStats: basePdfStats,
-        blurb: 'Conditional highlighting calls attention to priority equipment. Tweak the rules to emphasize alarms, process services, or maintenance tags.',
+        blurb: 'Toggle highlight rules to draw attention to alarms, services, or any other priority tags.',
       },
       excelAnnotation: {
         excelRows: baseDemoRows.map((row) => ({
           ...row,
-          excelStatus: row.tag.includes('P-101') ? 'Highlighted' : 'Pending',
+          excelStatus: row.tag.includes('P-101') ? 'Found' : 'Pending',
         })),
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'With Excel annotation enabled the source workbook marks which rows were found inside the PDFs so you can filter unlocated tags later.',
+        blurb: 'Excel annotation flags each row that was located in the PDFs so you can filter anything still pending.',
       },
       watermark: {
         excelRows: baseDemoRows,
@@ -1376,21 +1376,21 @@
           { label: 'P-101A', text: 'Condensate Feed Pump', color: '#2563eb' },
           { label: 'TIC-204', text: 'Alarm High', color: '#f97316' },
         ],
-        blurb: 'Watermarks layer readable labels next to tag markers. Customize the attribute mix and colors to match site standards.',
+        blurb: 'Watermarks add a concise label next to each tag marker. Adjust the fields and colors to match your site standard.',
       },
       start: {
         excelRows: baseDemoRows,
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'Run a full pass when everything looks right or choose Test Run to process a quick subset without touching your live PDFs.',
+        blurb: 'Run the full job when everything is set, or choose Test Run to confirm the setup on a small sample.',
       },
       faq: {
         excelRows: baseDemoRows,
         tagMetadata: baseTagMetadata,
         highlightRules: baseHighlightRules,
         pdfStats: basePdfStats,
-        blurb: 'The FAQ houses troubleshooting guides, onboarding videos, and a replay switch for this walkthrough so you can revisit the mock data anytime.',
+        blurb: 'The FAQ includes quick guides, short videos, and a link to replay this tutorial whenever you need it.',
       },
     };
 
