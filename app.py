@@ -1363,6 +1363,112 @@ def view_report(filename):
     return send_file(report_path, mimetype='text/html')
 
 
+@app.route('/preview_pdf_page', methods=['POST'])
+def preview_pdf_page():
+    """Generate a preview of a PDF page with tag highlighting to demonstrate custom tag matching"""
+    try:
+        import fitz
+        from io import BytesIO
+        import base64
+
+        data = request.get_json()
+        pdf_file = data.get('pdf_file')
+        tag_matching_config = data.get('tag_matching_config', None)
+
+        if not pdf_file:
+            return jsonify({'success': False, 'message': 'No PDF file specified'})
+
+        # Get PDF path
+        pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
+
+        if not os.path.exists(pdf_path):
+            return jsonify({'success': False, 'message': f'PDF file not found: {pdf_file}'})
+
+        # Import tag matching utilities
+        from pid_annotator_core import TagMatchingConfig, generate_regex_pattern
+
+        # Load tag matching configuration
+        if tag_matching_config:
+            config = TagMatchingConfig.from_dict(tag_matching_config)
+        else:
+            config = TagMatchingConfig.get_default_preset()
+
+        # Generate regex pattern
+        tag_pattern = generate_regex_pattern(config)
+
+        # Open PDF
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+
+        # Select page: page 5 (index 4) if available, page 2 (index 1) if only 2 pages, else last page
+        if total_pages >= 5:
+            page_num = 4  # Page 5 (0-indexed)
+        elif total_pages == 2:
+            page_num = 1  # Page 2 (0-indexed)
+        elif total_pages > 2:
+            page_num = min(4, total_pages - 1)  # Up to page 5 or last page
+        else:
+            page_num = total_pages - 1  # Last page
+
+        page = doc[page_num]
+
+        # Extract text and find all tags on this page
+        page_text = page.get_text()
+        found_tags = tag_pattern.findall(page_text)
+        unique_tags = list(set(found_tags))
+
+        # Find positions of tags and highlight them
+        tag_positions = []
+        for tag in unique_tags:
+            instances = page.search_for(tag)
+            for inst in instances:
+                # Add highlight annotation
+                highlight = page.add_highlight_annot(inst)
+                highlight.set_colors(stroke=[1, 1, 0])  # Yellow highlight
+                highlight.update()
+
+                tag_positions.append({
+                    'tag': tag,
+                    'x': inst.x0,
+                    'y': inst.y0,
+                    'width': inst.x1 - inst.x0,
+                    'height': inst.y1 - inst.y0
+                })
+
+        # Render page as image
+        mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+        pix = page.get_pixmap(matrix=mat)
+
+        # Convert to PNG bytes
+        img_bytes = pix.tobytes("png")
+
+        # Encode as base64 for JSON response
+        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
+
+        # Close document
+        doc.close()
+
+        return jsonify({
+            'success': True,
+            'page_number': page_num + 1,  # 1-indexed for display
+            'total_pages': total_pages,
+            'found_tags': unique_tags,
+            'tag_count': len(unique_tags),
+            'tag_positions': tag_positions,
+            'image': f'data:image/png;base64,{img_base64}',
+            'pattern_used': tag_pattern.pattern,
+            'config': config.to_dict()
+        })
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'message': f'Error generating preview: {str(e)}'
+        })
+
+
 @app.route('/clear_session', methods=['POST'])
 def clear_session():
     """Clear all session data and delete uploaded/output files"""
