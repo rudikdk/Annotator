@@ -168,12 +168,14 @@ PROGRESS_UPDATE_INTERVAL = 2           # Progress update frequency (%)
 
 - **[app.py](app.py)** - Flask routes, session management, WebSocket handlers
 - **[pid_annotator_core.py](pid_annotator_core.py)** - PDF/Excel processing engine
+- **[report_template.py](report_template.py)** - HTML report generation
 - **[templates/index.html](templates/index.html)** - React SPA interface
 - **[requirements.txt](requirements.txt)** - Python dependencies
 - **[Dockerfile](Dockerfile)** - Multi-stage container build
 - **[docker-compose.yml](docker-compose.yml)** - Container orchestration
 - **[entrypoint.sh](entrypoint.sh)** - Container startup script
 - **[pyproject.toml](pyproject.toml)** - Project metadata, tool configs
+- **[OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md)** - Performance optimization documentation
 - **uploads/** - Temporary uploaded files (auto-cleaned)
 - **output/** - Generated annotated PDFs (auto-cleaned)
 
@@ -199,17 +201,19 @@ socket.on('progress_update', handleProgressUpdate)
 
 ### Tag Extraction Regex
 
-Core pattern ([pid_annotator_core.py](pid_annotator_core.py:~50)):
+Core pattern ([pid_annotator_core.py](pid_annotator_core.py:160)):
 ```python
 r'\b[A-Za-z0-9]{1,5}[-\.][A-Za-z0-9]{1,5}[-\.][A-Za-z0-9]{1,5}(?:[-\.][A-Za-z0-9]{1,5}){0,2}\b'
 ```
 Matches: `TAG-001-A`, `SYS.SUB.COMP`, `A.B.C.D.E` (3-5 parts)
 
+**Note:** The application now includes a `TagMatchingConfig` class for customizable tag matching behavior with presets and custom regex support.
+
 ### Watermark Implementation
 
-Watermarks use **two-library approach** ([pid_annotator_core.py](pid_annotator_core.py:~600)):
-1. **ReportLab** - Generate overlay PDF with text/graphics
-2. **PyPDF2** - Merge overlay onto base PDF pages
+Watermarks use **two-library approach** ([pid_annotator_core.py](pid_annotator_core.py:26-27)):
+1. **ReportLab** (`reportlab.pdfgen.canvas`) - Generate overlay PDF with text/graphics
+2. **PyPDF2** (`PdfReader`, `PdfWriter`) - Merge overlay onto base PDF pages
 
 Handles page rotations by drawing on unrotated canvas.
 
@@ -268,7 +272,7 @@ pid_annotator_core.PARALLEL_INDEXING_ENABLED = False
 
 ### Docker Configuration
 
-- **Base image:** `python:3.11-slim-bullseye` (ARM64 compatible)
+- **Base image:** `python:3.11-slim-bookworm` (ARM64 compatible, updated from bullseye)
 - **Production server:** Gunicorn with eventlet worker
 - **Ports:** 8080 (internal), 18080 (external default)
 - **Volumes:**
@@ -320,4 +324,4 @@ The application supports:
 - **Single Excel** - One Excel file per session
 - **Batch processing** - Sequential processing with aggregated progress
 
-When working with multi-file logic, see `process_files()` in [app.py](app.py:~200).
+When working with multi-file logic, see `process_files()` in [app.py](app.py:436).
