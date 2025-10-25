@@ -1807,6 +1807,12 @@
       const [tagMatchingCustomRegex, setTagMatchingCustomRegex] = useState('');
       const [tagMatchingPanelOpen, setTagMatchingPanelOpen] = useState(false);
 
+      // PDF Preview state
+      const [previewPanelOpen, setPreviewPanelOpen] = useState(false);
+      const [previewData, setPreviewData] = useState(null);
+      const [previewLoading, setPreviewLoading] = useState(false);
+      const [previewError, setPreviewError] = useState(null);
+
       // Tag filtering state
       const [tagFilters, setTagFilters] = useState([]); // Array of {part, value, match_type, action}
       const [filterLogic, setFilterLogic] = useState('AND'); // 'AND' or 'OR'
@@ -2443,6 +2449,58 @@
           })
           .catch((err) => {
             logToConsole(`Error adding outputs to workspace: ${err.message}`);
+          });
+      }
+
+      // PDF Preview functions
+      function generatePreview() {
+        if (selectedPdfs.length === 0) {
+          setToast({ type: "warning", text: "Please select a PDF file first" });
+          return;
+        }
+
+        setPreviewLoading(true);
+        setPreviewError(null);
+
+        // Use the first selected PDF
+        const pdfFile = selectedPdfs[0];
+
+        // Build tag matching config
+        const tagMatchingConfig = {
+          preset: tagMatchingPreset,
+          min_parts: tagMatchingMinParts,
+          max_parts: tagMatchingMaxParts,
+          separators: tagMatchingSeparators,
+          min_part_length: tagMatchingMinPartLength,
+          max_part_length: tagMatchingMaxPartLength,
+          allow_partial_match: tagMatchingAllowPartial,
+          custom_regex: tagMatchingCustomRegex || null
+        };
+
+        fetch('/preview_pdf_page', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pdf_file: pdfFile,
+            tag_matching_config: tagMatchingConfig
+          })
+        })
+          .then(r => r.json())
+          .then(data => {
+            setPreviewLoading(false);
+            if (data.success) {
+              setPreviewData(data);
+              setPreviewPanelOpen(true);
+              logToConsole(`Preview generated: Page ${data.page_number}/${data.total_pages}, Found ${data.tag_count} tags`);
+            } else {
+              setPreviewError(data.message || 'Failed to generate preview');
+              setToast({ type: "error", text: data.message || 'Failed to generate preview' });
+            }
+          })
+          .catch(err => {
+            setPreviewLoading(false);
+            setPreviewError(err.message);
+            setToast({ type: "error", text: `Error: ${err.message}` });
           });
       }
 
@@ -3329,6 +3387,128 @@
                               Leave empty to use settings above
                             </div>
                           </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* PDF Tag Matching Preview */}
+                <div>
+                  <div
+                    className="flex items-center justify-between cursor-pointer hover:bg-zinc-50 dark:hover:bg-zinc-800/50 p-2 -mx-2 rounded-lg transition-colors"
+                    onClick={() => setPreviewPanelOpen(!previewPanelOpen)}
+                  >
+                    <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400">PDF Preview - Tag Matching Demo</h3>
+                    <i className={`fa-solid fa-chevron-${previewPanelOpen ? 'up' : 'down'} text-zinc-400 dark:text-zinc-500 text-sm`}></i>
+                  </div>
+
+                  {previewPanelOpen && (
+                    <div className="mt-3 space-y-4 border-l-2 border-brand/30 pl-4">
+                      <div className="text-sm text-zinc-600 dark:text-zinc-400 mb-3">
+                        <i className="fa-solid fa-info-circle mr-2"></i>
+                        Preview shows how custom tag matching will work on page {selectedPdfs.length > 0 ? '5 (or page 2 if PDF has only 2 pages)' : 'N/A'} with yellow highlights on found tags.
+                      </div>
+
+                      {/* Generate Preview Button */}
+                      <button
+                        onClick={generatePreview}
+                        disabled={selectedPdfs.length === 0 || previewLoading}
+                        className={`
+                          w-full px-4 py-2 rounded-lg font-medium transition-all
+                          ${selectedPdfs.length === 0 || previewLoading
+                            ? 'bg-zinc-200 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500 cursor-not-allowed'
+                            : 'bg-brand text-white hover:bg-brand-dark active:scale-95'
+                          }
+                        `}
+                      >
+                        {previewLoading ? (
+                          <>
+                            <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                            Generating Preview...
+                          </>
+                        ) : (
+                          <>
+                            <i className="fa-solid fa-eye mr-2"></i>
+                            Generate Preview
+                          </>
+                        )}
+                      </button>
+
+                      {/* Preview Error */}
+                      {previewError && (
+                        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                          <div className="flex items-center text-red-700 dark:text-red-400">
+                            <i className="fa-solid fa-exclamation-triangle mr-2"></i>
+                            <span className="text-sm">{previewError}</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Preview Display */}
+                      {previewData && (
+                        <div className="space-y-4">
+                          {/* Preview Info */}
+                          <div className="grid grid-cols-2 gap-3 text-sm">
+                            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                              <div className="text-zinc-500 dark:text-zinc-400 mb-1">Page</div>
+                              <div className="font-semibold">{previewData.page_number} of {previewData.total_pages}</div>
+                            </div>
+                            <div className="p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                              <div className="text-zinc-500 dark:text-zinc-400 mb-1">Tags Found</div>
+                              <div className="font-semibold text-brand">{previewData.tag_count}</div>
+                            </div>
+                          </div>
+
+                          {/* Pattern Info */}
+                          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                            <div className="text-sm font-medium text-blue-900 dark:text-blue-300 mb-1">
+                              <i className="fa-solid fa-code mr-2"></i>
+                              Regex Pattern Used
+                            </div>
+                            <code className="text-xs text-blue-800 dark:text-blue-400 font-mono break-all">
+                              {previewData.pattern_used}
+                            </code>
+                          </div>
+
+                          {/* Preview Image */}
+                          <div className="border-2 border-zinc-200 dark:border-zinc-700 rounded-lg overflow-hidden bg-white dark:bg-zinc-900">
+                            <img
+                              src={previewData.image}
+                              alt={`PDF Preview - Page ${previewData.page_number}`}
+                              className="w-full h-auto"
+                              style={{ maxHeight: '600px', objectFit: 'contain' }}
+                            />
+                          </div>
+
+                          {/* Found Tags List */}
+                          {previewData.found_tags && previewData.found_tags.length > 0 && (
+                            <div className="p-4 bg-zinc-50 dark:bg-zinc-900/50 border border-zinc-200 dark:border-zinc-700 rounded-lg">
+                              <div className="text-sm font-medium mb-3 text-zinc-700 dark:text-zinc-300">
+                                <i className="fa-solid fa-tags mr-2"></i>
+                                Found Tags ({previewData.found_tags.length})
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {previewData.found_tags.sort().map((tag, idx) => (
+                                  <span
+                                    key={idx}
+                                    className="px-2 py-1 bg-yellow-100 dark:bg-yellow-900/30 border border-yellow-300 dark:border-yellow-700 rounded text-xs font-mono text-zinc-800 dark:text-zinc-200"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {previewData.found_tags && previewData.found_tags.length === 0 && (
+                            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                              <div className="flex items-center text-amber-700 dark:text-amber-400">
+                                <i className="fa-solid fa-info-circle mr-2"></i>
+                                <span className="text-sm">No tags found on this page matching the current pattern.</span>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
