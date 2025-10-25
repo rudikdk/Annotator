@@ -276,21 +276,90 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     ])
 
     # Process page statistics
-    page_stats_list = []
-    if page_stats:
-        for page_num in sorted(page_stats.keys()):
-            stats = page_stats[page_num]
+    def _flatten_page_stats_map(stats_map, source_label=None):
+        entries = []
+        if not isinstance(stats_map, dict):
+            return entries
+
+        def sort_key(key):
+            try:
+                return (0, int(key))
+            except (TypeError, ValueError):
+                return (1, str(key))
+
+        for page_key in sorted(stats_map.keys(), key=sort_key):
+            stats = stats_map.get(page_key, {})
+            if not isinstance(stats, dict):
+                continue
+
+            try:
+                page_index = int(page_key)
+                page_display = page_index + 1
+            except (TypeError, ValueError):
+                page_index = None
+                page_display = str(page_key)
+
             colored_count = stats.get('colored_count', 0)
             total_count = stats.get('total_count', 0)
             bookmark = stats.get('bookmark', 'N/A')
             percentage = (colored_count / total_count * 100) if total_count > 0 else 0
-            page_stats_list.append({
-                'page': page_num + 1,  # Convert from 0-indexed to 1-indexed
+
+            entry = {
+                'page': page_display,
+                'page_index': page_index,
                 'colored_count': colored_count,
                 'total_count': total_count,
                 'bookmark': bookmark,
                 'percentage': percentage
-            })
+            }
+
+            if source_label:
+                entry['source_pdf'] = source_label
+
+            entries.append(entry)
+
+        return entries
+
+    def _format_page_label(item, include_source=False):
+        page_value = item.get('page')
+        label = str(page_value)
+        try:
+            # Handle numeric strings gracefully (e.g., "3")
+            page_num = int(page_value)
+            label = f"Page {page_num}"
+        except (TypeError, ValueError):
+            label = str(page_value)
+
+        if include_source and item.get('source_pdf'):
+            label = f"{item['source_pdf']} — {label}"
+
+        return label
+
+    page_stats_list = []
+    if isinstance(page_stats, dict) and page_stats:
+        sample_value = next(iter(page_stats.values()))
+        # Determine if this is a simple {page_num: stats} mapping or nested per-PDF structure
+        if isinstance(sample_value, dict) and {'total_count', 'colored_count'}.issubset(sample_value.keys()):
+            page_stats_list.extend(_flatten_page_stats_map(page_stats))
+        else:
+            for source_label, stats_map in page_stats.items():
+                page_stats_list.extend(_flatten_page_stats_map(stats_map, source_label=str(source_label)))
+    elif isinstance(page_stats, list):
+        for item in page_stats:
+            if isinstance(item, dict) and 'total_count' in item:
+                entry = {
+                    'page': item.get('page'),
+                    'page_index': item.get('page_index'),
+                    'colored_count': item.get('colored_count', 0),
+                    'total_count': item.get('total_count', 0),
+                    'bookmark': item.get('bookmark', 'N/A'),
+                    'percentage': item.get('percentage', 0),
+                }
+                if 'source_pdf' in item:
+                    entry['source_pdf'] = item['source_pdf']
+                page_stats_list.append(entry)
+
+    include_source_pdf = any(item.get('source_pdf') for item in page_stats_list)
 
     page_stats_count = len(page_stats_list)
 
@@ -308,9 +377,15 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         most_tagged_page = None
         avg_tags_per_page = 0
 
-    page_stats_rows_html = '\n'.join([
-        f'''                    <tr>
-                        <td class="page-number">{item["page"]}</td>
+    page_stats_rows = []
+    for item in page_stats_list:
+        source_column = ''
+        if include_source_pdf:
+            source_value = item.get('source_pdf', 'N/A')
+            source_column = f"\n                        <td class=\"pdf-name\">{source_value}</td>"
+
+        row_html = f'''                    <tr>
+                        <td class="page-number">{item["page"]}</td>{source_column}
                         <td class="bookmark-title">{item["bookmark"]}</td>
                         <td>{item["colored_count"]}</td>
                         <td>{item["total_count"]}</td>
@@ -323,8 +398,9 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                             </div>
                         </td>
                     </tr>'''
-        for item in page_stats_list
-    ])
+        page_stats_rows.append(row_html)
+
+    page_stats_rows_html = '\n'.join(page_stats_rows)
 
     # Build optional sections with collapsible support
     duplicates_section = ''
@@ -379,6 +455,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     if page_stats_count > 0:
         summary_html = ''
         if most_tagged_page:
+            most_tagged_label = _format_page_label(most_tagged_page, include_source_pdf)
             summary_html = f'''
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div class="stat-mini-card">
@@ -391,7 +468,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                     </div>
                     <div class="stat-mini-card">
                         <div class="stat-mini-label">Most Tagged Page</div>
-                        <div class="stat-mini-value">Page {most_tagged_page['page']} ({most_tagged_page['total_count']} tags)</div>
+                        <div class="stat-mini-value">{most_tagged_label} ({most_tagged_page['total_count']} tags)</div>
                     </div>
                     <div class="stat-mini-card">
                         <div class="stat-mini-label">Avg Tags per Page</div>
@@ -399,6 +476,26 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                     </div>
                 </div>
             '''
+
+        if include_source_pdf:
+            page_stats_header_html = '''
+                        <tr>
+                            <th onclick="sortTable('pageStatsTable', 0)">Page # <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 1)">PDF File <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 2)">Bookmark <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 3)">Colored Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 4)">Total Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 5)">Percentage <span class="sort-icon">↕</span></th>
+                        </tr>'''
+        else:
+            page_stats_header_html = '''
+                        <tr>
+                            <th onclick="sortTable('pageStatsTable', 0)">Page # <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 1)">Bookmark <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 2)">Colored Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 3)">Total Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 4)">Percentage <span class="sort-icon">↕</span></th>
+                        </tr>'''
 
         page_stats_section = f'''
         <div class="section collapsible" id="pageStatsSection">
@@ -412,13 +509,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 {summary_html}
                 <table id="pageStatsTable">
                     <thead>
-                        <tr>
-                            <th onclick="sortTable('pageStatsTable', 0)">Page # <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 1)">Bookmark <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 2)">Colored Tags <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 3)">Total Tags <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 4)">Percentage <span class="sort-icon">↕</span></th>
-                        </tr>
+{page_stats_header_html}
                     </thead>
                     <tbody>
 {page_stats_rows_html}

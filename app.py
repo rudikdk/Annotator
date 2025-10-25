@@ -619,7 +619,8 @@ def process_files():
                     'not_found': [],
                     'duplicates': {},
                     'validation_warnings': [],
-                    'color_conflicts': []
+                    'color_conflicts': [],
+                    'page_stats': {}
                 }
 
                 # Process each PDF file
@@ -714,6 +715,15 @@ def process_files():
                                 aggregated_report['duplicates'][tag] = rows
                         aggregated_report['validation_warnings'].extend(report_data.get('validation_warnings', []))
                         aggregated_report['color_conflicts'].extend(report_data.get('color_conflicts', []))
+                        # Capture per-PDF page statistics for reporting
+                        page_stats = report_data.get('page_stats') or {}
+                        if page_stats:
+                            # Use the original filename for clarity in the report output
+                            pdf_label = original_name
+                            aggregated_report['page_stats'][pdf_label] = {
+                                page: dict(stats) if isinstance(stats, dict) else stats
+                                for page, stats in page_stats.items()
+                            }
 
                     # Ensure progress reaches the end of this file's segment
                     progress_callback(task_id, file_end, f"Finished file {i+1}/{total_files}: {original_name}")
