@@ -819,7 +819,7 @@ def _hex_to_rgb01(hex_color):
 def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight_color="#FFFF00",
                                   enable_default_color=True, excel_tags_set=None,
                                   excel_constraint_mode=False, excel_constraint_logic="AND",
-                                  progress_callback=None):
+                                  progress_callback=None, page_bookmark_map=None):
     """
     Apply color rules to ALL text in the PDF that matches tag patterns, with optional Excel constraints.
 
@@ -833,6 +833,7 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         excel_constraint_mode: Whether to constrain coloring to Excel tags
         excel_constraint_logic: "AND" or "OR" logic for Excel constraint
         progress_callback: Optional progress callback function
+        page_bookmark_map: dict mapping page numbers to bookmark titles (optional)
 
     Returns:
         dict: Statistics about colored tags including page-level breakdown
@@ -842,7 +843,7 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
 
     colored_count = 0
     total_count = 0
-    page_stats = {}  # {page_num: {'colored_count': X, 'total_count': Y}}
+    page_stats = {}  # {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title'}}
 
     # Initialize excel_tags_set if not provided
     if excel_tags_set is None:
@@ -879,7 +880,9 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         for page_num, rects, original_tag in locations:
             # Initialize page stats if not exists
             if page_num not in page_stats:
-                page_stats[page_num] = {'colored_count': 0, 'total_count': 0}
+                # Get bookmark title for this page
+                bookmark_title = page_bookmark_map.get(page_num, 'N/A') if page_bookmark_map else 'N/A'
+                page_stats[page_num] = {'colored_count': 0, 'total_count': 0, 'bookmark': bookmark_title}
 
             # Increment total count for this page
             page_stats[page_num]['total_count'] += 1
@@ -917,6 +920,44 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         'colored_tags': colored_count,
         'page_stats': page_stats
     }
+
+
+def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None):
+    """
+    Build page-level statistics for all tags in the tag index.
+    This shows how many tags were found per page, regardless of coloring.
+
+    Args:
+        tag_index: Pre-built tag index from build_tag_index()
+        page_bookmark_map: dict mapping page numbers to bookmark titles (optional)
+        excel_tags_set: Set of tags from Excel to mark as "colored" (optional)
+
+    Returns:
+        dict: Page statistics {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title'}}
+    """
+    page_stats = {}
+
+    # Process all tags found in the PDF
+    for tag_text, locations in tag_index.items():
+        # Check if tag is in Excel list (for "colored" count)
+        in_excel = excel_tags_set and tag_text in excel_tags_set
+
+        # Track page-level statistics for all tags
+        for page_num, rects, original_tag in locations:
+            # Initialize page stats if not exists
+            if page_num not in page_stats:
+                # Get bookmark title for this page
+                bookmark_title = page_bookmark_map.get(page_num, 'N/A') if page_bookmark_map else 'N/A'
+                page_stats[page_num] = {'colored_count': 0, 'total_count': 0, 'bookmark': bookmark_title}
+
+            # Increment total count for this page
+            page_stats[page_num]['total_count'] += 1
+
+            # Increment colored count if tag is in Excel
+            if in_excel:
+                page_stats[page_num]['colored_count'] += 1
+
+    return page_stats
 
 
 def process_annotations_from_index(
@@ -1526,7 +1567,8 @@ def _annotate_pdf_standard(
             enable_default_color=enable_default_color,
             excel_tags_set=excel_tags_set,
             excel_constraint_mode=excel_constraint_mode,
-            excel_constraint_logic=excel_constraint_logic
+            excel_constraint_logic=excel_constraint_logic,
+            page_bookmark_map=page_bookmark_map
         )
         print(f"Colored {color_stats['colored_tags']} out of {color_stats['total_tags']} tag occurrences based on color rules.")
 
@@ -1563,9 +1605,19 @@ def _annotate_pdf_standard(
         color_rules=color_rules
     )
 
-    # Add page statistics to report data if color rules were applied
+    # Add page statistics to report data
+    # If color rules were applied, use those stats (includes coloring info)
+    # Otherwise, build stats from tag_index (shows all tags found per page)
     if color_stats and 'page_stats' in color_stats:
         report_data['page_stats'] = color_stats['page_stats']
+    else:
+        # Build page statistics even without color rules
+        update_progress(90, "Building page statistics...")
+        report_data['page_stats'] = build_page_statistics(
+            tag_index,
+            page_bookmark_map=page_bookmark_map,
+            excel_tags_set=excel_tags_set
+        )
 
     # Save intermediate annotated PDF (highlights/notes only)
     update_progress(95, "Saving annotated PDF (pre-watermark)...")
@@ -1944,6 +1996,30 @@ def _annotate_pdf_streaming(
             except Exception:
                 pass
     
+    # Build page statistics if not already included in report_data
+    if 'page_stats' not in report_data or not report_data['page_stats']:
+        update_progress(96, "Building page statistics...")
+        # Build excel_tags_set from filtered tags
+        tags = df[tag_col].dropna().unique().tolist()
+        excel_tags_set = set()
+        if tag_filters:
+            for tag in tags:
+                tag_str = str(tag).strip()
+                normalized_tag = normalize_tag(tag_str)
+                if _apply_tag_filters(tag_str, tag_filters, filter_logic):
+                    excel_tags_set.add(normalized_tag)
+        else:
+            for tag in tags:
+                tag_str = str(tag).strip()
+                normalized_tag = normalize_tag(tag_str)
+                excel_tags_set.add(normalized_tag)
+
+        report_data['page_stats'] = build_page_statistics(
+            tag_index,
+            page_bookmark_map=page_bookmark_map,
+            excel_tags_set=excel_tags_set
+        )
+
     update_progress(98, "Streaming annotation complete")
     print(f"Streaming mode: PDF saved successfully to {out_path}.")
     print(f"Found {found_tags} tags, skipped {skipped_tags}")

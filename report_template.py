@@ -282,11 +282,13 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             stats = page_stats[page_num]
             colored_count = stats.get('colored_count', 0)
             total_count = stats.get('total_count', 0)
+            bookmark = stats.get('bookmark', 'N/A')
             percentage = (colored_count / total_count * 100) if total_count > 0 else 0
             page_stats_list.append({
                 'page': page_num + 1,  # Convert from 0-indexed to 1-indexed
                 'colored_count': colored_count,
                 'total_count': total_count,
+                'bookmark': bookmark,
                 'percentage': percentage
             })
 
@@ -309,6 +311,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     page_stats_rows_html = '\n'.join([
         f'''                    <tr>
                         <td class="page-number">{item["page"]}</td>
+                        <td class="bookmark-title">{item["bookmark"]}</td>
                         <td>{item["colored_count"]}</td>
                         <td>{item["total_count"]}</td>
                         <td>
@@ -411,9 +414,10 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                     <thead>
                         <tr>
                             <th onclick="sortTable('pageStatsTable', 0)">Page # <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 1)">Colored Tags <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 2)">Total Tags <span class="sort-icon">↕</span></th>
-                            <th onclick="sortTable('pageStatsTable', 3)">Percentage <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 1)">Bookmark <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 2)">Colored Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 3)">Total Tags <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('pageStatsTable', 4)">Percentage <span class="sort-icon">↕</span></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -661,6 +665,16 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         .page-number {{
             font-weight: 600;
             color: #2563eb;
+        }}
+
+        .bookmark-title {{
+            font-size: 13px;
+            color: #059669;
+            font-style: italic;
+            max-width: 300px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }}
 
         .stat-mini-card {{
@@ -1005,7 +1019,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 {{ id: 'notFoundTable', name: 'Not Found Tags', headers: ['Tag', 'Excel Row', 'Reason'] }},
                 {{ id: 'duplicatesTable', name: 'Duplicate Tags', headers: ['Tag', 'Excel Rows', 'Count'] }},
                 {{ id: 'warningsTable', name: 'Validation Warnings', headers: ['Tag', 'Excel Row', 'Warning'] }},
-                {{ id: 'pageStatsTable', name: 'Page Statistics', headers: ['Page #', 'Colored Tags', 'Total Tags', 'Percentage'] }}
+                {{ id: 'pageStatsTable', name: 'Page Statistics', headers: ['Page #', 'Bookmark', 'Colored Tags', 'Total Tags', 'Percentage'] }}
             ];
 
             sections.forEach(section => {{
