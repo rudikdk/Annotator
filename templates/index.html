@@ -486,9 +486,10 @@
     }
 
     // New FileWorkspace component
-    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh }) {
+    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh, tutorialActive, tutorialDemoKey }) {
       const inputRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
+      const tutorialDemo = tutorialActive && tutorialDemoKey ? tutorialDemoContent[tutorialDemoKey] : null;
 
       function formatFileSize(bytes) {
         if (bytes === 0) return '0 B';
@@ -643,7 +644,7 @@
               handleFileUpload(files);
             }}
             className={cx(
-              "cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-300",
+              "upload-area-tutorial cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-300",
               "bg-white dark:bg-zinc-950/40 border-zinc-300/60 dark:border-zinc-700",
               "hover:border-brand/60 hover:bg-brand/5",
               dragOver && "border-brand bg-brand/10"
@@ -667,6 +668,28 @@
               }}
             />
           </div>
+
+          {tutorialDemo && tutorialDemo.sampleFiles && tutorialDemoKey === 'upload' && (
+            <div className="rounded-lg border border-brand/30 bg-brand/5 p-4 text-left">
+              <div className="text-xs font-semibold text-brand uppercase tracking-wide mb-2">Tutorial sample files</div>
+              <div className="flex flex-wrap gap-2">
+                {tutorialDemo.sampleFiles.map((file, idx) => (
+                  <span
+                    key={`${file.name}-${idx}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-zinc-900 border border-brand/20 px-3 py-1 text-[11px] font-medium text-brand"
+                  >
+                    <i
+                      className={cx(
+                        'fa-solid',
+                        file.type === 'excel' ? 'fa-file-excel text-emerald-500' : 'fa-file-pdf text-rose-500'
+                      )}
+                    ></i>
+                    {file.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Workspace Header */}
           {totalFiles > 0 && (
@@ -1246,12 +1269,149 @@
     }
 
     // Tutorial/Onboarding System
+    const baseDemoRows = [
+      { tag: 'P-101A', description: 'Feed Pump', service: 'Condensate', status: 'Active' },
+      { tag: 'P-101B', description: 'Standby Pump', service: 'Condensate', status: 'Standby' },
+      { tag: 'TIC-204', description: 'Temp Indicator Controller', service: 'Reboiler', status: 'Alarm High' },
+    ];
+
+    const baseTagMetadata = [
+      { label: 'Matched Tags', value: '38', tone: 'brand' },
+      { label: 'With Comments', value: '21', tone: 'success' },
+      { label: 'Needs Review', value: '5', tone: 'warning' },
+    ];
+
+    const baseHighlightRules = [
+      { label: 'Status = Alarm High', color: '#f97316', description: 'Orange highlight for alarm states' },
+      { label: 'Service contains Steam', color: '#2563eb', description: 'Blue highlight for steam circuits' },
+      { label: 'Any Notes present', color: '#22c55e', description: 'Green highlight when comments exist' },
+    ];
+
+    const basePdfStats = {
+      pages: 18,
+      matches: 112,
+      coverage: '9 drawings',
+      lastRun: '2 minutes ago',
+    };
+
+    const tutorialDemoContent = {
+      upload: {
+        sampleFiles: [
+          { name: 'Equipment_Tags.xlsx', type: 'excel' },
+          { name: 'Unit-101 PID.pdf', type: 'pdf' },
+          { name: 'Utility-Steam.pdf', type: 'pdf' },
+        ],
+        excelRows: baseDemoRows,
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'Upload the Excel list first, then drop in one or more PID drawings. The mock data below shows how tags and highlights line up once processing starts.',
+      },
+      headerRow: {
+        excelRows: baseDemoRows.map((row, index) => ({
+          ...row,
+          header: index === 0 ? 'Row 6 (headers)' : `Row ${6 + index}`,
+        })),
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'The system assumes headers live on row 6 by default. Adjust the header row so the correct column titles are used during parsing.',
+      },
+      tagColumn: {
+        excelRows: baseDemoRows.map((row) => ({
+          ...row,
+          tagPreview: row.tag,
+        })),
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'Select the column that contains the tag identifiers. The preview highlights how each Excel tag is matched back to the drawings.',
+      },
+      profile: {
+        excelRows: baseDemoRows,
+        tagMetadata: [
+          ...baseTagMetadata,
+          { label: 'Template', value: 'Refinery Startup', tone: 'brand' },
+        ],
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'Profiles capture your preferred header row, tag columns, watermark settings, and highlight palettes so recurring jobs are only a click away.',
+      },
+      comments: {
+        excelRows: baseDemoRows.map((row) => ({
+          ...row,
+          notes: row.tag === 'TIC-204' ? 'Investigate alarm logic' : '—',
+        })),
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'Choose which Excel columns flow into the annotation card. In this demo the Notes column injects troubleshooting tips directly into the PDF.',
+      },
+      highlighting: {
+        excelRows: baseDemoRows,
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules.map((rule, idx) => ({
+          ...rule,
+          active: idx !== 1 ? true : false,
+        })),
+        pdfStats: basePdfStats,
+        blurb: 'Conditional highlighting calls attention to priority equipment. Tweak the rules to emphasize alarms, process services, or maintenance tags.',
+      },
+      excelAnnotation: {
+        excelRows: baseDemoRows.map((row) => ({
+          ...row,
+          excelStatus: row.tag.includes('P-101') ? 'Highlighted' : 'Pending',
+        })),
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'With Excel annotation enabled the source workbook marks which rows were found inside the PDFs so you can filter unlocated tags later.',
+      },
+      watermark: {
+        excelRows: baseDemoRows,
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        watermarkPreview: [
+          { label: 'P-101A', text: 'Condensate Feed Pump', color: '#2563eb' },
+          { label: 'TIC-204', text: 'Alarm High', color: '#f97316' },
+        ],
+        blurb: 'Watermarks layer readable labels next to tag markers. Customize the attribute mix and colors to match site standards.',
+      },
+      start: {
+        excelRows: baseDemoRows,
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'Run a full pass when everything looks right or choose Test Run to process a quick subset without touching your live PDFs.',
+      },
+      faq: {
+        excelRows: baseDemoRows,
+        tagMetadata: baseTagMetadata,
+        highlightRules: baseHighlightRules,
+        pdfStats: basePdfStats,
+        blurb: 'The FAQ houses troubleshooting guides, onboarding videos, and a replay switch for this walkthrough so you can revisit the mock data anytime.',
+      },
+    };
+
     const tutorialSteps = [
       {
         id: 1,
         target: '.upload-area-tutorial',
         title: 'Welcome to PID Annotator!',
-        content: 'Start by uploading your files. First upload an Excel file with your component list, then one or more PDF files.',
+        content: (
+          <>
+            <p>
+              Start by uploading your Excel workbook and the PID drawings you want to annotate. Drop them anywhere in the upload
+              zone or click to browse.
+            </p>
+            <ul className="mt-2 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+              <li className="flex items-center gap-2"><i className="fa-solid fa-circle-check text-brand"></i>Excel first so we can read the tag list.</li>
+              <li className="flex items-center gap-2"><i className="fa-solid fa-circle-check text-brand"></i>Add one or many PDFs afterward.</li>
+            </ul>
+          </>
+        ),
+        demoKey: 'upload',
         position: 'bottom',
         canSkip: true
       },
@@ -1259,66 +1419,318 @@
         id: 2,
         target: '#header-row',
         title: 'Configure Header Row',
-        content: 'Specify which row in your Excel file contains the column headers. The default is row 6.',
+        content: (
+          <>
+            <p>
+              Tell the app which row contains your column titles. We default to row 6 because that covers most vendor templates,
+              but you can dial it in for your sheet.
+            </p>
+          </>
+        ),
+        demoKey: 'headerRow',
         position: 'right'
       },
       {
         id: 3,
         target: '#tag-column',
         title: 'Select Tag Column',
-        content: 'Choose the column that contains your component tags (e.g., TAG-001-A).',
+        content: (
+          <>
+            <p>
+              Choose the Excel column that holds the tag identifiers (for example P-101A or TIC-204). The current selection drives
+              matching against the drawings.
+            </p>
+          </>
+        ),
+        demoKey: 'tagColumn',
         position: 'right'
       },
       {
         id: 4,
         target: '#profile-select',
         title: 'Configuration Profiles',
-        content: 'Save time by using built-in templates or creating your own configuration profiles. You can save, load, export, and import settings.',
+        content: (
+          <>
+            <p>
+              Use profiles to save your header row, tag column, highlight palette, and watermark setup. Load a template to jumpstart
+              a common workflow or save your own for future runs.
+            </p>
+          </>
+        ),
+        demoKey: 'profile',
         position: 'bottom'
       },
       {
         id: 5,
         target: '.comment-columns-tutorial',
         title: 'Comment Columns',
-        content: 'Select which columns from your Excel file should be included in the PDF annotations. You can choose multiple columns.',
+        content: (
+          <>
+            <p>
+              Pick the Excel columns that should flow into the annotation card on each tag. Include troubleshooting notes, service
+              descriptions, or any fields your team needs in the field.
+            </p>
+          </>
+        ),
+        demoKey: 'comments',
         position: 'top'
       },
       {
         id: 6,
         target: '#highlight-attribute',
         title: 'Conditional Highlighting',
-        content: 'Tags will be highlighted when the selected attribute column has a value. Choose your highlight color above.',
+        content: (
+          <>
+            <p>
+              Apply conditional highlighting to make priority equipment pop. Pick an attribute column and color rules to control
+              how each tag appears on the PDF preview.
+            </p>
+          </>
+        ),
+        demoKey: 'highlighting',
         position: 'right'
       },
       {
         id: 7,
         target: '.excel-annotation-tutorial',
         title: 'Excel Annotation',
-        content: 'Enable this to automatically highlight rows in your Excel file where tags were found in the PDF.',
+        content: (
+          <>
+            <p>
+              Enable Excel annotation to mark rows that were successfully matched in the PDFs. It gives your workbook a quick
+              at-a-glance completion audit.
+            </p>
+          </>
+        ),
+        demoKey: 'excelAnnotation',
         position: 'right'
       },
       {
         id: 8,
         target: '.watermark-tutorial',
         title: 'Watermark Feature',
-        content: 'Add text labels near tags in the PDF using attribute values from your Excel file.',
+        content: (
+          <>
+            <p>
+              Turn on watermarks to place readable labels next to each tag. Combine tag IDs with service or status text to mirror
+              your plant standard.
+            </p>
+          </>
+        ),
+        demoKey: 'watermark',
         position: 'right'
       },
       {
         id: 9,
         target: '.start-button-tutorial',
         title: 'Start Processing',
-        content: 'When ready, click "Start" for full processing or "Test Run" to process only the first 100 tags.',
+        content: (
+          <>
+            <p>
+              Run the full pipeline to annotate every drawing, or choose Test Run to sample the first 100 tags for a quick
+              validation before committing to the entire set.
+            </p>
+          </>
+        ),
+        demoKey: 'start',
         position: 'top'
       },
       {
         id: 10,
         target: '.faq-button-tutorial',
         title: 'Need Help?',
-        content: 'Click FAQ for detailed information about features and troubleshooting. You can replay this tutorial anytime from the FAQ section.',
+        content: (
+          <>
+            <p>
+              Visit the FAQ when you need deeper dives, best practices, or to replay this interactive walkthrough.
+            </p>
+          </>
+        ),
+        demoKey: 'faq',
         position: 'top'
       }
     ];
+
+    function TutorialDemo({ demoKey, demo }) {
+      const payload = demo || (demoKey ? tutorialDemoContent[demoKey] : null);
+      if (!payload) return null;
+
+      const {
+        blurb,
+        sampleFiles,
+        excelRows,
+        tagMetadata,
+        highlightRules,
+        pdfStats,
+        watermarkPreview,
+      } = payload;
+
+      const columnLabels = {
+        tag: 'Tag',
+        description: 'Description',
+        service: 'Service',
+        status: 'Status',
+        header: 'Header Row',
+        tagPreview: 'Tag Preview',
+        notes: 'Notes',
+        excelStatus: 'Excel Flag',
+      };
+
+      const excelColumns = excelRows
+        ? Object.keys(
+            excelRows.reduce((acc, row) => {
+              Object.keys(row).forEach((key) => {
+                if (!acc[key]) acc[key] = true;
+              });
+              return acc;
+            }, {})
+          ).filter((key) => columnLabels[key])
+        : [];
+
+      return (
+        <div className="mt-4 space-y-3">
+          {blurb && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{blurb}</p>
+          )}
+
+          {sampleFiles && sampleFiles.length > 0 && (
+            <div className="rounded-lg border border-dashed border-brand/40 bg-brand/10 p-3">
+              <div className="text-xs font-semibold text-brand mb-2">Sample upload queue</div>
+              <div className="flex flex-wrap gap-2">
+                {sampleFiles.map((file, idx) => (
+                  <span
+                    key={`${file.name}-${idx}`}
+                    className="inline-flex items-center gap-2 rounded-full bg-white/80 dark:bg-zinc-900/80 border border-brand/20 px-2 py-1 text-[11px] font-medium text-brand"
+                  >
+                    <i
+                      className={cx(
+                        'fa-solid',
+                        file.type === 'excel' ? 'fa-file-excel text-emerald-500' : 'fa-file-pdf text-rose-500'
+                      )}
+                    ></i>
+                    {file.name}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {excelRows && excelRows.length > 0 && excelColumns.length > 0 && (
+            <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 overflow-hidden">
+              <table className="min-w-full text-[11px]">
+                <thead className="bg-zinc-50/80 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300">
+                  <tr>
+                    {excelColumns.map((col) => (
+                      <th key={col} className="px-2 py-1 text-left font-semibold tracking-wide uppercase">
+                        {columnLabels[col]}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="bg-white/80 dark:bg-zinc-900/80">
+                  {excelRows.map((row, idx) => (
+                    <tr key={`${row.tag}-${idx}`} className="border-t border-zinc-100 dark:border-zinc-800/60">
+                      {excelColumns.map((col) => (
+                        <td key={`${col}-${idx}`} className="px-2 py-1 text-zinc-600 dark:text-zinc-300">
+                          {row[col] || '—'}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {tagMetadata && tagMetadata.length > 0 && (
+            <div className="grid grid-cols-2 gap-2">
+              {tagMetadata.map((meta, idx) => (
+                <div
+                  key={`${meta.label}-${idx}`}
+                  className={cx(
+                    'rounded-lg px-3 py-2 text-[11px] font-semibold shadow-sm border',
+                    meta.tone === 'success'
+                      ? 'bg-green-500/10 text-green-600 border-green-500/20'
+                      : meta.tone === 'warning'
+                      ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
+                      : 'bg-brand/10 text-brand border-brand/20'
+                  )}
+                >
+                  <div className="uppercase tracking-wide text-[10px] opacity-80">{meta.label}</div>
+                  <div className="text-sm">{meta.value}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {highlightRules && highlightRules.length > 0 && (
+            <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 p-3">
+              <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 mb-2">Highlight rules</div>
+              <ul className="space-y-2">
+                {highlightRules.map((rule, idx) => (
+                  <li key={`${rule.label}-${idx}`} className="flex items-start gap-3 text-xs text-zinc-600 dark:text-zinc-300">
+                    <span
+                      className="mt-0.5 inline-flex h-3 w-3 flex-shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: rule.color }}
+                    >
+                      {rule.active === false && (
+                        <i className="fa-solid fa-ban text-[8px] text-white/80"></i>
+                      )}
+                    </span>
+                    <div>
+                      <div className="font-semibold text-[11px] text-zinc-700 dark:text-zinc-200">{rule.label}</div>
+                      {rule.description && <div className="text-[10px] opacity-80">{rule.description}</div>}
+                      {rule.active === false && (
+                        <div className="text-[10px] text-amber-600 dark:text-amber-400">Temporarily disabled in this preset</div>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {pdfStats && (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
+                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Pages</div>
+                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.pages}</div>
+              </div>
+              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
+                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Matched tags</div>
+                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.matches}</div>
+              </div>
+              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
+                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Coverage</div>
+                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.coverage}</div>
+              </div>
+              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
+                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Last run</div>
+                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.lastRun}</div>
+              </div>
+            </div>
+          )}
+
+          {watermarkPreview && watermarkPreview.length > 0 && (
+            <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 p-3">
+              <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 mb-2">Watermark preview</div>
+              <div className="flex flex-wrap gap-2">
+                {watermarkPreview.map((mark, idx) => (
+                  <span
+                    key={`${mark.label}-${idx}`}
+                    className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] font-semibold text-white shadow"
+                    style={{ backgroundColor: mark.color }}
+                  >
+                    <span className="uppercase tracking-wide text-[10px]">{mark.label}</span>
+                    <span className="text-xs font-medium">{mark.text}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
 
     function TutorialTooltip({ step, currentStep, totalSteps, onNext, onPrev, onSkip, onComplete }) {
       if (!step) return null;
@@ -1429,9 +1841,12 @@
             </button>
           </div>
 
-          <p className="text-sm text-zinc-700 dark:text-zinc-300 mb-4">
-            {step.content}
-          </p>
+          <div className="text-sm text-zinc-700 dark:text-zinc-300 mb-4 space-y-3">
+            {typeof step.content === 'string' ? <p>{step.content}</p> : step.content}
+            {(step.demo || step.demoKey) && (
+              <TutorialDemo demoKey={step.demoKey} demo={step.demo} />
+            )}
+          </div>
 
           <div className="flex items-center justify-between">
             <div className="flex gap-1">
@@ -1950,6 +2365,9 @@
       // Tutorial state
       const [tutorialActive, setTutorialActive] = useState(false);
       const [tutorialStep, setTutorialStep] = useState(1);
+      const activeTutorialDemoKey = tutorialActive
+        ? tutorialSteps[Math.min(tutorialSteps.length - 1, Math.max(0, tutorialStep - 1))]?.demoKey
+        : null;
 
       // UI state
       const [showFAQ, setShowFAQ] = useState(false);
@@ -3371,6 +3789,8 @@
                 onColumnsLoaded={onColumnsLoaded}
                 setToast={setToast}
                 onRefresh={refreshWorkspace}
+                tutorialActive={tutorialActive}
+                tutorialDemoKey={activeTutorialDemoKey}
               />
             </SectionCard>
 
