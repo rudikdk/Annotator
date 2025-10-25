@@ -531,8 +531,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         </div>
         '''
 
-    # Build page statistics panel for overview section
-    page_stats_panel_html = ''
+    # Build page statistics section for dedicated page view
+    page_stats_section_html = ''
     if page_stats_count > 0:
         page_summary_html = ''
         if most_tagged_page:
@@ -578,14 +578,15 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                             <th onclick="sortTable('pageStatsTable', 4)">Percentage <span class="sort-icon">↕</span></th>
                         </tr>'''
 
-        page_stats_panel_html = f'''
+        page_stats_section_html = f'''
+        <div class="page-panel-container print-page-break">
             <div class="panel page-panel" id="pageStatsPanel">
                 <div class="panel-header">
                     <h2><span style="color: #0ea5e9;">📊</span> Page Statistics</h2>
                     <span class="badge">{page_stats_count} pages</span>
                 </div>
                 {page_summary_html}
-                <div class="nested-collapsible" id="pageStatsSection">
+                <div class="nested-collapsible collapsed" id="pageStatsSection">
                     <button type="button" class="toggle-link" onclick="toggleSection('pageStatsSection')">
                         Detailed Breakdown <span class="toggle-icon">▼</span>
                     </button>
@@ -601,6 +602,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                     </div>
                 </div>
             </div>
+        </div>
         '''
 
     # Build settings footer
@@ -671,12 +673,24 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         }}
 
         .overview-panels {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            display: flex;
+            flex-direction: column;
             gap: 20px;
             padding: 30px;
             border-bottom: 1px solid #e5e7eb;
-            align-items: stretch;
+        }}
+
+        .page-panel-container {{
+            padding: 30px;
+            border-bottom: 1px solid #e5e7eb;
+        }}
+
+        .page-panel-container .panel {{
+            margin: 0;
+        }}
+
+        .print-page-break {{
+            margin-top: 30px;
         }}
 
         .panel {{
@@ -1186,6 +1200,10 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             .nested-collapsible .nested-content {{
                 display: block !important;
             }}
+            .print-page-break {{
+                page-break-before: always;
+                margin-top: 0;
+            }}
         }}
     </style>
 </head>
@@ -1226,8 +1244,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                     </div>
                 </div>
             </div>
-            {page_stats_panel_html}
         </div>
+        {page_stats_section_html}
 
         <div class="controls">
             <input type="text" id="searchBox" class="search-box" placeholder="Search tags...">
