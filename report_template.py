@@ -450,13 +450,13 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         </div>
         '''
 
-    # Build page statistics section
-    page_stats_section = ''
+    # Build page statistics panel for overview section
+    page_stats_panel_html = ''
     if page_stats_count > 0:
-        summary_html = ''
+        page_summary_html = ''
         if most_tagged_page:
             most_tagged_label = _format_page_label(most_tagged_page, include_source_pdf)
-            summary_html = f'''
+            page_summary_html = f'''
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div class="stat-mini-card">
                         <div class="stat-mini-label">Pages with Tags</div>
@@ -497,26 +497,29 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                             <th onclick="sortTable('pageStatsTable', 4)">Percentage <span class="sort-icon">↕</span></th>
                         </tr>'''
 
-        page_stats_section = f'''
-        <div class="section collapsible" id="pageStatsSection">
-            <h2 onclick="toggleSection('pageStatsSection')">
-                <span>
-                    <span style="color: #0ea5e9;">📊</span> Tags Per Page Analysis <span class="badge">{page_stats_count} pages</span>
-                </span>
-                <span class="toggle-icon">▼</span>
-            </h2>
-            <div class="section-content">
-                {summary_html}
-                <table id="pageStatsTable">
-                    <thead>
+        page_stats_panel_html = f'''
+            <div class="panel page-panel" id="pageStatsPanel">
+                <div class="panel-header">
+                    <h2><span style="color: #0ea5e9;">📊</span> Page Statistics</h2>
+                    <span class="badge">{page_stats_count} pages</span>
+                </div>
+                {page_summary_html}
+                <div class="nested-collapsible" id="pageStatsSection">
+                    <button type="button" class="toggle-link" onclick="toggleSection('pageStatsSection')">
+                        Detailed Breakdown <span class="toggle-icon">▼</span>
+                    </button>
+                    <div class="nested-content">
+                        <table id="pageStatsTable">
+                            <thead>
 {page_stats_header_html}
-                    </thead>
-                    <tbody>
+                            </thead>
+                            <tbody>
 {page_stats_rows_html}
-                    </tbody>
-                </table>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
-        </div>
         '''
 
     # Build settings footer
@@ -586,16 +589,49 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             font-size: 14px;
         }}
 
+        .overview-panels {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            border-bottom: 1px solid #e5e7eb;
+            align-items: stretch;
+        }}
+
+        .panel {{
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }}
+
+        .panel-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }}
+
+        .panel-header h2 {{
+            font-size: 20px;
+            margin: 0;
+            color: #111827;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
         .summary {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
             gap: 20px;
-            padding: 30px;
-            border-bottom: 1px solid #e5e7eb;
         }}
 
         .stat-card {{
-            background: #f9fafb;
+            background: white;
             padding: 20px;
             border-radius: 8px;
             border-left: 4px solid #2563eb;
@@ -891,6 +927,41 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             display: none;
         }}
 
+        .nested-collapsible {{
+            border-top: 1px solid #e5e7eb;
+            padding-top: 16px;
+        }}
+
+        .nested-collapsible .toggle-link {{
+            background: transparent;
+            border: none;
+            color: #2563eb;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            padding: 0;
+        }}
+
+        .nested-collapsible .toggle-icon {{
+            font-size: 16px;
+            transition: transform 0.3s;
+        }}
+
+        .nested-collapsible.collapsed .toggle-icon {{
+            transform: rotate(-90deg);
+        }}
+
+        .nested-content {{
+            margin-top: 16px;
+        }}
+
+        .nested-collapsible.collapsed .nested-content {{
+            display: none;
+        }}
+
         @media print {{
             body {{ padding: 0; background: white; }}
             .controls {{ display: none; }}
@@ -900,6 +971,10 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 display: block !important;
             }}
             .toggle-icon {{ display: none; }}
+            .nested-collapsible .toggle-link {{ display: none; }}
+            .nested-collapsible .nested-content {{
+                display: block !important;
+            }}
         }}
     </style>
 </head>
@@ -912,27 +987,35 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             </div>
         </header>
 
-        <div class="summary">
-            <div class="stat-card">
-                <div class="label">Total Tags</div>
-                <div class="value">{total_tags}</div>
-                <div class="subtext">in Excel file</div>
+        <div class="overview-panels">
+            <div class="panel tag-panel">
+                <div class="panel-header">
+                    <h2><span style="color: #2563eb;">🏷️</span> Tag Statistics</h2>
+                </div>
+                <div class="summary">
+                    <div class="stat-card">
+                        <div class="label">Total Tags</div>
+                        <div class="value">{total_tags}</div>
+                        <div class="subtext">in Excel file</div>
+                    </div>
+                    <div class="stat-card success">
+                        <div class="label">Found</div>
+                        <div class="value">{found_count}</div>
+                        <div class="subtext">{found_percent:.1f}% success rate</div>
+                    </div>
+                    <div class="stat-card warning">
+                        <div class="label">Not Found</div>
+                        <div class="value">{not_found_count}</div>
+                        <div class="subtext">{not_found_percent:.1f}% missing</div>
+                    </div>
+                    <div class="stat-card {'info' if duplicate_count > 0 else ''}">
+                        <div class="label">Duplicates</div>
+                        <div class="value">{duplicate_count}</div>
+                        <div class="subtext">{'tags appear multiple times' if duplicate_count > 0 else 'no duplicates detected'}</div>
+                    </div>
+                </div>
             </div>
-            <div class="stat-card success">
-                <div class="label">Found</div>
-                <div class="value">{found_count}</div>
-                <div class="subtext">{found_percent:.1f}% success rate</div>
-            </div>
-            <div class="stat-card warning">
-                <div class="label">Not Found</div>
-                <div class="value">{not_found_count}</div>
-                <div class="subtext">{not_found_percent:.1f}% missing</div>
-            </div>
-            <div class="stat-card {'info' if duplicate_count > 0 else ''}">
-                <div class="label">Duplicates</div>
-                <div class="value">{duplicate_count}</div>
-                <div class="subtext">{'tags appear multiple times' if duplicate_count > 0 else 'no duplicates detected'}</div>
-            </div>
+            {page_stats_panel_html}
         </div>
 
         <div class="controls">
@@ -992,8 +1075,6 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         </div>
 
 {warnings_section}
-
-{page_stats_section}
 
         <footer>
             <h3>Processing Settings</h3>
