@@ -32,6 +32,90 @@ echo [OK] Python is installed
 %PYTHON_CMD% --version
 echo.
 
+:: Check for Microsoft Visual C++ Redistributable
+echo [CHECK] Checking for Microsoft Visual C++ Redistributable...
+set VCREDIST_FOUND=0
+
+:: Check for VC++ 2015-2022 Redistributable (x64) - the most common modern version
+reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" /v Version >nul 2>&1
+if not errorlevel 1 set VCREDIST_FOUND=1
+
+:: Check for VC++ 2015-2022 Redistributable (x86) as fallback
+if "%VCREDIST_FOUND%"=="0" (
+    reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86" /v Version >nul 2>&1
+    if not errorlevel 1 set VCREDIST_FOUND=1
+)
+
+:: Check for older VC++ 2013 (x64)
+if "%VCREDIST_FOUND%"=="0" (
+    reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\12.0\VC\Runtimes\x64" /v Version >nul 2>&1
+    if not errorlevel 1 set VCREDIST_FOUND=1
+)
+
+if "%VCREDIST_FOUND%"=="0" (
+    echo.
+    echo [WARNING] Microsoft Visual C++ Redistributable not found!
+    echo This is required for some Python packages to work correctly.
+    echo.
+    echo Do you want to download and install it now? (Y/N)
+    set /p INSTALL_VCREDIST=
+
+    if /i "%INSTALL_VCREDIST%"=="Y" (
+        echo.
+        echo [SETUP] Downloading Microsoft Visual C++ Redistributable...
+        echo Please wait, this may take a moment...
+        echo.
+
+        :: Download the latest VC++ 2015-2022 Redistributable (x64)
+        set VCREDIST_URL=https://aka.ms/vs/17/release/vc_redist.x64.exe
+        set VCREDIST_FILE=%TEMP%\vc_redist.x64.exe
+
+        :: Use PowerShell to download the file
+        powershell -Command "& {[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri '%VCREDIST_URL%' -OutFile '%VCREDIST_FILE%'}"
+
+        if errorlevel 1 (
+            echo [ERROR] Failed to download VC++ Redistributable
+            echo Please download it manually from:
+            echo https://aka.ms/vs/17/release/vc_redist.x64.exe
+            echo.
+            pause
+            exit /b 1
+        )
+
+        echo [SETUP] Installing Microsoft Visual C++ Redistributable...
+        echo Please follow the installation wizard...
+        echo.
+
+        :: Install silently with /quiet /norestart, or use /install for GUI
+        "%VCREDIST_FILE%" /install /quiet /norestart
+
+        if errorlevel 1 (
+            echo [WARNING] Installation may have failed or requires restart
+            echo If problems persist, try installing manually from:
+            echo %VCREDIST_FILE%
+            echo.
+            pause
+        ) else (
+            echo [OK] Microsoft Visual C++ Redistributable installed successfully
+            echo.
+
+            :: Clean up the installer
+            del "%VCREDIST_FILE%" >nul 2>&1
+        )
+    ) else (
+        echo.
+        echo [WARNING] Continuing without VC++ Redistributable
+        echo Some features may not work correctly. If you encounter errors,
+        echo please download and install it from:
+        echo https://aka.ms/vs/17/release/vc_redist.x64.exe
+        echo.
+        pause
+    )
+) else (
+    echo [OK] Microsoft Visual C++ Redistributable found
+    echo.
+)
+
 :: Check if virtual environment exists
 if not exist "venv\" (
     echo [SETUP] Creating virtual environment...

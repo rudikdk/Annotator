@@ -1675,18 +1675,6 @@ def generate_full_preview():
         except:
             pass
 
-        # Generate preview image
-        doc = fitz.open(preview_output_path)
-        page = doc[0]  # First (and only) page in preview PDF
-
-        # Render as image (2x zoom for quality)
-        mat = fitz.Matrix(2.0, 2.0)
-        pix = page.get_pixmap(matrix=mat, annots=True)
-        img_bytes = pix.tobytes("png")
-        img_base64 = base64.b64encode(img_bytes).decode('utf-8')
-
-        doc.close()
-
         # Prepare stats
         stats = {
             'total_tags': len(report_data.get('found', [])) + len(report_data.get('not_found', [])) if report_data else 0,
@@ -1697,12 +1685,13 @@ def generate_full_preview():
         print(f"[FULL PREVIEW] Preview generated successfully: {preview_clean_filename}")
         print(f"[FULL PREVIEW] Stats - Found: {stats['colored_tags']} tags on page {preview_page}")
 
+        # Return PDF URL instead of base64 image - frontend will use PDF.js to render
         return jsonify({
             'success': True,
             'page_number': preview_page,
             'total_pages': total_pages,
             'stats': stats,
-            'image': f'data:image/png;base64,{img_base64}',
+            'pdf_url': f'/view_preview/{preview_output_filename}',
             'preview_filename': preview_output_filename,
             'preview_clean_name': preview_clean_filename,
             'download_url': f'/download_preview/{preview_output_filename}',
@@ -1716,6 +1705,30 @@ def generate_full_preview():
             'success': False,
             'message': f'Error generating preview: {str(e)}'
         })
+
+
+@app.route('/view_preview/<filename>')
+def view_preview(filename):
+    """View a preview PDF file in the browser (for PDF.js rendering)"""
+    try:
+        session_id = session.get('session_id', 'default')
+
+        # Security check - ensure filename belongs to current session
+        if not filename.startswith(f"{session_id}_"):
+            return jsonify({'success': False, 'message': 'Invalid file access'}), 403
+
+        # Check if file exists in output folder
+        file_path = os.path.join(app.config['OUTPUT_FOLDER'], filename)
+
+        if not os.path.exists(file_path):
+            return jsonify({'success': False, 'message': 'Preview file not found'}), 404
+
+        print(f"[PREVIEW VIEW] Serving preview for viewing: {filename}")
+        return send_file(file_path, mimetype='application/pdf')
+
+    except Exception as e:
+        print(f"[PREVIEW VIEW ERROR] {str(e)}")
+        return jsonify({'success': False, 'message': f'Error viewing preview: {str(e)}'}), 500
 
 
 @app.route('/download_preview/<filename>')

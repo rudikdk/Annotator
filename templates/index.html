@@ -92,6 +92,13 @@
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
+  <!-- PDF.js for native PDF rendering -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    // Configure PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  </script>
+
   <style>
     html,
     body {
@@ -2309,12 +2316,15 @@
       // Floating Preview Modal state
       const [previewModalOpen, setPreviewModalOpen] = useState(false);
       const [previewModalPage, setPreviewModalPage] = useState(1);
-      const [previewModalZoom, setPreviewModalZoom] = useState(100);
+      const [previewModalZoom, setPreviewModalZoom] = useState(1.0);
       const [previewModalData, setPreviewModalData] = useState(null);
       const [previewModalLoading, setPreviewModalLoading] = useState(false);
       const [isModalDragging, setIsModalDragging] = useState(false);
       const [modalDragStart, setModalDragStart] = useState({ x: 0, y: 0 });
+      const [modalPanOffset, setModalPanOffset] = useState({ x: 0, y: 0 });
       const previewModalContainerRef = useRef(null);
+      const previewCanvasRef = useRef(null);
+      const [pdfDocument, setPdfDocument] = useState(null);
 
       // Tag Matching Preview Modal state (ADDED - These were missing!)
       const [previewFullscreen, setPreviewFullscreen] = useState(false);
@@ -2743,6 +2753,9 @@
       function closePreviewModal() {
         setPreviewModalOpen(false);
         setPreviewModalData(null);
+        setPdfDocument(null);
+        setPreviewModalZoom(1.0);
+        setModalPanOffset({ x: 0, y: 0 });
       }
 
       function loadPreviewModalPage(pageNum) {
@@ -2826,57 +2839,89 @@
 
       function handleModalZoom(action, value = null) {
         if (action === 'in') {
-          setPreviewModalZoom(prev => Math.min(400, prev + 25));
+          setPreviewModalZoom(prev => Math.min(4.0, prev + 0.25));
         } else if (action === 'out') {
-          setPreviewModalZoom(prev => Math.max(25, prev - 25));
+          setPreviewModalZoom(prev => Math.max(0.25, prev - 0.25));
         } else if (action === 'reset') {
-          setPreviewModalZoom(100);
+          setPreviewModalZoom(1.0);
+          setModalPanOffset({ x: 0, y: 0 });
         } else if (action === 'fitWidth') {
-          // Calculate zoom to fit width (approximate)
-          const containerWidth = previewModalContainerRef.current?.clientWidth || 800;
-          const zoom = Math.floor((containerWidth / 800) * 100);
-          setPreviewModalZoom(Math.max(25, Math.min(400, zoom)));
+          setPreviewModalZoom(1.0);
+          setModalPanOffset({ x: 0, y: 0 });
         } else if (action === 'fitHeight') {
-          // Calculate zoom to fit height (approximate)
-          const containerHeight = previewModalContainerRef.current?.clientHeight || 600;
-          const zoom = Math.floor((containerHeight / 1000) * 100);
-          setPreviewModalZoom(Math.max(25, Math.min(400, zoom)));
-        } else if (value !== null) {
-          setPreviewModalZoom(parseInt(value));
+          setPreviewModalZoom(1.0);
+          setModalPanOffset({ x: 0, y: 0 });
+        } else if (action === 'set' && value !== null) {
+          setPreviewModalZoom(parseFloat(value));
         }
       }
 
       function handleModalWheel(e) {
-        if (e.ctrlKey || e.metaKey) {
-          e.preventDefault();
-          const delta = e.deltaY > 0 ? -10 : 10;
-          setPreviewModalZoom(prev => Math.max(25, Math.min(400, prev + delta)));
-        }
+        // Allow zoom with or without Ctrl key, prevent browser scroll
+        e.preventDefault();
+        e.stopPropagation();
+
+        const container = previewModalContainerRef.current;
+        const canvas = previewCanvasRef.current;
+        if (!container || !canvas) return;
+
+        // Get mouse position relative to container
+        const rect = container.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        // Calculate zoom delta
+        const delta = e.deltaY > 0 ? -0.1 : 0.1;
+        const oldZoom = previewModalZoom;
+        const newZoom = Math.max(0.25, Math.min(4.0, oldZoom + delta));
+
+        // Calculate the point under the mouse in the canvas coordinate system
+        // Account for current pan offset
+        const canvasRect = canvas.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+
+        // Mouse position relative to canvas
+        const canvasMouseX = e.clientX - canvasRect.left;
+        const canvasMouseY = e.clientY - canvasRect.top;
+
+        // Update zoom
+        setPreviewModalZoom(newZoom);
+
+        // Adjust pan offset to keep the point under the mouse stable
+        const zoomRatio = newZoom / oldZoom;
+        setModalPanOffset(prev => ({
+          x: prev.x - canvasMouseX * (zoomRatio - 1),
+          y: prev.y - canvasMouseY * (zoomRatio - 1)
+        }));
       }
 
       function handleModalMouseDown(e) {
         if (e.button !== 0) return;
         setIsModalDragging(true);
         setModalDragStart({
-          x: e.clientX - (previewModalContainerRef.current?.scrollLeft || 0),
-          y: e.clientY - (previewModalContainerRef.current?.scrollTop || 0)
+          x: e.clientX,
+          y: e.clientY
         });
-        e.currentTarget.style.cursor = 'grabbing';
       }
 
       function handleModalMouseMove(e) {
         if (isModalDragging && previewModalContainerRef.current) {
           e.preventDefault();
-          const x = e.clientX - modalDragStart.x;
-          const y = e.clientY - modalDragStart.y;
-          previewModalContainerRef.current.scrollLeft = -x;
-          previewModalContainerRef.current.scrollTop = -y;
+          const deltaX = e.clientX - modalDragStart.x;
+          const deltaY = e.clientY - modalDragStart.y;
+
+          previewModalContainerRef.current.scrollLeft -= deltaX;
+          previewModalContainerRef.current.scrollTop -= deltaY;
+
+          setModalDragStart({
+            x: e.clientX,
+            y: e.clientY
+          });
         }
       }
 
       function handleModalMouseUp(e) {
         setIsModalDragging(false);
-        e.currentTarget.style.cursor = 'grab';
       }
 
       // Keyboard shortcuts for modal
@@ -2896,6 +2941,74 @@
         window.addEventListener('keydown', handleModalKeyPress);
         return () => window.removeEventListener('keydown', handleModalKeyPress);
       }, [previewModalOpen, previewModalPage, previewModalData]);
+
+      // PDF.js loading effect - load PDF document once when data changes
+      useEffect(() => {
+        if (!previewModalData || !previewModalData.pdf_url) return;
+
+        let isMounted = true;
+        const loadingTask = pdfjsLib.getDocument(previewModalData.pdf_url);
+
+        loadingTask.promise.then(pdf => {
+          if (isMounted) {
+            setPdfDocument(pdf);
+          }
+        }).catch(err => {
+          if (isMounted) {
+            console.error('Error loading PDF:', err);
+            setToast({ type: 'error', text: 'Failed to load PDF preview' });
+          }
+        });
+
+        return () => {
+          isMounted = false;
+          if (pdfDocument) {
+            pdfDocument.destroy();
+          }
+        };
+      }, [previewModalData?.pdf_url]);
+
+      // PDF.js rendering effect - re-render when zoom changes
+      useEffect(() => {
+        if (!pdfDocument || !previewCanvasRef.current) return;
+
+        const canvas = previewCanvasRef.current;
+        const context = canvas.getContext('2d');
+
+        let renderTask = null;
+
+        pdfDocument.getPage(1).then(page => {
+          const viewport = page.getViewport({ scale: previewModalZoom });
+
+          // Set canvas dimensions
+          canvas.width = viewport.width;
+          canvas.height = viewport.height;
+
+          const renderContext = {
+            canvasContext: context,
+            viewport: viewport
+          };
+
+          // Cancel previous render if still running
+          if (renderTask) {
+            renderTask.cancel();
+          }
+
+          renderTask = page.render(renderContext);
+
+          return renderTask.promise;
+        }).catch(err => {
+          if (err.name !== 'RenderingCancelledException') {
+            console.error('Error rendering PDF:', err);
+          }
+        });
+
+        return () => {
+          if (renderTask) {
+            renderTask.cancel();
+          }
+        };
+      }, [pdfDocument, previewModalZoom]);
 
       // Load color presets from localStorage on mount
       React.useEffect(() => {
@@ -5556,6 +5669,14 @@
                     </button>
                   </div>
 
+                  {/* Warning Message */}
+                  <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-lg flex items-start gap-2">
+                    <i className="fa-solid fa-info-circle text-amber-600 dark:text-amber-400 mt-0.5"></i>
+                    <p className="text-sm text-amber-800 dark:text-amber-200">
+                      <strong>Note:</strong> Comment popups are not visible in this preview. Download the preview to see all comment annotations.
+                    </p>
+                  </div>
+
                   {/* Controls */}
                   <div className="flex flex-wrap items-center gap-3">
                     {/* Page Navigation */}
@@ -5614,7 +5735,7 @@
                     <div className="flex items-center gap-2 ml-auto">
                       <button
                         onClick={() => handleModalZoom('out')}
-                        disabled={previewModalZoom <= 25}
+                        disabled={previewModalZoom <= 0.25}
                         className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                         title="Zoom Out"
                       >
@@ -5623,9 +5744,9 @@
 
                       <input
                         type="range"
-                        min="25"
-                        max="400"
-                        step="25"
+                        min="0.25"
+                        max="4.0"
+                        step="0.25"
                         value={previewModalZoom}
                         onChange={(e) => handleModalZoom('set', e.target.value)}
                         className="w-24 md:w-32"
@@ -5633,7 +5754,7 @@
 
                       <button
                         onClick={() => handleModalZoom('in')}
-                        disabled={previewModalZoom >= 400}
+                        disabled={previewModalZoom >= 4.0}
                         className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700 rounded disabled:opacity-30 disabled:cursor-not-allowed"
                         title="Zoom In"
                       >
@@ -5641,7 +5762,7 @@
                       </button>
 
                       <span className="text-sm font-medium text-zinc-600 dark:text-zinc-400 min-w-[3.5rem] text-center">
-                        {previewModalZoom}%
+                        {Math.round(previewModalZoom * 100)}%
                       </span>
 
                       <button
@@ -5717,7 +5838,7 @@
                   ) : previewModalData ? (
                     <div
                       ref={previewModalContainerRef}
-                      className="w-full h-full overflow-auto bg-zinc-100 dark:bg-zinc-950 rounded-lg"
+                      className="w-full h-full overflow-hidden bg-zinc-100 dark:bg-zinc-950 rounded-lg p-4"
                       style={{ cursor: isModalDragging ? 'grabbing' : 'grab' }}
                       onWheel={handleModalWheel}
                       onMouseDown={handleModalMouseDown}
@@ -5725,16 +5846,16 @@
                       onMouseUp={handleModalMouseUp}
                       onMouseLeave={handleModalMouseUp}
                     >
-                      <img
-                        src={previewModalData.image}
-                        alt={`Preview - Page ${previewModalPage}`}
-                        className="mx-auto block select-none"
-                        style={{
-                          width: `${previewModalZoom}%`,
-                          objectFit: 'contain'
-                        }}
-                        draggable="false"
-                      />
+                      <div style={{ display: 'inline-block', minWidth: '100%', textAlign: 'center' }}>
+                        <canvas
+                          ref={previewCanvasRef}
+                          className="block"
+                          style={{
+                            display: 'inline-block',
+                            margin: '0 auto'
+                          }}
+                        />
+                      </div>
                     </div>
                   ) : (
                     <div className="flex items-center justify-center h-full">
