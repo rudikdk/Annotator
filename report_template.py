@@ -231,10 +231,23 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     pdf_list = ', '.join(pdf_filenames) if isinstance(pdf_filenames, list) else str(pdf_filenames)
 
     # Convert duplicates dict to list for easier iteration
-    duplicates_list = [
-        {'tag': tag, 'excel_rows': rows, 'count': len(rows)}
-        for tag, rows in duplicates.items()
-    ]
+    duplicates_list = []
+    for tag, data in duplicates.items():
+        # Handle both old format (list of rows) and new format (dict with rows and data)
+        if isinstance(data, dict):
+            excel_rows = data.get('excel_rows', [])
+            row_data = data.get('row_data', [])
+        else:
+            # Legacy format - just a list of row numbers
+            excel_rows = data
+            row_data = []
+
+        duplicates_list.append({
+            'tag': tag,
+            'excel_rows': excel_rows,
+            'count': len(excel_rows),
+            'row_data': row_data
+        })
 
     # Build HTML table rows separately to avoid f-string issues
     found_rows_html = '\n'.join([
@@ -257,14 +270,95 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         for item in not_found
     ])
 
-    duplicates_rows_html = '\n'.join([
-        f'''                    <tr>
-                        <td class="tag-name">{item["tag"]}</td>
-                        <td class="excel-row">{", ".join(map(str, item["excel_rows"]))}</td>
-                        <td>{item["count"]}</td>
+    # Build duplicates rows with dropdown panels
+    duplicates_rows = []
+    for idx, item in enumerate(duplicates_list):
+        tag = item["tag"]
+        excel_rows = item["excel_rows"]
+        count = item["count"]
+        row_data = item.get("row_data", [])
+
+        detail_id = f"duplicateDetail{idx}"
+        has_details = len(row_data) > 0
+
+        # Build toggle button if we have row data
+        toggle_button_html = ''
+        if has_details:
+            toggle_button_html = (
+                f'<button type="button" class="duplicate-detail-toggle" '
+                f'aria-expanded="false" aria-controls="{detail_id}" '
+                f'onclick="return toggleDuplicateDetail(\'{detail_id}\', this);">'
+                f'<span class="chevron">▼</span>'
+                f'</button>'
+            )
+
+        # Main row
+        row_attributes = 'class="duplicate-summary-row"'
+        if has_details:
+            row_attributes += f' data-detail-id="{detail_id}"'
+
+        row_html = f'''                    <tr {row_attributes}>
+                        <td class="tag-name">
+                            <div class="duplicate-summary-cell">
+                                {toggle_button_html}
+                                <span>{tag}</span>
+                            </div>
+                        </td>
+                        <td class="excel-row">{", ".join(map(str, excel_rows))}</td>
+                        <td>{count}</td>
                     </tr>'''
-        for item in duplicates_list
-    ])
+
+        # Detail panel row
+        if has_details and row_data:
+            # Get column headers from first row
+            headers = [col for col in row_data[0].keys() if col != 'excel_row']
+
+            # Build detail table rows
+            detail_table_rows = []
+            for row in row_data:
+                cells = []
+                cells.append(f'<td class="excel-row">{row.get("excel_row", "")}</td>')
+                for header in headers:
+                    value = row.get(header, "")
+                    # Convert to string and escape HTML
+                    value_str = str(value) if value != "" else ""
+                    cells.append(f'<td>{value_str}</td>')
+                detail_table_rows.append(f'''                                    <tr>
+                                        {chr(10).join(cells)}
+                                    </tr>''')
+
+            detail_rows_html = '\n'.join(detail_table_rows)
+
+            # Build header row for detail table
+            header_cells = ['<th>Excel Row</th>'] + [f'<th>{h}</th>' for h in headers]
+            header_row_html = '\n                                            '.join(header_cells)
+
+            detail_row = f'''                    <tr id="{detail_id}" class="duplicate-detail-row hidden">
+                        <td colspan="3">
+                            <div class="duplicate-detail-panel">
+                                <div class="duplicate-detail-header">
+                                    <span class="duplicate-detail-title">Excel Data for Duplicated Tag: {tag}</span>
+                                    <span class="badge">{count} occurrences</span>
+                                </div>
+                                <table class="duplicate-data-table">
+                                    <thead>
+                                        <tr>
+                                            {header_row_html}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+{detail_rows_html}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>'''
+        else:
+            detail_row = ''
+
+        duplicates_rows.append(row_html + ('\n' + detail_row if detail_row else ''))
+
+    duplicates_rows_html = '\n'.join(duplicates_rows)
 
     warnings_rows_html = '\n'.join([
         f'''                    <tr>
@@ -648,7 +742,6 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         }}
 
         .container {{
-            max-width: 1400px;
             margin: 0 auto;
             background: white;
             border-radius: 8px;
@@ -1064,6 +1157,93 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             color: #374151;
         }}
 
+        /* Duplicate detail panel styles */
+        .duplicate-summary-cell {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .duplicate-detail-toggle {{
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 9999px;
+            background: #fee2e2;
+            color: #7f1d1d;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }}
+
+        .duplicate-detail-toggle:hover {{
+            background: #fecaca;
+        }}
+
+        .duplicate-detail-toggle:focus {{
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.25);
+        }}
+
+        .duplicate-detail-toggle .chevron {{
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }}
+
+        .duplicate-detail-toggle.open .chevron {{
+            transform: rotate(180deg);
+        }}
+
+        .duplicate-detail-row td {{
+            background: #fef2f2;
+            padding: 0;
+        }}
+
+        .duplicate-detail-panel {{
+            background: #ffffff;
+            padding: 16px 20px;
+            border-top: 1px solid #fecaca;
+        }}
+
+        .duplicate-detail-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+
+        .duplicate-detail-title {{
+            font-size: 15px;
+            font-weight: 600;
+            color: #7f1d1d;
+        }}
+
+        .duplicate-data-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        .duplicate-data-table th,
+        .duplicate-data-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 13px;
+            text-align: left;
+        }}
+
+        .duplicate-data-table th {{
+            background: #fef2f2;
+            color: #991b1b;
+            font-weight: 600;
+        }}
+
+        .duplicate-data-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
         .grid {{
             display: grid;
         }}
@@ -1348,6 +1528,28 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             return false;
         }}
 
+        function toggleDuplicateDetail(detailId, trigger) {{
+            const row = document.getElementById(detailId);
+            if (!row) {{
+                return false;
+            }}
+
+            const isHidden = row.classList.toggle('hidden');
+
+            if (isHidden) {{
+                row.style.display = 'none';
+            }} else {{
+                row.style.display = '';
+            }}
+
+            if (trigger) {{
+                trigger.classList.toggle('open', !isHidden);
+                trigger.setAttribute('aria-expanded', String(!isHidden));
+            }}
+
+            return false;
+        }}
+
         // Table sorting
         function sortTable(tableId, column) {{
             const table = document.getElementById(tableId);
@@ -1356,6 +1558,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             const th = table.querySelectorAll('th')[column];
 
             const isPageStatsTable = tableId === 'pageStatsTable';
+            const isDuplicatesTable = tableId === 'duplicatesTable';
             const detailRowMap = {{}};
 
             let rows = allRows;
@@ -1363,6 +1566,15 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 rows = [];
                 allRows.forEach(row => {{
                     if (row.classList.contains('page-detail-row')) {{
+                        detailRowMap[row.id] = row;
+                    }} else {{
+                        rows.push(row);
+                    }}
+                }});
+            }} else if (isDuplicatesTable) {{
+                rows = [];
+                allRows.forEach(row => {{
+                    if (row.classList.contains('duplicate-detail-row')) {{
                         detailRowMap[row.id] = row;
                     }} else {{
                         rows.push(row);
@@ -1407,7 +1619,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             rows.forEach(row => {{
                 tbody.appendChild(row);
 
-                if (isPageStatsTable) {{
+                if (isPageStatsTable || isDuplicatesTable) {{
                     const detailId = row.getAttribute('data-detail-id');
                     if (detailId && detailRowMap[detailId]) {{
                         tbody.appendChild(detailRowMap[detailId]);
@@ -1427,6 +1639,26 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
                 if (tableId === 'pageStatsTable') {{
                     const summaryRows = Array.from(table.querySelectorAll('tbody tr.page-summary-row'));
+                    summaryRows.forEach(row => {{
+                        const detailId = row.getAttribute('data-detail-id');
+                        const detailRow = detailId ? document.getElementById(detailId) : null;
+
+                        const combinedText = (row.textContent + (detailRow ? detailRow.textContent : '')).toLowerCase();
+                        const isMatch = combinedText.includes(searchTerm);
+
+                        row.style.display = isMatch ? '' : 'none';
+
+                        if (detailRow) {{
+                            detailRow.style.display = isMatch
+                                ? (detailRow.classList.contains('hidden') ? 'none' : '')
+                                : 'none';
+                        }}
+                    }});
+                    return;
+                }}
+
+                if (tableId === 'duplicatesTable') {{
+                    const summaryRows = Array.from(table.querySelectorAll('tbody tr.duplicate-summary-row'));
                     summaryRows.forEach(row => {{
                         const detailId = row.getAttribute('data-detail-id');
                         const detailRow = detailId ? document.getElementById(detailId) : null;

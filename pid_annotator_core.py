@@ -1118,6 +1118,7 @@ def process_annotations_from_index(
 
     # Track which tags appear multiple times in Excel (duplicates)
     tag_excel_rows = defaultdict(list)  # {tag: [row_numbers]}
+    tag_excel_row_data = defaultdict(list)  # {tag: [full_row_data_dicts]}
 
     # Limit processing if max_tags specified
     total_to_process = min(max_tags, len(df)) if max_tags and max_tags > 0 else len(df)
@@ -1139,6 +1140,11 @@ def process_annotations_from_index(
         # Track all tags and their Excel rows (for duplicate detection)
         if tag and tag.lower() != 'nan':
             tag_excel_rows[tag].append(excel_row)
+            # Store full row data for duplicates report
+            row_dict = {'excel_row': excel_row}
+            for col in df.columns:
+                row_dict[col] = row[col] if pd.notna(row[col]) else ''
+            tag_excel_row_data[tag].append(row_dict)
 
         # Skip empty or invalid tags
         if not tag or not is_valid_tag(tag, config):
@@ -1382,7 +1388,10 @@ def process_annotations_from_index(
     # Process duplicate detection
     for tag, excel_rows in tag_excel_rows.items():
         if len(excel_rows) > 1:
-            report_data['duplicates'][tag] = excel_rows
+            report_data['duplicates'][tag] = {
+                'excel_rows': excel_rows,
+                'row_data': tag_excel_row_data[tag]
+            }
 
     elapsed_time = time.time() - start_time
     print(f"Annotation processing completed in {elapsed_time:.2f}s")

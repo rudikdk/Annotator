@@ -708,11 +708,33 @@ def process_files():
                         aggregated_report['found'].extend(report_data.get('found', []))
                         aggregated_report['not_found'].extend(report_data.get('not_found', []))
                         # Merge duplicates (dict)
-                        for tag, rows in report_data.get('duplicates', {}).items():
-                            if tag in aggregated_report['duplicates']:
-                                aggregated_report['duplicates'][tag].extend(rows)
+                        for tag, data in report_data.get('duplicates', {}).items():
+                            # Handle both old format (list) and new format (dict with excel_rows and row_data)
+                            if isinstance(data, dict):
+                                excel_rows = data.get('excel_rows', [])
+                                row_data = data.get('row_data', [])
                             else:
-                                aggregated_report['duplicates'][tag] = rows
+                                # Legacy format - just a list of row numbers
+                                excel_rows = data
+                                row_data = []
+
+                            if tag in aggregated_report['duplicates']:
+                                # Merge with existing entry
+                                existing = aggregated_report['duplicates'][tag]
+                                if isinstance(existing, dict):
+                                    existing['excel_rows'].extend(excel_rows)
+                                    existing['row_data'].extend(row_data)
+                                else:
+                                    # Upgrade legacy format to new format
+                                    aggregated_report['duplicates'][tag] = {
+                                        'excel_rows': existing + excel_rows,
+                                        'row_data': row_data
+                                    }
+                            else:
+                                aggregated_report['duplicates'][tag] = {
+                                    'excel_rows': excel_rows,
+                                    'row_data': row_data
+                                }
                         aggregated_report['validation_warnings'].extend(report_data.get('validation_warnings', []))
                         aggregated_report['color_conflicts'].extend(report_data.get('color_conflicts', []))
                         # Capture per-PDF page statistics for reporting
