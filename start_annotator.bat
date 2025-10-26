@@ -37,20 +37,39 @@ echo [CHECK] Checking for Microsoft Visual C++ Redistributable...
 set VCREDIST_FOUND=0
 
 :: Check for VC++ 2015-2022 Redistributable (x64) - the most common modern version
+echo   - Checking VC++ 2015-2022 (x64)...
 reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64" /v Version >nul 2>&1
-if not errorlevel 1 set VCREDIST_FOUND=1
+if not errorlevel 1 goto :vcredist_found_x64
 
 :: Check for VC++ 2015-2022 Redistributable (x86) as fallback
-if "%VCREDIST_FOUND%"=="0" (
-    reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86" /v Version >nul 2>&1
-    if not errorlevel 1 set VCREDIST_FOUND=1
-)
+echo   - Checking VC++ 2015-2022 (x86)...
+reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x86" /v Version >nul 2>&1
+if not errorlevel 1 goto :vcredist_found_x86
 
 :: Check for older VC++ 2013 (x64)
-if "%VCREDIST_FOUND%"=="0" (
-    reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\12.0\VC\Runtimes\x64" /v Version >nul 2>&1
-    if not errorlevel 1 set VCREDIST_FOUND=1
-)
+echo   - Checking VC++ 2013 (x64)...
+reg query "HKLM\SOFTWARE\Microsoft\VisualStudio\12.0\VC\Runtimes\x64" /v Version >nul 2>&1
+if not errorlevel 1 goto :vcredist_found_2013
+
+goto :vcredist_not_found
+
+:vcredist_found_x64
+echo     Found! - You can just hit enter two times. - x64
+set VCREDIST_FOUND=1
+goto :vcredist_check_done
+
+:vcredist_found_x86
+echo     Found! - You can just hit enter two times. - x86
+set VCREDIST_FOUND=1
+goto :vcredist_check_done
+
+:vcredist_found_2013
+echo     Found! - You can just hit enter two times. - 2013
+set VCREDIST_FOUND=1
+goto :vcredist_check_done
+
+:vcredist_not_found
+:vcredist_check_done
 
 if "%VCREDIST_FOUND%"=="0" (
     echo.

@@ -16,7 +16,8 @@
       "Bash(tasklist:*)",
       "Bash(curl:*)",
       "Bash(timeout:*)",
-      "Bash(exit 0)"
+      "Bash(exit 0)",
+      "Bash(start_annotator.bat)"
     ],
     "deny": [],
     "ask": []
