@@ -119,10 +119,12 @@ def try_attach_existing_files_to_session():
                 session['excel_file'] = excel_path.name
                 # Also try to load columns to keep UX consistent
                 try:
-                    result = reload_excel_columns(str(excel_path), 6)
+                    # Use auto-detection when auto-discovering files
+                    result = reload_excel_columns(str(excel_path), 6, auto_detect=True)
                     if result.get('success'):
                         session['excel_columns'] = result['columns']
                         session['default_tag_column'] = result['default_tag_column']
+                        session['header_row'] = result.get('detected_header_row', 6)
                 except Exception as e:
                     print(f"[APP WARN] Failed to load columns from discovered Excel: {e}")
         # PDFs: add all .pdf for current session only
@@ -244,11 +246,11 @@ def upload_excel():
     """Handle Excel file upload"""
     if 'excel_file' not in request.files:
         return jsonify({'success': False, 'message': 'No Excel file provided'})
-    
+
     file = request.files['excel_file']
     if file.filename == '':
         return jsonify({'success': False, 'message': 'No file selected'})
-    
+
     if file and allowed_file(file.filename, 'excel'):
         filename = secure_filename(file.filename)
         # Add session ID to filename to avoid conflicts
@@ -256,30 +258,35 @@ def upload_excel():
         filename = f"{session_id}_{filename}"
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
-        
+
         session['excel_file'] = filename
-        
-        # Load Excel columns with default header row (6)
-        result = reload_excel_columns(filepath, 6)
-        
+
+        # Load Excel columns with auto-detection enabled (scans for "tag" column)
+        result = reload_excel_columns(filepath, 6, auto_detect=True)
+
         if result['success']:
             session['excel_columns'] = result['columns']
             session['default_tag_column'] = result['default_tag_column']
-            
+            # Store the detected header row in session
+            detected_header_row = result.get('detected_header_row', 6)
+            session['header_row'] = detected_header_row
+
             return jsonify({
                 'success': True,
                 'message': 'Excel uploaded successfully',
                 'filename': file.filename,
                 'filepath': filename,
                 'columns': result['columns'],
-                'default_tag_column': result['default_tag_column']
+                'default_tag_column': result['default_tag_column'],
+                'detected_header_row': detected_header_row,
+                'should_animate': result.get('should_animate', False)
             })
         else:
             return jsonify({
                 'success': False,
                 'message': f'Error reading Excel file: {result["message"]}'
             })
-    
+
     return jsonify({'success': False, 'message': 'Invalid Excel file'})
 
 @app.route('/reload_columns', methods=['POST'])
@@ -292,11 +299,14 @@ def reload_columns():
         return jsonify({'success': False, 'message': 'No Excel file uploaded'})
 
     excel_path = os.path.join(app.config['UPLOAD_FOLDER'], session['excel_file'])
-    result = reload_excel_columns(excel_path, header_row)
+    # Manual header row change - skip auto-detection
+    result = reload_excel_columns(excel_path, header_row, auto_detect=False)
 
     if result['success']:
         session['excel_columns'] = result['columns']
         session['default_tag_column'] = result['default_tag_column']
+        # Update stored header row in session
+        session['header_row'] = header_row
 
     return jsonify(result)
 
@@ -404,6 +414,84 @@ def preview_filtered_tags():
             'message': f'Error previewing filtered tags: {str(e)}'
         })
 
+@app.route('/preview_tag_matching', methods=['POST'])
+def preview_tag_matching():
+    """Preview which tags from PDF would match the current tag matching configuration"""
+    from pid_annotator_core import TagMatchingConfig, generate_regex_pattern
+    import fitz
+    import random
+
+    data = request.get_json()
+
+    # Get tag matching configuration
+    tag_matching_config = data.get('tag_matching_config', {})
+
+    # Get selected PDF (use first selected PDF if multiple)
+    selected_pdfs = data.get('selected_pdfs', [])
+    if not selected_pdfs or len(selected_pdfs) == 0:
+        return jsonify({'success': False, 'message': 'No PDF file selected'})
+
+    pdf_file = selected_pdfs[0]
+    pdf_path = os.path.join(app.config['UPLOAD_FOLDER'], pdf_file)
+
+    if not os.path.exists(pdf_path):
+        return jsonify({'success': False, 'message': f'PDF file not found: {pdf_file}'})
+
+    try:
+        # Create TagMatchingConfig from request data
+        config = TagMatchingConfig.from_dict(tag_matching_config)
+
+        # Generate regex pattern from config
+        tag_pattern = generate_regex_pattern(config)
+
+        # Open PDF
+        doc = fitz.open(pdf_path)
+        total_pages = len(doc)
+
+        # Sample pages to extract tags from (max 3 pages to keep preview fast)
+        sample_size = min(3, total_pages)
+        if total_pages <= 3:
+            sample_pages = list(range(total_pages))
+        else:
+            # Sample from beginning, middle, and end
+            sample_pages = [
+                0,  # First page
+                total_pages // 2,  # Middle page
+                total_pages - 1  # Last page
+            ]
+
+        # Extract matching tags from sample pages
+        matched_tags = set()
+
+        for page_num in sample_pages:
+            page = doc[page_num]
+            text = page.get_text()
+
+            # Find all matches
+            matches = tag_pattern.finditer(text)
+            for match in matches:
+                matched_tags.add(match.group())
+
+        doc.close()
+
+        # Convert to sorted list
+        matched_tags_list = sorted(list(matched_tags))
+
+        return jsonify({
+            'success': True,
+            'matched_tags': matched_tags_list,
+            'total_matched': len(matched_tags_list),
+            'sample_pages': sample_size,
+            'total_pages': total_pages,
+            'message': f'Found {len(matched_tags_list)} unique tags from {sample_size} sample pages'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'Error previewing tag matching: {str(e)}'
+        })
+
 @app.route('/select_excel', methods=['POST'])
 def select_excel():
     """Select an Excel file and load its columns"""
@@ -422,12 +510,15 @@ def select_excel():
     # Update session with selected Excel file
     session['excel_file'] = excel_file
 
-    # Load columns
-    result = reload_excel_columns(excel_path, header_row)
+    # Load columns with auto-detection (when selecting a new file from workspace)
+    result = reload_excel_columns(excel_path, header_row, auto_detect=True)
 
     if result['success']:
         session['excel_columns'] = result['columns']
         session['default_tag_column'] = result['default_tag_column']
+        # Store the detected header row in session
+        detected_header_row = result.get('detected_header_row', header_row)
+        session['header_row'] = detected_header_row
         print(f"[SESSION] Selected Excel file updated: {excel_file}")
 
     return jsonify(result)
@@ -1681,8 +1772,21 @@ def generate_full_preview():
         #   - total_count: ALL tag occurrences found on this page
         #   - colored_count: How many of those occurrences were actually colored
 
-        # Get page stats for the preview page (which is always page 1 in the single-page PDF)
-        page_stats = report_data.get('page_stats', {}).get(1, {}) if report_data else {}
+        # Debug: Print report_data structure
+        print(f"\n[PREVIEW DEBUG] Original page selected: {preview_page} (out of {total_pages} pages)")
+        print(f"[PREVIEW DEBUG] Temp single-page PDF: {temp_single_page_pdf}")
+        print(f"[PREVIEW DEBUG] report_data keys: {report_data.keys() if report_data else 'None'}")
+        if report_data and 'page_stats' in report_data:
+            print(f"[PREVIEW DEBUG] page_stats keys: {report_data['page_stats'].keys()}")
+            for page_num, page_data in report_data['page_stats'].items():
+                # Don't print full tag_details to avoid clutter
+                summary = {k: v for k, v in page_data.items() if k != 'tag_details'}
+                print(f"[PREVIEW DEBUG] Page {page_num} stats: {summary}")
+
+        # Get page stats for the preview page
+        # The single-page PDF has only 1 page at index 0 (PyMuPDF uses 0-based indexing)
+        # This contains stats for the original page (preview_page) that was extracted
+        page_stats = report_data.get('page_stats', {}).get(0, {}) if report_data else {}
 
         stats = {
             'total_tags': page_stats.get('total_count', 0),  # All tag occurrences found on this page
@@ -1690,8 +1794,9 @@ def generate_full_preview():
             'conflict_count': len(report_data.get('color_conflicts', [])) if report_data else 0
         }
 
-        print(f"[FULL PREVIEW] Preview generated successfully: {preview_clean_filename}")
-        print(f"[FULL PREVIEW] Stats - Found: {stats['colored_tags']} tags on page {preview_page}")
+        print(f"[PREVIEW] Preview generated successfully: {preview_clean_filename}")
+        print(f"[PREVIEW] Stats for original page {preview_page}: {stats['colored_tags']} colored / {stats['total_tags']} total tags")
+        print(f"[PREVIEW] Conflict count: {stats['conflict_count']}\n")
 
         # Return PDF URL instead of base64 image - frontend will use PDF.js to render
         return jsonify({

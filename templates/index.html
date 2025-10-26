@@ -132,6 +132,26 @@
         transform: translateY(0);
       }
     }
+
+    /* Bounce animation for tag column selector when no "tag" column detected */
+    @keyframes bounce-attention {
+      0%, 100% {
+        transform: translateY(0);
+      }
+      25% {
+        transform: translateY(-10px);
+      }
+      50% {
+        transform: translateY(0);
+      }
+      75% {
+        transform: translateY(-5px);
+      }
+    }
+
+    .animate-bounce-attention {
+      animation: bounce-attention 1s ease-in-out 5;
+    }
   </style>
 </head>
 <body class="bg-white text-gray-900 dark:bg-zinc-900 dark:text-zinc-100 transition-colors duration-500 ease-smooth">
@@ -353,7 +373,7 @@
                 });
 
                 if (type === "excel" && data.columns && onColumnsLoaded) {
-                  onColumnsLoaded(data.columns, data.default_tag_column);
+                  onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
                 }
 
                 resolve({ success: true, data });
@@ -493,7 +513,7 @@
     }
 
     // New FileWorkspace component
-    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh, tutorialActive, tutorialDemoKey }) {
+    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh, tutorialActive, tutorialDemoKey, loadingColumns, setLoadingColumns }) {
       const inputRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
       const tutorialDemo = tutorialActive && tutorialDemoKey ? tutorialDemoContent[tutorialDemoKey] : null;
@@ -524,8 +544,47 @@
         excelFiles.forEach((file) => uploadPromises.push(uploadFile(file, "excel")));
         pdfFiles.forEach((file) => uploadPromises.push(uploadFile(file, "pdf")));
 
-        Promise.all(uploadPromises).then(() => {
+        Promise.all(uploadPromises).then((results) => {
+          // Find successfully uploaded Excel files
+          const uploadedExcelResults = results.filter(
+            (result) => result?.success && result?.type === "excel" && result?.filename
+          );
+
+          // Refresh the workspace file list
           onRefresh();
+
+          // Auto-select the first newly uploaded Excel file
+          // We need to force this selection even if another Excel file is already selected
+          if (uploadedExcelResults.length > 0) {
+            // Small delay to ensure refresh completes
+            setTimeout(() => {
+              const newExcelFilename = uploadedExcelResults[0].filename;
+
+              // Update frontend selection state
+              onExcelSelectionChange(newExcelFilename);
+
+              // Note: Columns were already loaded during upload, but we still need to
+              // call /select_excel to update the backend session
+              setLoadingColumns(true);
+              fetch("/select_excel", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ excel_file: newExcelFilename, header_row: 6 })
+              })
+                .then((r) => r.json())
+                .then((data) => {
+                  if (data.success && onColumnsLoaded) {
+                    onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
+                  }
+                })
+                .catch((err) => {
+                  console.error("Error selecting new Excel file:", err);
+                })
+                .finally(() => {
+                  setLoadingColumns(false);
+                });
+            }, 200);
+          }
         });
       }
 
@@ -534,6 +593,11 @@
           const formData = new FormData();
           formData.append(type === "pdf" ? "pdf_file" : "excel_file", file);
 
+          // Show loading indicator for Excel uploads (header detection takes time)
+          if (type === "excel") {
+            setLoadingColumns(true);
+          }
+
           fetch(type === "pdf" ? "/upload_pdf" : "/upload_excel", {
             method: "POST",
             body: formData,
@@ -541,11 +605,10 @@
             .then((res) => res.json())
             .then((data) => {
               if (data.success) {
-                if (type === "excel" && data.columns && onColumnsLoaded) {
-                  onColumnsLoaded(data.columns, data.default_tag_column);
-                }
+                // Note: Don't call onColumnsLoaded here - we'll do it when selecting the file
+                // This prevents double-loading columns
                 setToast({ type: "success", text: `${file.name} uploaded successfully` });
-                resolve({ success: true });
+                resolve({ success: true, filename: data.filename, type: type });
               } else {
                 setToast({ type: "error", text: data.message });
                 resolve({ success: false });
@@ -554,6 +617,13 @@
             .catch((error) => {
               setToast({ type: "error", text: error.message });
               resolve({ success: false });
+            })
+            .finally(() => {
+              // Stop loading indicator for Excel uploads
+              // Note: This will be set to true again when we select the file in handleFileUpload
+              if (type === "excel") {
+                setLoadingColumns(false);
+              }
             });
         });
       }
@@ -610,6 +680,9 @@
         }
         onExcelSelectionChange(filename);
 
+        // Show loading indicator while loading columns
+        setLoadingColumns(true);
+
         // Update session and reload columns for the newly selected Excel file
         fetch("/select_excel", {
           method: "POST",
@@ -619,7 +692,7 @@
           .then((r) => r.json())
           .then((data) => {
             if (data.success && onColumnsLoaded) {
-              onColumnsLoaded(data.columns, data.default_tag_column);
+              onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
               setToast({ type: "success", text: `Switched to ${filename.split('_').slice(1).join('_')}` });
             } else {
               setToast({ type: "error", text: data.message || "Failed to load columns" });
@@ -628,6 +701,9 @@
           .catch((err) => {
             console.error("Error reloading columns:", err);
             setToast({ type: "error", text: "Failed to switch Excel file" });
+          })
+          .finally(() => {
+            setLoadingColumns(false);
           });
       }
 
@@ -2276,6 +2352,7 @@
       const [workspaceFiles, setWorkspaceFiles] = useState({ excel: [], pdfs: [] });
       const [selectedPdfs, setSelectedPdfs] = useState([]);
       const [selectedExcel, setSelectedExcel] = useState(null); // Track selected Excel file
+      const [loadingColumns, setLoadingColumns] = useState(false); // Track column loading state
 
       // Configuration state
       const [headerRow, setHeaderRow] = useState(6);
@@ -2308,7 +2385,6 @@
       const [colorPreviewError, setColorPreviewError] = useState(null);
       const [colorPreviewPage, setColorPreviewPage] = useState(null);
       const [colorPreviewZoom, setColorPreviewZoom] = useState(100);
-      const [colorPreviewFullscreen, setColorPreviewFullscreen] = useState(false);
       const colorPreviewContainerRef = useRef(null);
       const [isColorDragging, setIsColorDragging] = useState(false);
       const [colorDragStart, setColorDragStart] = useState({ x: 0, y: 0 });
@@ -2326,11 +2402,6 @@
       const previewCanvasRef = useRef(null);
       const [pdfDocument, setPdfDocument] = useState(null);
 
-      // Tag Matching Preview Modal state (ADDED - These were missing!)
-      const [previewFullscreen, setPreviewFullscreen] = useState(false);
-      const [previewData, setPreviewData] = useState(null);
-      const [previewZoom, setPreviewZoom] = useState(100);
-
       const [annotateExcel, setAnnotateExcel] = useState(true);
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
@@ -2347,6 +2418,10 @@
       const [tagMatchingAllowPartial, setTagMatchingAllowPartial] = useState(false);
       const [tagMatchingCustomRegex, setTagMatchingCustomRegex] = useState('');
       const [tagMatchingPanelOpen, setTagMatchingPanelOpen] = useState(false);
+      const [tagMatchingPreviewOpen, setTagMatchingPreviewOpen] = useState(false);
+      const [tagMatchingPreviewTags, setTagMatchingPreviewTags] = useState([]);
+      const [tagMatchingPreviewExpanded, setTagMatchingPreviewExpanded] = useState(false);
+      const [tagMatchingPreviewLoading, setTagMatchingPreviewLoading] = useState(false);
 
       // Tag filtering state
       const [tagFilters, setTagFilters] = useState([]); // Array of {part, value, match_type, action}
@@ -2404,7 +2479,7 @@
         console.log(`[${timestamp}] ${message}`);
       }
 
-      function onColumnsLoaded(columns, defaultTag) {
+      function onColumnsLoaded(columns, defaultTag, shouldAnimate, detectedHeaderRow) {
         setExcelColumns(columns || []);
         setTagColumn(defaultTag || "");
         // Reset dependent fields
@@ -2412,10 +2487,32 @@
         setHighlightColumn("");
         // Default: no columns selected for comments
         setCommentColumns([]);
+
+        // Update header row if auto-detected
+        if (detectedHeaderRow !== undefined && detectedHeaderRow !== null) {
+          setHeaderRow(detectedHeaderRow);
+          logToConsole(`Auto-detected header row: ${detectedHeaderRow}`);
+        }
+
         logToConsole(`Loaded ${columns?.length ?? 0} columns from Excel file`);
+
+        // Trigger bouncing animation if requested (no "tag" column found)
+        if (shouldAnimate) {
+          const tagColumnElement = document.getElementById('tag-column');
+          if (tagColumnElement) {
+            tagColumnElement.classList.add('animate-bounce-attention');
+            logToConsole('Please verify the Tag Column selection - no column containing "tag" was found in the header row');
+
+            // Remove animation class after 5 seconds
+            setTimeout(() => {
+              tagColumnElement.classList.remove('animate-bounce-attention');
+            }, 5000);
+          }
+        }
       }
 
       function reloadColumnsForHeaderRow(nextHeaderRow) {
+        setLoadingColumns(true);
         fetch("/reload_columns", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -2424,7 +2521,7 @@
           .then((r) => r.json())
           .then((data) => {
             if (data.success) {
-              onColumnsLoaded(data.columns, data.default_tag_column);
+              onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
               logToConsole(data.message || "Columns reloaded");
             } else {
               setToast({ type: "error", text: data.message || "Failed to reload columns" });
@@ -2434,6 +2531,9 @@
           .catch((err) => {
             setToast({ type: "error", text: err.message });
             logToConsole(`Error reloading columns: ${err.message}`);
+          })
+          .finally(() => {
+            setLoadingColumns(false);
           });
       }
 
@@ -2538,6 +2638,56 @@
             setFilterPreviewLoading(false);
             setToast({ type: "error", text: "Error fetching filter preview" });
             logToConsole(`Error previewing filters: ${err.message}`);
+          });
+      }
+
+      function handlePreviewTagMatching() {
+        if (!selectedPdfs || selectedPdfs.length === 0) {
+          setToast({ type: "error", text: "Please select a PDF file first" });
+          return;
+        }
+
+        setTagMatchingPreviewLoading(true);
+        setTagMatchingPreviewOpen(true);
+
+        // Build tag matching config object
+        const tagMatchingConfig = {
+          preset: tagMatchingPreset,
+          min_parts: tagMatchingMinParts,
+          max_parts: tagMatchingMaxParts,
+          separators: tagMatchingSeparators,
+          min_part_length: tagMatchingMinPartLength,
+          max_part_length: tagMatchingMaxPartLength,
+          allow_partial_match: tagMatchingAllowPartial,
+          custom_regex: tagMatchingCustomRegex || null
+        };
+
+        fetch("/preview_tag_matching", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selected_pdfs: selectedPdfs,
+            tag_matching_config: tagMatchingConfig
+          })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setTagMatchingPreviewLoading(false);
+            if (data.success) {
+              setTagMatchingPreviewTags(data.matched_tags);
+              logToConsole(`Tag matching preview: Found ${data.total_matched} unique tags from ${data.sample_pages} sample pages`);
+              if (data.total_matched === 0) {
+                setToast({ type: "warning", text: "No tags matched the current configuration" });
+              }
+            } else {
+              setToast({ type: "error", text: data.message || "Failed to preview tag matching" });
+              logToConsole(`Error previewing tag matching: ${data.message}`);
+            }
+          })
+          .catch((err) => {
+            setTagMatchingPreviewLoading(false);
+            setToast({ type: "error", text: "Error fetching tag matching preview" });
+            logToConsole(`Error previewing tag matching: ${err.message}`);
           });
       }
 
@@ -2935,6 +3085,22 @@
         window.addEventListener('keydown', handleModalKeyPress);
         return () => window.removeEventListener('keydown', handleModalKeyPress);
       }, [previewModalOpen, previewModalPage, previewModalData]);
+
+      // Disable main window scrolling when preview window is active
+      useEffect(() => {
+        if (previewModalOpen) {
+          // Disable body scrolling when preview is open
+          document.body.style.overflow = 'hidden';
+        } else {
+          // Restore body scrolling when preview is closed
+          document.body.style.overflow = '';
+        }
+
+        // Cleanup: restore scrolling on unmount
+        return () => {
+          document.body.style.overflow = '';
+        };
+      }, [previewModalOpen]);
 
       // PDF.js loading effect - load PDF document once when data changes
       useEffect(() => {
@@ -3417,13 +3583,21 @@
                 setSelectedPdfs(data.files.pdfs.map(f => f.filename));
               }
 
-              // Auto-select first Excel file if none is selected yet
-              if (!selectedExcel && data.files.excel.length > 0) {
+              // Excel file selection logic:
+              // 1. If no Excel file is selected AND Excel files exist -> select first one
+              // 2. If an Excel file is selected BUT it no longer exists in workspace -> select first available one
+              // 3. Always ensure one Excel file is selected when Excel files are available
+
+              const hasExcelFiles = data.files.excel.length > 0;
+              const selectedExcelStillExists = selectedExcel && data.files.excel.some(f => f.filename === selectedExcel);
+
+              if (hasExcelFiles && (!selectedExcel || !selectedExcelStillExists)) {
                 const firstExcel = data.files.excel[0].filename;
                 setSelectedExcel(firstExcel);
                 logToConsole(`Auto-selected Excel file: ${data.files.excel[0].name}`);
 
                 // Load columns for the auto-selected Excel file
+                setLoadingColumns(true);
                 fetch("/select_excel", {
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
@@ -3432,12 +3606,21 @@
                   .then((r) => r.json())
                   .then((colData) => {
                     if (colData.success) {
-                      onColumnsLoaded(colData.columns, colData.default_tag_column);
+                      onColumnsLoaded(colData.columns, colData.default_tag_column, colData.should_animate, colData.detected_header_row);
                     }
                   })
                   .catch((err) => {
                     console.error("Error loading columns for auto-selected Excel:", err);
+                  })
+                  .finally(() => {
+                    setLoadingColumns(false);
                   });
+              } else if (!hasExcelFiles && selectedExcel) {
+                // No Excel files in workspace but one is selected -> clear selection
+                setSelectedExcel(null);
+                setExcelColumns([]);
+                setTagColumn("");
+                logToConsole("No Excel files in workspace - cleared selection");
               }
             } else {
               logToConsole(`Error refreshing workspace: ${data.message}`);
@@ -3470,44 +3653,28 @@
           });
       }
 
-      // Zoom control functions
+      // Zoom control functions for color preview
       function handleZoomIn(previewType) {
         if (previewType === 'color') {
           setColorPreviewZoom(Math.min(200, colorPreviewZoom + 25));
-        } else if (previewType === 'tag') {
-          setPreviewZoom(Math.min(200, previewZoom + 25));
         }
       }
 
       function handleZoomOut(previewType) {
         if (previewType === 'color') {
           setColorPreviewZoom(Math.max(50, colorPreviewZoom - 25));
-        } else if (previewType === 'tag') {
-          setPreviewZoom(Math.max(50, previewZoom - 25));
         }
       }
 
       function handleZoomReset(previewType) {
         if (previewType === 'color') {
           setColorPreviewZoom(100);
-        } else if (previewType === 'tag') {
-          setPreviewZoom(100);
         }
       }
 
       function handleZoomChange(previewType, value) {
         if (previewType === 'color') {
           setColorPreviewZoom(parseInt(value));
-        } else if (previewType === 'tag') {
-          setPreviewZoom(parseInt(value));
-        }
-      }
-
-      function toggleFullscreen(previewType) {
-        if (previewType === 'color') {
-          setColorPreviewFullscreen(!colorPreviewFullscreen);
-        } else if (previewType === 'tag') {
-          setPreviewFullscreen(!previewFullscreen);
         }
       }
 
@@ -3553,20 +3720,6 @@
         }
         e.currentTarget.style.cursor = 'grab';
       }
-
-      // Keyboard handler for fullscreen ESC
-      useEffect(() => {
-        function handleEscKey(e) {
-          if (e.key === 'Escape') {
-            if (colorPreviewFullscreen) setColorPreviewFullscreen(false);
-          }
-        }
-
-        if (colorPreviewFullscreen) {
-          document.addEventListener('keydown', handleEscKey);
-          return () => document.removeEventListener('keydown', handleEscKey);
-        }
-      }, [colorPreviewFullscreen]);
 
       // Load workspace files on mount
       useEffect(() => {
@@ -3898,6 +4051,8 @@
                 onRefresh={refreshWorkspace}
                 tutorialActive={tutorialActive}
                 tutorialDemoKey={activeTutorialDemoKey}
+                loadingColumns={loadingColumns}
+                setLoadingColumns={setLoadingColumns}
               />
             </SectionCard>
 
@@ -3910,19 +4065,32 @@
                     <div>
                       <label htmlFor="header-row" className="block text-sm font-medium mb-1">
                         Header Row
+                        {loadingColumns && (
+                          <span className="ml-2 text-xs text-brand">
+                            <i className="fa-solid fa-spinner fa-spin"></i> Loading...
+                          </span>
+                        )}
                       </label>
-                      <input
+                      <select
                         id="header-row"
-                        type="number"
-                        min={1}
                         value={headerRow}
                         onChange={(e) => {
-                          const v = Math.max(1, Number(e.target.value || 1));
+                          const v = Number(e.target.value);
                           setHeaderRow(v);
                           reloadColumnsForHeaderRow(v);
                         }}
-                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                      />
+                        disabled={loadingColumns}
+                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {[...Array(20)].map((_, i) => {
+                          const rowNum = i + 1;
+                          return (
+                            <option key={rowNum} value={rowNum}>
+                              Row {rowNum}
+                            </option>
+                          );
+                        })}
+                      </select>
                       <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                         Default: 6
                       </div>
@@ -4453,6 +4621,86 @@
                               Leave empty to use settings above
                             </div>
                           </div>
+                        </div>
+                      )}
+
+                      {/* Preview Button - shown when panel is open */}
+                      {tagMatchingPanelOpen && (
+                        <div className="mt-4">
+                          <button
+                            onClick={handlePreviewTagMatching}
+                            disabled={tagMatchingPreviewLoading || !selectedPdfs || selectedPdfs.length === 0}
+                            className="w-full py-2 px-4 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-lg transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {tagMatchingPreviewLoading ? (
+                              <>
+                                <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Loading Preview...
+                              </>
+                            ) : (
+                              <>
+                                <i className="fa-solid fa-eye mr-2"></i>
+                                Preview Matching Tags from PDF
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Preview Results Panel */}
+                      {tagMatchingPreviewOpen && tagMatchingPreviewTags.length > 0 && (
+                        <div className="mt-4 p-4 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                          <div className="flex justify-between items-center mb-3">
+                            <h4 className="font-medium text-sm">
+                              Matching Tags from PDF ({tagMatchingPreviewTags.length})
+                            </h4>
+                            <div className="flex gap-2">
+                              {tagMatchingPreviewTags.length > 10 && (
+                                <button
+                                  onClick={() => setTagMatchingPreviewExpanded(!tagMatchingPreviewExpanded)}
+                                  className="text-xs text-brand hover:text-brand-dark"
+                                >
+                                  {tagMatchingPreviewExpanded ? 'Show Less' : 'Show All'}
+                                </button>
+                              )}
+                              <button
+                                onClick={() => setTagMatchingPreviewOpen(false)}
+                                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+                              >
+                                <i className="fa-solid fa-times"></i>
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1 max-h-60 overflow-y-auto">
+                            {(tagMatchingPreviewExpanded ? tagMatchingPreviewTags : tagMatchingPreviewTags.slice(0, 10)).map((tag, index) => (
+                              <div
+                                key={index}
+                                className="px-3 py-2 bg-white dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700 text-sm font-mono"
+                              >
+                                {tag}
+                              </div>
+                            ))}
+                          </div>
+
+                          {!tagMatchingPreviewExpanded && tagMatchingPreviewTags.length > 10 && (
+                            <div className="mt-2 text-xs text-center text-zinc-500 dark:text-zinc-400">
+                              Showing 10 of {tagMatchingPreviewTags.length} tags
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* No matches message */}
+                      {tagMatchingPreviewOpen && tagMatchingPreviewTags.length === 0 && !tagMatchingPreviewLoading && (
+                        <div className="mt-4 p-4 bg-amber-50 dark:bg-amber-900/20 rounded-lg border border-amber-200 dark:border-amber-800">
+                          <div className="flex items-center gap-2 text-amber-800 dark:text-amber-200">
+                            <i className="fa-solid fa-exclamation-triangle"></i>
+                            <span className="text-sm font-medium">No tags matched the current configuration</span>
+                          </div>
+                          <p className="text-xs text-amber-700 dark:text-amber-300 mt-1">
+                            Try adjusting your tag matching settings or check if the PDF contains tags in the expected format.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -5014,24 +5262,54 @@
 
                             {/* Stats */}
                             {colorPreviewData.stats && (
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
-                                <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
-                                  <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{colorPreviewData.stats.total_tags}</div>
-                                  <div className="text-xs text-blue-700 dark:text-blue-300">Total Tags</div>
+                              <>
+                                {/* Main Tag Statistics Summary */}
+                                <div className="p-3 bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg">
+                                  <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-2">
+                                      <i className="fa-solid fa-tags text-blue-600 dark:text-blue-400"></i>
+                                      <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">
+                                        Tags on this page:
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-xl font-bold text-green-600 dark:text-green-400">
+                                        {colorPreviewData.stats.colored_tags}
+                                      </span>
+                                      <span className="text-zinc-500 dark:text-zinc-400">/</span>
+                                      <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
+                                        {colorPreviewData.stats.total_tags}
+                                      </span>
+                                      <span className="text-xs text-zinc-500 dark:text-zinc-400">colored</span>
+                                      {colorPreviewData.stats.total_tags > 0 && (
+                                        <span className="ml-2 px-2 py-1 bg-white/50 dark:bg-zinc-800/50 rounded-full text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                                          {Math.round((colorPreviewData.stats.colored_tags / colorPreviewData.stats.total_tags) * 100)}%
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
                                 </div>
-                                <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
-                                  <div className="text-2xl font-bold text-green-600 dark:text-green-400">{colorPreviewData.stats.colored_tags}</div>
-                                  <div className="text-xs text-green-700 dark:text-green-300">Colored</div>
+
+                                {/* Detailed Stats Grid */}
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                                  <div className="p-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-blue-600 dark:text-blue-400">{colorPreviewData.stats.total_tags}</div>
+                                    <div className="text-xs text-blue-700 dark:text-blue-300">Total Tags</div>
+                                  </div>
+                                  <div className="p-2 bg-green-50 dark:bg-green-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-green-600 dark:text-green-400">{colorPreviewData.stats.colored_tags}</div>
+                                    <div className="text-xs text-green-700 dark:text-green-300">Colored</div>
+                                  </div>
+                                  <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{colorPreviewData.stats.comments_added || 0}</div>
+                                    <div className="text-xs text-purple-700 dark:text-purple-300">Comments</div>
+                                  </div>
+                                  <div className="p-2 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg">
+                                    <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">{colorPreviewData.stats.watermarks_added || 0}</div>
+                                    <div className="text-xs text-cyan-700 dark:text-cyan-300">Watermarks</div>
+                                  </div>
                                 </div>
-                                <div className="p-2 bg-purple-50 dark:bg-purple-900/20 rounded-lg">
-                                  <div className="text-2xl font-bold text-purple-600 dark:text-purple-400">{colorPreviewData.stats.comments_added || 0}</div>
-                                  <div className="text-xs text-purple-700 dark:text-purple-300">Comments</div>
-                                </div>
-                                <div className="p-2 bg-cyan-50 dark:bg-cyan-900/20 rounded-lg">
-                                  <div className="text-2xl font-bold text-cyan-600 dark:text-cyan-400">{colorPreviewData.stats.watermarks_added || 0}</div>
-                                  <div className="text-xs text-cyan-700 dark:text-cyan-300">Watermarks</div>
-                                </div>
-                              </div>
+                              </>
                             )}
 
                             {/* Conflicts Warning */}
@@ -5097,14 +5375,6 @@
                                       Reset
                                     </button>
                                   </div>
-                                  <button
-                                    onClick={() => toggleFullscreen('color')}
-                                    className="px-3 py-1 text-sm rounded bg-zinc-200 dark:bg-zinc-800 hover:bg-zinc-300 dark:hover:bg-zinc-700"
-                                    title="Fullscreen"
-                                  >
-                                    <i className="fa-solid fa-expand mr-1"></i>
-                                    Fullscreen
-                                  </button>
                                 </div>
 
                                 {/* Preview Image Container */}
@@ -5450,176 +5720,6 @@
           />
           <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} onStartTutorial={startTutorial} />
 
-          {/* Fullscreen Preview Modal - Tag Matching */}
-          {previewFullscreen && previewData && (
-            <div
-              className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4"
-              onClick={() => setPreviewFullscreen(false)}
-            >
-              <div className="relative w-full h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
-                {/* Fullscreen Header */}
-                <div className="flex items-center justify-between mb-4 bg-black bg-opacity-50 p-3 rounded-lg">
-                  <div className="text-white">
-                    <div className="text-sm opacity-75">PDF Tag Matching Preview</div>
-                    <div className="font-semibold">Page {previewData.page_number} of {previewData.total_pages} - {previewData.tag_count} tags found</div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {/* Zoom Controls */}
-                    <button
-                      onClick={() => handleZoomOut('tag')}
-                      disabled={previewZoom <= 50}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <i className="fa-solid fa-minus"></i>
-                    </button>
-                    <input
-                      type="range"
-                      min="50"
-                      max="200"
-                      step="25"
-                      value={previewZoom}
-                      onChange={(e) => handleZoomChange('tag', e.target.value)}
-                      className="w-32"
-                    />
-                    <button
-                      onClick={() => handleZoomIn('tag')}
-                      disabled={previewZoom >= 200}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <i className="fa-solid fa-plus"></i>
-                    </button>
-                    <span className="text-white font-medium min-w-[3.5rem] text-center">
-                      {previewZoom}%
-                    </span>
-                    <button
-                      onClick={() => handleZoomReset('tag')}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white"
-                    >
-                      <i className="fa-solid fa-undo mr-1"></i>
-                      Reset
-                    </button>
-                    {/* Close Button */}
-                    <button
-                      onClick={() => setPreviewFullscreen(false)}
-                      className="px-3 py-2 text-sm rounded bg-red-600 hover:bg-red-700 text-white ml-2"
-                    >
-                      <i className="fa-solid fa-times mr-1"></i>
-                      Close (ESC)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Fullscreen Image */}
-                <div className="flex-1 overflow-auto">
-                  <img
-                    src={previewData.image}
-                    alt={`PDF Preview - Page ${previewData.page_number}`}
-                    className="mx-auto h-auto block"
-                    style={{
-                      width: `${previewZoom}%`,
-                      objectFit: 'contain'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Fullscreen Preview Modal - Color Highlights */}
-          {colorPreviewFullscreen && colorPreviewData && (
-            <div
-              className="fixed inset-0 z-50 bg-black bg-opacity-90 flex items-center justify-center p-4"
-              onClick={() => setColorPreviewFullscreen(false)}
-            >
-              <div className="relative w-full h-full flex flex-col" onClick={(e) => e.stopPropagation()}>
-                {/* Fullscreen Header */}
-                <div className="flex items-center justify-between mb-4 bg-black bg-opacity-50 p-3 rounded-lg">
-                  <div className="text-white">
-                    <div className="text-sm opacity-75">Color Highlight Preview</div>
-                    <div className="font-semibold">
-                      Page {colorPreviewData.page_number} of {colorPreviewData.total_pages}
-                      {colorPreviewData.stats && ` - ${colorPreviewData.stats.colored_tags}/${colorPreviewData.stats.total_tags} colored`}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {/* Page Navigation */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleColorPreviewPageChange('prev'); }}
-                      disabled={colorPreviewData.page_number <= 1}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <i className="fa-solid fa-arrow-left mr-1"></i>
-                      Previous
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleColorPreviewPageChange('next'); }}
-                      disabled={colorPreviewData.page_number >= colorPreviewData.total_pages}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      Next
-                      <i className="fa-solid fa-arrow-right ml-1"></i>
-                    </button>
-                    {/* Zoom Controls */}
-                    <button
-                      onClick={() => handleZoomOut('color')}
-                      disabled={colorPreviewZoom <= 50}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed ml-2"
-                    >
-                      <i className="fa-solid fa-minus"></i>
-                    </button>
-                    <input
-                      type="range"
-                      min="50"
-                      max="200"
-                      step="25"
-                      value={colorPreviewZoom}
-                      onChange={(e) => handleZoomChange('color', e.target.value)}
-                      className="w-32"
-                    />
-                    <button
-                      onClick={() => handleZoomIn('color')}
-                      disabled={colorPreviewZoom >= 200}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white disabled:opacity-30 disabled:cursor-not-allowed"
-                    >
-                      <i className="fa-solid fa-plus"></i>
-                    </button>
-                    <span className="text-white font-medium min-w-[3.5rem] text-center">
-                      {colorPreviewZoom}%
-                    </span>
-                    <button
-                      onClick={() => handleZoomReset('color')}
-                      className="px-3 py-2 text-sm rounded bg-zinc-700 hover:bg-zinc-600 text-white"
-                    >
-                      <i className="fa-solid fa-undo mr-1"></i>
-                      Reset
-                    </button>
-                    {/* Close Button */}
-                    <button
-                      onClick={() => setColorPreviewFullscreen(false)}
-                      className="px-3 py-2 text-sm rounded bg-red-600 hover:bg-red-700 text-white ml-2"
-                    >
-                      <i className="fa-solid fa-times mr-1"></i>
-                      Close (ESC)
-                    </button>
-                  </div>
-                </div>
-
-                {/* Fullscreen Image */}
-                <div className="flex-1 overflow-auto">
-                  <img
-                    src={colorPreviewData.image}
-                    alt="PDF Preview with Color Highlights"
-                    className="mx-auto h-auto block"
-                    style={{
-                      width: `${colorPreviewZoom}%`,
-                      objectFit: 'contain'
-                    }}
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-
           {/* Floating Action Button */}
           {selectedPdfs.length > 0 && selectedExcel && (
             <button
@@ -5789,12 +5889,36 @@
                   {previewModalData && (
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
                       <div className="flex flex-wrap items-center gap-4 text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-zinc-600 dark:text-zinc-400">Colored:</span>
-                          <span className="font-bold text-brand">
-                            {previewModalData.stats.colored_tags} / {previewModalData.stats.total_tags}
-                          </span>
-                        </div>
+                        {/* Tag Statistics Badge */}
+                        {previewModalData.stats && (
+                          <div className="flex items-center gap-3 px-3 py-2 bg-gradient-to-r from-blue-50 to-green-50 dark:from-blue-900/20 dark:to-green-900/20 border border-blue-200 dark:border-blue-800/50 rounded-lg">
+                            <div className="flex items-center gap-2">
+                              <i className="fa-solid fa-tags text-blue-600 dark:text-blue-400"></i>
+                              <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                                Tags on page:
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <span className="text-lg font-bold text-green-600 dark:text-green-400">
+                                {previewModalData.stats.colored_tags}
+                              </span>
+                              <span className="text-zinc-500 dark:text-zinc-400">/</span>
+                              <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+                                {previewModalData.stats.total_tags}
+                              </span>
+                              <span className="text-xs text-zinc-500 dark:text-zinc-400 ml-1">
+                                colored
+                              </span>
+                            </div>
+                            {previewModalData.stats.total_tags > 0 && (
+                              <div className="flex items-center gap-1 px-2 py-0.5 bg-white/50 dark:bg-zinc-800/50 rounded-full">
+                                <span className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                  {Math.round((previewModalData.stats.colored_tags / previewModalData.stats.total_tags) * 100)}%
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                         {previewModalData.stats.conflict_count > 0 && (
                           <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                             <i className="fa-solid fa-exclamation-triangle"></i>

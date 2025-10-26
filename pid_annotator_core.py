@@ -1120,6 +1120,10 @@ def process_annotations_from_index(
     tag_excel_rows = defaultdict(list)  # {tag: [row_numbers]}
     tag_excel_row_data = defaultdict(list)  # {tag: [full_row_data_dicts]}
 
+    # Track annotations per page: {page_num: set of (tag, rect_key) tuples}
+    # This tracks ALL tags that received ANY annotation (highlight, comment, or watermark)
+    annotated_tags_by_page = defaultdict(set)
+
     # Limit processing if max_tags specified
     total_to_process = min(max_tags, len(df)) if max_tags and max_tags > 0 else len(df)
 
@@ -1264,6 +1268,9 @@ def process_annotations_from_index(
                                 highlight_color = color
                                 break
 
+                # Track if ANY annotation is added to this tag occurrence
+                has_annotation = False
+
                 # Add highlight annotation if color determined or comments are selected
                 should_add_highlight = (highlight_color is not None) or note_text
                 if should_add_highlight:
@@ -1290,14 +1297,16 @@ def process_annotations_from_index(
                         hl.set_info(content=note_text)
 
                     hl.update()
-                
+                    has_annotation = True
+
                 # Add sticky note if using note_only mode
                 if annotation_type == "note_only":
                     r0 = rects[0]
                     note_pos = fitz.Point(r0.x0, r0.y0 - 20)
                     ta = page.add_text_annot(note_pos, note_text, icon="Note")
                     ta.update()
-                
+                    has_annotation = True
+
                 # Collect watermark placements if enabled
                 if watermark_enabled and watermark_attribute:
                     # Handle multiple attributes (passed as list or single string)
@@ -1318,7 +1327,7 @@ def process_annotations_from_index(
                             # Join all attributes with " / " on a single line
                             # Example: [Val1, Val2, Val3, Val4, Val5] → "Val1 / Val2 / Val3 / Val4 / Val5"
                             wm_text = " / ".join(watermark_parts)
-                            
+
                             # Orientation-aware placement relative to the tag box.
                             # Also record desired text rotation (0 = horizontal, 90 = vertical).
                             font_size = 9
@@ -1326,11 +1335,11 @@ def process_annotations_from_index(
                             text_length = len(wm_text) * char_width  # approximate text width in points
                             margin = 6
                             text_height = font_size
-                            
+
                             r = r0  # first rectangle for the tag
                             is_horizontal = (r.width >= r.height)
                             tag_center = fitz.Point((r.x0 + r.x1) / 2, (r.y0 + r.y1) / 2)
-                            
+
                             if is_horizontal:
                                 # dette er vertical tag  i virkeligheden!
                                 wm_width = text_length + (margin * 2)
@@ -1343,7 +1352,7 @@ def process_annotations_from_index(
                                 # Anchor at the lower end so, after 90° rotation, the text centers on the tag
                                 wm_y = tag_center.y - (text_length / 2)
                                 desired_rotation = 180
-                            
+
                             watermark_items_by_page[page_num].append({
                                 'text': wm_text,
                                 'x': wm_x,
@@ -1351,9 +1360,19 @@ def process_annotations_from_index(
                                 'font_size': font_size,
                                 'rotation': desired_rotation
                             })
+                            has_annotation = True
                         except Exception as e:
                             print(f"Error collecting watermark for tag '{tag}': {e}")
                             continue
+
+                # Track this tag occurrence as annotated if any annotation was added
+                if has_annotation:
+                    # Create a unique key for this tag occurrence based on position
+                    rect_key = tuple(
+                        (round(r.x0, 3), round(r.y0, 3), round(r.x1, 3), round(r.y1, 3))
+                        for r in rects
+                    )
+                    annotated_tags_by_page[page_num].add((tag.upper(), rect_key))
                             
             except Exception as e:
                 print(f"Error processing tag '{tag}' on page {page_num}: {e}")
@@ -1397,19 +1416,31 @@ def process_annotations_from_index(
     print(f"Annotation processing completed in {elapsed_time:.2f}s")
     print(f"Report: {len(report_data['found'])} found, {len(report_data['not_found'])} not found, {len(report_data['duplicates'])} duplicates, {len(report_data['validation_warnings'])} warnings")
 
+    # Add annotation statistics to report_data
+    # This tracks which tag occurrences received annotations (highlights, comments, watermarks)
+    report_data['annotated_tags_by_page'] = {
+        page_num: len(tags_set) for page_num, tags_set in annotated_tags_by_page.items()
+    }
+
+    # Debug: Log annotation counts per page
+    for page_num, count in report_data['annotated_tags_by_page'].items():
+        print(f"[ANNOTATION STATS] Page {page_num}: {count} tags received annotations (highlights/comments/watermarks)")
+
     return found_tags, skipped_tags, processed_tags, report_data
 
 
-def reload_excel_columns(excel_path, header_row):
+def reload_excel_columns(excel_path, header_row, auto_detect=False):
     """
     Reload Excel columns with a new header row
 
     Args:
         excel_path: Path to the Excel file
         header_row: Row number containing headers (1-based)
+        auto_detect: If True, scan rows 1-10 for a column containing "tag" (case-insensitive)
 
     Returns:
-        dict: Contains 'success', 'columns', 'message', and 'default_tag_column'
+        dict: Contains 'success', 'columns', 'message', 'default_tag_column',
+              'detected_header_row', and 'should_animate'
     """
     try:
         if header_row < 1:
@@ -1417,48 +1448,100 @@ def reload_excel_columns(excel_path, header_row):
                 'success': False,
                 'columns': [],
                 'message': 'Header row must be 1 or greater',
-                'default_tag_column': None
+                'default_tag_column': None,
+                'detected_header_row': header_row,
+                'should_animate': False
             }
 
         # Support both .xlsx and .xls files
         # .xls files can be read for processing but cannot be annotated (Excel annotation disabled for .xls)
         is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
 
+        # Auto-detect header row if requested and using default header row (6)
+        detected_row = header_row
+        found_tag_column = False
+
+        if auto_detect and header_row == 6:
+            print(f"[AUTO-DETECT] Scanning for 'tag' column in rows 1-10...")
+            # Scan rows 1-10 for a column containing "tag" (case-insensitive)
+            for row_num in range(1, 11):
+                try:
+                    if is_xls:
+                        df_test = pd.read_excel(excel_path, header=row_num-1, engine='xlrd')
+                    else:
+                        df_test = pd.read_excel(excel_path, header=row_num-1, engine='openpyxl')
+
+                    # Check if any column name contains "tag" (case-insensitive)
+                    columns_lower = [str(col).lower() for col in df_test.columns]
+                    if any('tag' in col for col in columns_lower):
+                        detected_row = row_num
+                        found_tag_column = True
+                        tag_col_name = [str(col) for col, col_lower in zip(df_test.columns, columns_lower) if 'tag' in col_lower][0]
+                        print(f"[AUTO-DETECT] Found 'tag' column '{tag_col_name}' in row {row_num}")
+                        break
+                except Exception as e:
+                    # Skip rows that can't be read
+                    continue
+
+            # If no "tag" found, use row 1
+            if not found_tag_column:
+                detected_row = 1
+                print(f"[AUTO-DETECT] No 'tag' column found, defaulting to row 1")
+
         if is_xls:
             # Use xlrd engine for .xls files
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
+            df = pd.read_excel(excel_path, header=detected_row-1, engine='xlrd')
         else:
             # Use openpyxl engine for .xlsx files
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+            df = pd.read_excel(excel_path, header=detected_row-1, engine='openpyxl')
 
         df = df.dropna(axis=1, how="all")  # Remove empty columns
-        
+
         columns = list(df.columns)
-        
-        # Set default tag column to column G (index 6) if it exists, otherwise first column
+
+        # Smart tag column detection: look for column containing "tag" (case-insensitive)
         default_tag_column = None
-        if len(columns) > 6:
-            default_tag_column = columns[6]  # Column G
+        columns_lower = [str(col).lower() for col in columns]
+        tag_column_indices = [i for i, col in enumerate(columns_lower) if 'tag' in col]
+
+        if tag_column_indices:
+            # Use the first column containing "tag"
+            default_tag_column = columns[tag_column_indices[0]]
+        elif len(columns) > 6:
+            # Fallback to column G (index 6) if it exists
+            default_tag_column = columns[6]
         elif columns:
-            default_tag_column = columns[0]  # First available column
-        
-        message = f"Successfully loaded {len(columns)} columns from header row {header_row}"
-        if header_row != 6:
+            # Last fallback: first available column
+            default_tag_column = columns[0]
+
+        # Build message
+        message = f"Successfully loaded {len(columns)} columns from header row {detected_row}"
+        if auto_detect and detected_row != header_row:
+            message += f" (auto-detected from default row {header_row})"
+        elif detected_row != 6:
             message += f" (changed from default row 6)"
-        
+
+        # Determine if we should animate the tag column selector
+        # (only if auto-detect was used and no "tag" column was found in the final header row)
+        should_animate = auto_detect and not found_tag_column
+
         return {
             'success': True,
             'columns': columns,
             'message': message,
-            'default_tag_column': default_tag_column
+            'default_tag_column': default_tag_column,
+            'detected_header_row': detected_row,
+            'should_animate': should_animate
         }
-        
+
     except Exception as e:
         return {
             'success': False,
             'columns': [],
             'message': f'Error loading Excel columns: {str(e)}',
-            'default_tag_column': None
+            'default_tag_column': None,
+            'detected_header_row': header_row,
+            'should_animate': False
         }
 
 
@@ -1710,6 +1793,28 @@ def _annotate_pdf_standard(
             page_bookmark_map=page_bookmark_map,
             excel_tags_set=excel_tags_set
         )
+
+    # Merge annotation statistics from process_annotations_from_index
+    # The 'annotated_tags_by_page' contains tags that got highlights, comments, or watermarks from Excel processing
+    # We want 'colored_count' to reflect ALL tags with ANY visual marking (color from rules, highlight, comment, or watermark)
+    # Note: Some tags may have both color rule highlights AND Excel annotations, so we use max() to avoid double-counting
+    if 'annotated_tags_by_page' in report_data and report_data['page_stats']:
+        print("[STATS MERGE] Merging annotation statistics into page_stats...")
+        annotated_by_page = report_data['annotated_tags_by_page']
+        for page_num, annotated_count in annotated_by_page.items():
+            if page_num in report_data['page_stats']:
+                # Take the maximum because:
+                # - color_stats counts tags colored by rules (can include tags NOT in Excel)
+                # - annotated_tags_by_page counts tags from Excel with annotations
+                # - Some overlap is possible, so max() gives us a better approximation
+                # In most cases, annotated_count from Excel processing is the correct value
+                # because it tracks actual annotations added
+                current_colored = report_data['page_stats'][page_num].get('colored_count', 0)
+                new_colored = max(current_colored, annotated_count)
+                print(f"[STATS MERGE] Page {page_num}: colored_count {current_colored} -> {new_colored} (annotated: {annotated_count})")
+                report_data['page_stats'][page_num]['colored_count'] = new_colored
+        # Clean up temporary key
+        del report_data['annotated_tags_by_page']
 
     # Save intermediate annotated PDF (highlights/notes only)
     update_progress(95, "Saving annotated PDF (pre-watermark)...")
@@ -2111,6 +2216,15 @@ def _annotate_pdf_streaming(
             page_bookmark_map=page_bookmark_map,
             excel_tags_set=excel_tags_set
         )
+
+    # Merge annotation statistics from process_annotations_from_index (same as standard mode)
+    if 'annotated_tags_by_page' in report_data and report_data['page_stats']:
+        annotated_by_page = report_data['annotated_tags_by_page']
+        for page_num, annotated_count in annotated_by_page.items():
+            if page_num in report_data['page_stats']:
+                current_colored = report_data['page_stats'][page_num].get('colored_count', 0)
+                report_data['page_stats'][page_num]['colored_count'] = max(current_colored, annotated_count)
+        del report_data['annotated_tags_by_page']
 
     update_progress(98, "Streaming annotation complete")
     print(f"Streaming mode: PDF saved successfully to {out_path}.")
@@ -2650,12 +2764,16 @@ def annotate_pdf_page_for_preview(
         tag_index = dict(page_tag_index)
         print(f"[PREVIEW] Found {len(tag_index)} unique tags on page {page_num + 1}")
 
+        # Calculate total tag occurrences across all unique tags
+        # This represents ALL text strings on the page that match the custom tag matching rules
+        total_tag_occurrences = sum(len(locations) for locations in tag_index.values())
+        print(f"[PREVIEW] Total tag occurrences on page: {total_tag_occurrences}")
+
         # PHASE 1: Apply color rules to ALL matching text on this page
-        color_stats = {'total_tags': 0, 'colored_tags': 0}
+        color_stats = {'total_tags': total_tag_occurrences, 'colored_tags': 0}
         if color_rules:
             print(f"[PREVIEW] Applying color rules...")
             for tag_text, locations in tag_index.items():
-                color_stats['total_tags'] += len(locations)
 
                 # Check if tag is in Excel list
                 in_excel = tag_text in excel_tags_set
