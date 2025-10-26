@@ -819,6 +819,7 @@ def _hex_to_rgb01(hex_color):
 def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight_color="#FFFF00",
                                   enable_default_color=True, excel_tags_set=None,
                                   excel_constraint_mode=False, excel_constraint_logic="AND",
+                                  tag_filters=None, filter_logic="AND",
                                   progress_callback=None, page_bookmark_map=None):
     """
     Apply color rules to ALL text in the PDF that matches tag patterns, with optional Excel constraints.
@@ -832,13 +833,16 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         excel_tags_set: Set of tags from Excel (after filtering)
         excel_constraint_mode: Whether to constrain coloring to Excel tags
         excel_constraint_logic: "AND" or "OR" logic for Excel constraint
+        tag_filters: List of tag filter dictionaries (for filtering PDF tags)
+        filter_logic: "AND" or "OR" logic for tag filters
         progress_callback: Optional progress callback function
         page_bookmark_map: dict mapping page numbers to bookmark titles (optional)
 
     Returns:
         dict: Statistics about colored tags including page-level breakdown
     """
-    if not color_rules:
+    # If no color rules AND default color is disabled, nothing to do
+    if not color_rules and not enable_default_color:
         return {'total_tags': 0, 'colored_tags': 0, 'page_stats': {}}
 
     colored_count = 0
@@ -872,24 +876,58 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         # Check if tag is in Excel list
         in_excel = tag_text in excel_tags_set
 
-        # Determine color for this tag
-        highlight_color, matched_rule_id, conflicts = apply_color_rules(
-            tag_text, None, color_rules, default_highlight_color if enable_default_color else None
-        )
+        # Check if tag passes tag filters (for PDF tags)
+        passes_filters = True
+        if tag_filters:
+            passes_filters = apply_tag_filters(tag_text, tag_filters, filter_logic)
+
+        # Determine color for this tag (always pass default color, decide whether to use it later)
+        if color_rules:
+            highlight_color, matched_rule_id, conflicts = apply_color_rules(
+                tag_text, None, color_rules, default_highlight_color
+            )
+        else:
+            # No color rules defined - use default color if enabled
+            highlight_color = default_highlight_color if enable_default_color else None
+            matched_rule_id = None
+            conflicts = []
 
         # Determine if this tag should be colored based on constraint mode
         should_color = False
         if not excel_constraint_mode:
-            # No constraint - color if rules match
-            should_color = (highlight_color is not None)
+            # No constraint - color all tags (or filtered tags if filters are enabled)
+            if passes_filters:
+                # Tag passes filters (or no filters set)
+                if highlight_color is not None:
+                    # Has a color rule match
+                    should_color = True
+                elif enable_default_color:
+                    # No rule match but default color enabled
+                    should_color = True
+                    highlight_color = default_highlight_color
         elif excel_constraint_logic == 'AND':
-            # AND logic: Tag must be in Excel AND match a color rule
-            should_color = in_excel and (matched_rule_id is not None)
+            # AND logic: Tag must be in Excel AND (match a color rule OR use default color)
+            if in_excel:
+                if matched_rule_id is not None:
+                    should_color = True
+                elif enable_default_color:
+                    # Use default color for Excel tags that don't match any specific rule
+                    should_color = True
+                    if not highlight_color:
+                        highlight_color = default_highlight_color
         elif excel_constraint_logic == 'OR':
-            # OR logic: Color if tag matches rules OR is in Excel
-            should_color = (highlight_color is not None) or in_excel
-            # If in Excel but no rule matched, use default color
-            if in_excel and not highlight_color and enable_default_color:
+            # OR logic: Color if (tag passes filters AND matches rules) OR tag is in Excel
+            if passes_filters and highlight_color is not None:
+                # Tag matches filters and has a color rule
+                should_color = True
+            elif in_excel:
+                # Tag is in Excel - use matched color or default
+                should_color = True
+                if not highlight_color and enable_default_color:
+                    highlight_color = default_highlight_color
+            elif passes_filters and enable_default_color:
+                # Tag passes filters but has no specific rule - use default color
+                should_color = True
                 highlight_color = default_highlight_color
 
         # Track page-level statistics for all tags
@@ -1429,18 +1467,16 @@ def process_annotations_from_index(
     return found_tags, skipped_tags, processed_tags, report_data
 
 
-def reload_excel_columns(excel_path, header_row, auto_detect=False):
+def reload_excel_columns(excel_path, header_row):
     """
     Reload Excel columns with a new header row
 
     Args:
         excel_path: Path to the Excel file
         header_row: Row number containing headers (1-based)
-        auto_detect: If True, scan rows 1-10 for a column containing "tag" (case-insensitive)
 
     Returns:
-        dict: Contains 'success', 'columns', 'message', 'default_tag_column',
-              'detected_header_row', and 'should_animate'
+        dict: Contains 'success', 'columns', 'message', 'default_tag_column'
     """
     try:
         if header_row < 1:
@@ -1448,90 +1484,35 @@ def reload_excel_columns(excel_path, header_row, auto_detect=False):
                 'success': False,
                 'columns': [],
                 'message': 'Header row must be 1 or greater',
-                'default_tag_column': None,
-                'detected_header_row': header_row,
-                'should_animate': False
+                'default_tag_column': None
             }
 
         # Support both .xlsx and .xls files
         # .xls files can be read for processing but cannot be annotated (Excel annotation disabled for .xls)
         is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
 
-        # Auto-detect header row if requested and using default header row (6)
-        detected_row = header_row
-        found_tag_column = False
-
-        if auto_detect and header_row == 6:
-            print(f"[AUTO-DETECT] Scanning for 'tag' column in rows 1-10...")
-            # Scan rows 1-10 for a column containing "tag" (case-insensitive)
-            for row_num in range(1, 11):
-                try:
-                    if is_xls:
-                        df_test = pd.read_excel(excel_path, header=row_num-1, engine='xlrd')
-                    else:
-                        df_test = pd.read_excel(excel_path, header=row_num-1, engine='openpyxl')
-
-                    # Check if any column name contains "tag" (case-insensitive)
-                    columns_lower = [str(col).lower() for col in df_test.columns]
-                    if any('tag' in col for col in columns_lower):
-                        detected_row = row_num
-                        found_tag_column = True
-                        tag_col_name = [str(col) for col, col_lower in zip(df_test.columns, columns_lower) if 'tag' in col_lower][0]
-                        print(f"[AUTO-DETECT] Found 'tag' column '{tag_col_name}' in row {row_num}")
-                        break
-                except Exception as e:
-                    # Skip rows that can't be read
-                    continue
-
-            # If no "tag" found, use row 1
-            if not found_tag_column:
-                detected_row = 1
-                print(f"[AUTO-DETECT] No 'tag' column found, defaulting to row 1")
-
         if is_xls:
             # Use xlrd engine for .xls files
-            df = pd.read_excel(excel_path, header=detected_row-1, engine='xlrd')
+            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
         else:
             # Use openpyxl engine for .xlsx files
-            df = pd.read_excel(excel_path, header=detected_row-1, engine='openpyxl')
+            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
 
         df = df.dropna(axis=1, how="all")  # Remove empty columns
 
         columns = list(df.columns)
 
-        # Smart tag column detection: look for column containing "tag" (case-insensitive)
+        # Default tag column to None - user must select manually
         default_tag_column = None
-        columns_lower = [str(col).lower() for col in columns]
-        tag_column_indices = [i for i, col in enumerate(columns_lower) if 'tag' in col]
-
-        if tag_column_indices:
-            # Use the first column containing "tag"
-            default_tag_column = columns[tag_column_indices[0]]
-        elif len(columns) > 6:
-            # Fallback to column G (index 6) if it exists
-            default_tag_column = columns[6]
-        elif columns:
-            # Last fallback: first available column
-            default_tag_column = columns[0]
 
         # Build message
-        message = f"Successfully loaded {len(columns)} columns from header row {detected_row}"
-        if auto_detect and detected_row != header_row:
-            message += f" (auto-detected from default row {header_row})"
-        elif detected_row != 6:
-            message += f" (changed from default row 6)"
-
-        # Determine if we should animate the tag column selector
-        # (only if auto-detect was used and no "tag" column was found in the final header row)
-        should_animate = auto_detect and not found_tag_column
+        message = f"Successfully loaded {len(columns)} columns from header row {header_row}"
 
         return {
             'success': True,
             'columns': columns,
             'message': message,
-            'default_tag_column': default_tag_column,
-            'detected_header_row': detected_row,
-            'should_animate': should_animate
+            'default_tag_column': default_tag_column
         }
 
     except Exception as e:
@@ -1539,9 +1520,7 @@ def reload_excel_columns(excel_path, header_row, auto_detect=False):
             'success': False,
             'columns': [],
             'message': f'Error loading Excel columns: {str(e)}',
-            'default_tag_column': None,
-            'detected_header_row': header_row,
-            'should_animate': False
+            'default_tag_column': None
         }
 
 
@@ -1733,9 +1712,9 @@ def _annotate_pdf_standard(
     else:
         excel_tags_set = set(tags)
 
-    # PHASE 1.5: Apply color rules to ALL matching text in PDF (if color rules provided)
+    # PHASE 1.5: Apply color rules to ALL matching text in PDF (if color rules provided OR default color enabled)
     color_stats = None
-    if color_rules:
+    if color_rules or enable_default_color:
         update_progress(62, "Applying color rules to all matching text...")
         color_stats = apply_color_rules_to_all_text(
             doc, tag_index, color_rules, default_highlight_color,
@@ -1743,6 +1722,8 @@ def _annotate_pdf_standard(
             excel_tags_set=excel_tags_set,
             excel_constraint_mode=excel_constraint_mode,
             excel_constraint_logic=excel_constraint_logic,
+            tag_filters=tag_filters,
+            filter_logic=filter_logic,
             page_bookmark_map=page_bookmark_map
         )
         print(f"Colored {color_stats['colored_tags']} out of {color_stats['total_tags']} tag occurrences based on color rules.")

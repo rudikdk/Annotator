@@ -373,7 +373,7 @@
                 });
 
                 if (type === "excel" && data.columns && onColumnsLoaded) {
-                  onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
+                  onColumnsLoaded(data.columns, data.default_tag_column);
                 }
 
                 resolve({ success: true, data });
@@ -574,7 +574,7 @@
                 .then((r) => r.json())
                 .then((data) => {
                   if (data.success && onColumnsLoaded) {
-                    onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
+                    onColumnsLoaded(data.columns, data.default_tag_column);
                   }
                 })
                 .catch((err) => {
@@ -692,7 +692,7 @@
           .then((r) => r.json())
           .then((data) => {
             if (data.success && onColumnsLoaded) {
-              onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
+              onColumnsLoaded(data.columns, data.default_tag_column);
               setToast({ type: "success", text: `Switched to ${filename.split('_').slice(1).join('_')}` });
             } else {
               setToast({ type: "error", text: data.message || "Failed to load columns" });
@@ -2479,7 +2479,7 @@
         console.log(`[${timestamp}] ${message}`);
       }
 
-      function onColumnsLoaded(columns, defaultTag, shouldAnimate, detectedHeaderRow) {
+      function onColumnsLoaded(columns, defaultTag) {
         setExcelColumns(columns || []);
         setTagColumn(defaultTag || "");
         // Reset dependent fields
@@ -2488,26 +2488,25 @@
         // Default: no columns selected for comments
         setCommentColumns([]);
 
-        // Update header row if auto-detected
-        if (detectedHeaderRow !== undefined && detectedHeaderRow !== null) {
-          setHeaderRow(detectedHeaderRow);
-          logToConsole(`Auto-detected header row: ${detectedHeaderRow}`);
-        }
-
         logToConsole(`Loaded ${columns?.length ?? 0} columns from Excel file`);
 
-        // Trigger bouncing animation if requested (no "tag" column found)
-        if (shouldAnimate) {
-          const tagColumnElement = document.getElementById('tag-column');
-          if (tagColumnElement) {
-            tagColumnElement.classList.add('animate-bounce-attention');
-            logToConsole('Please verify the Tag Column selection - no column containing "tag" was found in the header row');
+        // Always trigger visual effect for Header Row and Tag Column to guide user
+        const headerRowElement = document.getElementById('header-row');
+        const tagColumnElement = document.getElementById('tag-column');
 
-            // Remove animation class after 5 seconds
-            setTimeout(() => {
-              tagColumnElement.classList.remove('animate-bounce-attention');
-            }, 5000);
-          }
+        if (headerRowElement) {
+          headerRowElement.classList.add('animate-bounce-attention');
+          setTimeout(() => {
+            headerRowElement.classList.remove('animate-bounce-attention');
+          }, 5000);
+        }
+
+        if (tagColumnElement) {
+          tagColumnElement.classList.add('animate-bounce-attention');
+          logToConsole('Please verify the Header Row and Tag Column selections');
+          setTimeout(() => {
+            tagColumnElement.classList.remove('animate-bounce-attention');
+          }, 5000);
         }
       }
 
@@ -2521,7 +2520,7 @@
           .then((r) => r.json())
           .then((data) => {
             if (data.success) {
-              onColumnsLoaded(data.columns, data.default_tag_column, data.should_animate, data.detected_header_row);
+              onColumnsLoaded(data.columns, data.default_tag_column);
               logToConsole(data.message || "Columns reloaded");
             } else {
               setToast({ type: "error", text: data.message || "Failed to reload columns" });
@@ -3606,7 +3605,7 @@
                   .then((r) => r.json())
                   .then((colData) => {
                     if (colData.success) {
-                      onColumnsLoaded(colData.columns, colData.default_tag_column, colData.should_animate, colData.detected_header_row);
+                      onColumnsLoaded(colData.columns, colData.default_tag_column);
                     }
                   })
                   .catch((err) => {

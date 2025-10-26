@@ -119,12 +119,11 @@ def try_attach_existing_files_to_session():
                 session['excel_file'] = excel_path.name
                 # Also try to load columns to keep UX consistent
                 try:
-                    # Use auto-detection when auto-discovering files
-                    result = reload_excel_columns(str(excel_path), 6, auto_detect=True)
+                    result = reload_excel_columns(str(excel_path), 6)
                     if result.get('success'):
                         session['excel_columns'] = result['columns']
                         session['default_tag_column'] = result['default_tag_column']
-                        session['header_row'] = result.get('detected_header_row', 6)
+                        session['header_row'] = 6
                 except Exception as e:
                     print(f"[APP WARN] Failed to load columns from discovered Excel: {e}")
         # PDFs: add all .pdf for current session only
@@ -261,15 +260,13 @@ def upload_excel():
 
         session['excel_file'] = filename
 
-        # Load Excel columns with auto-detection enabled (scans for "tag" column)
-        result = reload_excel_columns(filepath, 6, auto_detect=True)
+        # Load Excel columns
+        result = reload_excel_columns(filepath, 6)
 
         if result['success']:
             session['excel_columns'] = result['columns']
             session['default_tag_column'] = result['default_tag_column']
-            # Store the detected header row in session
-            detected_header_row = result.get('detected_header_row', 6)
-            session['header_row'] = detected_header_row
+            session['header_row'] = 6
 
             return jsonify({
                 'success': True,
@@ -277,9 +274,7 @@ def upload_excel():
                 'filename': file.filename,
                 'filepath': filename,
                 'columns': result['columns'],
-                'default_tag_column': result['default_tag_column'],
-                'detected_header_row': detected_header_row,
-                'should_animate': result.get('should_animate', False)
+                'default_tag_column': result['default_tag_column']
             })
         else:
             return jsonify({
@@ -299,8 +294,7 @@ def reload_columns():
         return jsonify({'success': False, 'message': 'No Excel file uploaded'})
 
     excel_path = os.path.join(app.config['UPLOAD_FOLDER'], session['excel_file'])
-    # Manual header row change - skip auto-detection
-    result = reload_excel_columns(excel_path, header_row, auto_detect=False)
+    result = reload_excel_columns(excel_path, header_row)
 
     if result['success']:
         session['excel_columns'] = result['columns']
@@ -510,15 +504,13 @@ def select_excel():
     # Update session with selected Excel file
     session['excel_file'] = excel_file
 
-    # Load columns with auto-detection (when selecting a new file from workspace)
-    result = reload_excel_columns(excel_path, header_row, auto_detect=True)
+    # Load columns
+    result = reload_excel_columns(excel_path, header_row)
 
     if result['success']:
         session['excel_columns'] = result['columns']
         session['default_tag_column'] = result['default_tag_column']
-        # Store the detected header row in session
-        detected_header_row = result.get('detected_header_row', header_row)
-        session['header_row'] = detected_header_row
+        session['header_row'] = header_row
         print(f"[SESSION] Selected Excel file updated: {excel_file}")
 
     return jsonify(result)
