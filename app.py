@@ -1675,10 +1675,18 @@ def generate_full_preview():
         except:
             pass
 
-        # Prepare stats
+        # Prepare stats - for the single preview page
+        # report_data['page_stats'][1] = statistics for page 1 (the single preview page)
+        # page_stats contains:
+        #   - total_count: ALL tag occurrences found on this page
+        #   - colored_count: How many of those occurrences were actually colored
+
+        # Get page stats for the preview page (which is always page 1 in the single-page PDF)
+        page_stats = report_data.get('page_stats', {}).get(1, {}) if report_data else {}
+
         stats = {
-            'total_tags': len(report_data.get('found', [])) + len(report_data.get('not_found', [])) if report_data else 0,
-            'colored_tags': len(found_tags) if found_tags else 0,
+            'total_tags': page_stats.get('total_count', 0),  # All tag occurrences found on this page
+            'colored_tags': page_stats.get('colored_count', 0),  # How many were actually colored
             'conflict_count': len(report_data.get('color_conflicts', [])) if report_data else 0
         }
 

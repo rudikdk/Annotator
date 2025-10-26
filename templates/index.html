@@ -2288,7 +2288,7 @@
       const [colorRules, setColorRules] = useState([]); // Array of {id, part, value, match_type, color}
       const [defaultHighlightColor, setDefaultHighlightColor] = useState("#FFFF00");
       const [enableDefaultColor, setEnableDefaultColor] = useState(true);
-      const [excelConstraintMode, setExcelConstraintMode] = useState(false);
+      const [excelConstraintMode, setExcelConstraintMode] = useState(true);  // Default to ON - only color tags from Excel
       const [excelConstraintLogic, setExcelConstraintLogic] = useState("AND");
       const [colorRulePanelOpen, setColorRulePanelOpen] = useState(false);
       const [colorRuleBuilderOpen, setColorRuleBuilderOpen] = useState(false);
@@ -2899,23 +2899,17 @@
         if (e.button !== 0) return;
         setIsModalDragging(true);
         setModalDragStart({
-          x: e.clientX,
-          y: e.clientY
+          x: e.clientX - modalPanOffset.x,
+          y: e.clientY - modalPanOffset.y
         });
       }
 
       function handleModalMouseMove(e) {
-        if (isModalDragging && previewModalContainerRef.current) {
+        if (isModalDragging) {
           e.preventDefault();
-          const deltaX = e.clientX - modalDragStart.x;
-          const deltaY = e.clientY - modalDragStart.y;
-
-          previewModalContainerRef.current.scrollLeft -= deltaX;
-          previewModalContainerRef.current.scrollTop -= deltaY;
-
-          setModalDragStart({
-            x: e.clientX,
-            y: e.clientY
+          setModalPanOffset({
+            x: e.clientX - modalDragStart.x,
+            y: e.clientY - modalDragStart.y
           });
         }
       }
@@ -5846,7 +5840,13 @@
                       onMouseUp={handleModalMouseUp}
                       onMouseLeave={handleModalMouseUp}
                     >
-                      <div style={{ display: 'inline-block', minWidth: '100%', textAlign: 'center' }}>
+                      <div style={{
+                        display: 'inline-block',
+                        minWidth: '100%',
+                        textAlign: 'center',
+                        transform: `translate(${modalPanOffset.x}px, ${modalPanOffset.y}px)`,
+                        transition: isModalDragging ? 'none' : 'transform 0.1s ease-out'
+                      }}>
                         <canvas
                           ref={previewCanvasRef}
                           className="block"
