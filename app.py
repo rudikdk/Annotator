@@ -708,49 +708,11 @@ def process_files():
                         aggregated_report['found'].extend(report_data.get('found', []))
                         aggregated_report['not_found'].extend(report_data.get('not_found', []))
                         # Merge duplicates (dict)
-                        for tag, duplicate_info in report_data.get('duplicates', {}).items():
-                            if isinstance(duplicate_info, dict):
-                                new_rows = list(duplicate_info.get('excel_rows', []))
-                                row_details = list(duplicate_info.get('rows', []))
+                        for tag, rows in report_data.get('duplicates', {}).items():
+                            if tag in aggregated_report['duplicates']:
+                                aggregated_report['duplicates'][tag].extend(rows)
                             else:
-                                new_rows = list(duplicate_info)
-                                row_details = [
-                                    {'excel_row': row, 'columns': []}
-                                    for row in new_rows
-                                ]
-
-                            existing = aggregated_report['duplicates'].setdefault(
-                                tag,
-                                {'excel_rows': [], 'rows': []}
-                            )
-
-                            for row_number in new_rows:
-                                if row_number not in existing['excel_rows']:
-                                    existing['excel_rows'].append(row_number)
-
-                            existing_detail_map = {}
-                            for detail in existing['rows']:
-                                if isinstance(detail, dict):
-                                    row_number = detail.get('excel_row')
-                                    if row_number not in existing_detail_map:
-                                        existing_detail_map[row_number] = detail
-
-                            for detail in row_details:
-                                if not isinstance(detail, dict):
-                                    continue
-
-                                row_number = detail.get('excel_row')
-                                if row_number in existing_detail_map:
-                                    existing_detail = existing_detail_map[row_number]
-                                    existing_columns = existing_detail.get('columns') or []
-                                    new_columns = detail.get('columns') or []
-                                    if not existing_columns and new_columns:
-                                        existing_detail['columns'] = new_columns
-                                    continue
-
-                                existing['rows'].append(detail)
-                                if row_number is not None and row_number not in existing_detail_map:
-                                    existing_detail_map[row_number] = detail
+                                aggregated_report['duplicates'][tag] = rows
                         aggregated_report['validation_warnings'].extend(report_data.get('validation_warnings', []))
                         aggregated_report['color_conflicts'].extend(report_data.get('color_conflicts', []))
                         # Capture per-PDF page statistics for reporting
