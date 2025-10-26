@@ -1854,7 +1854,7 @@ def _annotate_pdf_standard(
             if background_enabled:
                 # Estimate text dimensions
                 text_width = c.stringWidth(text, "Helvetica", font_size)
-                padding = 3  # padding in points
+                padding = .5  # padding in points
 
                 # Draw white filled rectangle before text
                 c.setFillColorRGB(1, 1, 1)  # white
