@@ -337,6 +337,41 @@ def get_tag_parts():
 
     return jsonify(result)
 
+@app.route('/get_header_unique_values', methods=['POST'])
+def get_header_unique_values():
+    """
+    Analyze Excel file and return unique values for a specified header column.
+    This is used for header-based filtering and color rules.
+    """
+    from pid_annotator_core import analyze_header_unique_values
+
+    data = request.get_json()
+    header_row = data.get('header_row', 6)
+    column_name = data.get('column_name')
+
+    # Use selected_excel from request if provided, otherwise fall back to session
+    selected_excel = data.get('selected_excel')
+    if selected_excel:
+        excel_file = selected_excel
+    else:
+        excel_file = session.get('excel_file')
+
+    if not excel_file:
+        return jsonify({'values': [], 'error': 'No Excel file selected'})
+
+    if not column_name:
+        return jsonify({'values': [], 'error': 'No column name specified'})
+
+    excel_path = os.path.join(app.config['UPLOAD_FOLDER'], excel_file)
+
+    if not os.path.exists(excel_path):
+        return jsonify({'values': [], 'error': f'Excel file not found: {excel_file}'})
+
+    # Get unique values for the specified column
+    values = analyze_header_unique_values(excel_path, column_name, header_row, top_n=100)
+
+    return jsonify({'values': values, 'error': None})
+
 @app.route('/preview_filtered_tags', methods=['POST'])
 def preview_filtered_tags():
     """Preview which tags match the current filter criteria"""

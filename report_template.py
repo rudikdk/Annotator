@@ -249,26 +249,183 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             'row_data': row_data
         })
 
-    # Build HTML table rows separately to avoid f-string issues
-    found_rows_html = '\n'.join([
-        f'''                    <tr>
-                        <td class="tag-name">{item["tag"]}</td>
-                        <td class="page-list">{", ".join(map(str, item["pages"]))}</td>
-                        <td class="bookmark-list">{", ".join(str(b) for b in item.get("bookmarks", ["N/A"]))}</td>
-                        <td>{item["occurrence_count"]}</td>
-                        <td class="excel-row">{item["excel_row"]}</td>
-                    </tr>'''
-        for item in found
-    ])
+    # Build found rows with dropdown panels
+    found_rows = []
+    for idx, item in enumerate(found):
+        tag = item["tag"]
+        pages = [p+1 for p in item["pages"]]
+        bookmarks = item.get("bookmarks", ["N/A"])
+        occurrence_count = item["occurrence_count"]
+        excel_row = item["excel_row"]
+        row_data = item.get("row_data", {})
 
-    not_found_rows_html = '\n'.join([
-        f'''                    <tr>
-                        <td class="tag-name">{item["tag"]}</td>
-                        <td class="excel-row">{item["excel_row"]}</td>
-                        <td>{item.get("reason", "not_in_pdf")}</td>
+        detail_id = f"foundDetail{idx}"
+        has_details = len(row_data) > 0
+
+        # Build toggle button if we have row data
+        toggle_button_html = ''
+        if has_details:
+            toggle_button_html = (
+                f'<button type="button" class="found-detail-toggle" '
+                f'aria-expanded="false" aria-controls="{detail_id}" '
+                f'onclick="return toggleFoundDetail(\'{detail_id}\', this);">'
+                f'<span class="chevron">▼</span>'
+                f'</button>'
+            )
+
+        # Main row
+        row_attributes = 'class="found-summary-row"'
+        if has_details:
+            row_attributes += f' data-detail-id="{detail_id}"'
+
+        row_html = f'''                    <tr {row_attributes}>
+                        <td class="tag-name">
+                            <div class="found-summary-cell">
+                                {toggle_button_html}
+                                <span>{tag}</span>
+                            </div>
+                        </td>
+                        <td class="page-list">{", ".join(map(str, pages))}</td>
+                        <td class="bookmark-list">{", ".join(str(b) for b in bookmarks)}</td>
+                        <td>{occurrence_count}</td>
+                        <td class="excel-row">{excel_row}</td>
                     </tr>'''
-        for item in not_found
-    ])
+
+        # Detail panel row
+        if has_details and row_data:
+            # Get column headers from row data (excluding excel_row as it's shown separately)
+            headers = [col for col in row_data.keys() if col != 'excel_row']
+
+            # Build detail table with single row of data
+            detail_table_cells = []
+            detail_table_cells.append(f'<td class="excel-row">{row_data.get("excel_row", excel_row)}</td>')
+            for header in headers:
+                value = row_data.get(header, "")
+                # Convert to string and escape HTML
+                value_str = str(value) if value != "" else ""
+                detail_table_cells.append(f'<td>{value_str}</td>')
+
+            detail_row_html = f'''                                    <tr>
+                                        {chr(10).join(detail_table_cells)}
+                                    </tr>'''
+
+            # Build header row for detail table
+            header_cells = ['<th>Excel Row</th>'] + [f'<th>{h}</th>' for h in headers]
+            header_row_html = '\n                                            '.join(header_cells)
+
+            detail_row = f'''                    <tr id="{detail_id}" class="found-detail-row hidden">
+                        <td colspan="5">
+                            <div class="found-detail-panel">
+                                <div class="found-detail-header">
+                                    <span class="found-detail-title">Excel Data for Found Tag: {tag}</span>
+                                    <span class="badge">{occurrence_count} occurrence(s) in PDF</span>
+                                </div>
+                                <table class="found-data-table">
+                                    <thead>
+                                        <tr>
+                                            {header_row_html}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+{detail_row_html}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>'''
+        else:
+            detail_row = ''
+
+        found_rows.append(row_html + ('\n' + detail_row if detail_row else ''))
+
+    found_rows_html = '\n'.join(found_rows)
+
+    # Build not_found rows with dropdown panels
+    not_found_rows = []
+    for idx, item in enumerate(not_found):
+        tag = item["tag"]
+        excel_row = item["excel_row"]
+        reason = item.get("reason", "not_in_pdf")
+        row_data = item.get("row_data", {})
+
+        detail_id = f"notFoundDetail{idx}"
+        has_details = len(row_data) > 0
+
+        # Build toggle button if we have row data
+        toggle_button_html = ''
+        if has_details:
+            toggle_button_html = (
+                f'<button type="button" class="not-found-detail-toggle" '
+                f'aria-expanded="false" aria-controls="{detail_id}" '
+                f'onclick="return toggleNotFoundDetail(\'{detail_id}\', this);">'
+                f'<span class="chevron">▼</span>'
+                f'</button>'
+            )
+
+        # Main row
+        row_attributes = 'class="not-found-summary-row"'
+        if has_details:
+            row_attributes += f' data-detail-id="{detail_id}"'
+
+        row_html = f'''                    <tr {row_attributes}>
+                        <td class="tag-name">
+                            <div class="not-found-summary-cell">
+                                {toggle_button_html}
+                                <span>{tag}</span>
+                            </div>
+                        </td>
+                        <td class="excel-row">{excel_row}</td>
+                        <td>{reason}</td>
+                    </tr>'''
+
+        # Detail panel row
+        if has_details and row_data:
+            # Get column headers from row data (excluding excel_row as it's shown separately)
+            headers = [col for col in row_data.keys() if col != 'excel_row']
+
+            # Build detail table with single row of data
+            detail_table_cells = []
+            detail_table_cells.append(f'<td class="excel-row">{row_data.get("excel_row", excel_row)}</td>')
+            for header in headers:
+                value = row_data.get(header, "")
+                # Convert to string and escape HTML
+                value_str = str(value) if value != "" else ""
+                detail_table_cells.append(f'<td>{value_str}</td>')
+
+            detail_row_html = f'''                                    <tr>
+                                        {chr(10).join(detail_table_cells)}
+                                    </tr>'''
+
+            # Build header row for detail table
+            header_cells = ['<th>Excel Row</th>'] + [f'<th>{h}</th>' for h in headers]
+            header_row_html = '\n                                            '.join(header_cells)
+
+            detail_row = f'''                    <tr id="{detail_id}" class="not-found-detail-row hidden">
+                        <td colspan="3">
+                            <div class="not-found-detail-panel">
+                                <div class="not-found-detail-header">
+                                    <span class="not-found-detail-title">Excel Data for Not Found Tag: {tag}</span>
+                                    <span class="badge">{reason}</span>
+                                </div>
+                                <table class="not-found-data-table">
+                                    <thead>
+                                        <tr>
+                                            {header_row_html}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+{detail_row_html}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>'''
+        else:
+            detail_row = ''
+
+        not_found_rows.append(row_html + ('\n' + detail_row if detail_row else ''))
+
+    not_found_rows_html = '\n'.join(not_found_rows)
 
     # Build duplicates rows with dropdown panels
     duplicates_rows = []
@@ -360,14 +517,92 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
     duplicates_rows_html = '\n'.join(duplicates_rows)
 
-    warnings_rows_html = '\n'.join([
-        f'''                    <tr>
-                        <td class="tag-name">{item["tag"]}</td>
-                        <td class="excel-row">{item["excel_row"]}</td>
-                        <td class="warning-text">{item["warning"]}</td>
+    # Build validation warnings rows with dropdown panels
+    warnings_rows = []
+    for idx, item in enumerate(validation_warnings):
+        tag = item["tag"]
+        excel_row = item["excel_row"]
+        warning = item["warning"]
+        row_data = item.get("row_data", {})
+
+        detail_id = f"warningDetail{idx}"
+        has_details = len(row_data) > 0
+
+        # Build toggle button if we have row data
+        toggle_button_html = ''
+        if has_details:
+            toggle_button_html = (
+                f'<button type="button" class="warning-detail-toggle" '
+                f'aria-expanded="false" aria-controls="{detail_id}" '
+                f'onclick="return toggleWarningDetail(\'{detail_id}\', this);">'
+                f'<span class="chevron">▼</span>'
+                f'</button>'
+            )
+
+        # Main row
+        row_attributes = 'class="warning-summary-row"'
+        if has_details:
+            row_attributes += f' data-detail-id="{detail_id}"'
+
+        row_html = f'''                    <tr {row_attributes}>
+                        <td class="tag-name">
+                            <div class="warning-summary-cell">
+                                {toggle_button_html}
+                                <span>{tag}</span>
+                            </div>
+                        </td>
+                        <td class="excel-row">{excel_row}</td>
+                        <td class="warning-text">{warning}</td>
                     </tr>'''
-        for item in validation_warnings
-    ])
+
+        # Detail panel row
+        if has_details and row_data:
+            # Get column headers from row data (excluding excel_row as it's shown separately)
+            headers = [col for col in row_data.keys() if col != 'excel_row']
+
+            # Build detail table with single row of data
+            detail_table_cells = []
+            detail_table_cells.append(f'<td class="excel-row">{row_data.get("excel_row", excel_row)}</td>')
+            for header in headers:
+                value = row_data.get(header, "")
+                # Convert to string and escape HTML
+                value_str = str(value) if value != "" else ""
+                detail_table_cells.append(f'<td>{value_str}</td>')
+
+            detail_row_html = f'''                                    <tr>
+                                        {chr(10).join(detail_table_cells)}
+                                    </tr>'''
+
+            # Build header row for detail table
+            header_cells = ['<th>Excel Row</th>'] + [f'<th>{h}</th>' for h in headers]
+            header_row_html = '\n                                            '.join(header_cells)
+
+            detail_row = f'''                    <tr id="{detail_id}" class="warning-detail-row hidden">
+                        <td colspan="3">
+                            <div class="warning-detail-panel">
+                                <div class="warning-detail-header">
+                                    <span class="warning-detail-title">Excel Data for Warning Tag: {tag}</span>
+                                    <span class="badge">{warning}</span>
+                                </div>
+                                <table class="warning-data-table">
+                                    <thead>
+                                        <tr>
+                                            {header_row_html}
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+{detail_row_html}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </td>
+                    </tr>'''
+        else:
+            detail_row = ''
+
+        warnings_rows.append(row_html + ('\n' + detail_row if detail_row else ''))
+
+    warnings_rows_html = '\n'.join(warnings_rows)
 
     # Process page statistics
     def _flatten_page_stats_map(stats_map, source_label=None):
@@ -537,12 +772,29 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 colored_class = 'status-success' if colored_match else 'status-warning'
                 colored_label = 'Colored' if colored_match else 'Not Colored'
 
+                # Extract coloring reason from the detail data
+                coloring_reason = detail.get('coloring_reason', 'N/A')
+
+                # Determine the CSS class for the coloring reason
+                reason_class = 'reason-default'
+                if coloring_reason and coloring_reason != 'N/A':
+                    reason_lower = str(coloring_reason).lower()
+                    if 'user' in reason_lower or 'manual' in reason_lower:
+                        reason_class = 'reason-user'
+                    elif 'auto' in reason_lower or 'matched' in reason_lower:
+                        reason_class = 'reason-auto'
+                    elif 'custom' in reason_lower or 'rule' in reason_lower:
+                        reason_class = 'reason-custom'
+                    elif 'not' in reason_lower or 'none' in reason_lower:
+                        reason_class = 'reason-none'
+
                 detail_entries.append(
                     f'''                                    <tr>
                                         <td>{detected_text}</td>
                                         <td class="detail-tag">{normalized_tag}</td>
                                         <td><span class="status-badge {excel_class}">{excel_label}</span></td>
                                         <td><span class="status-badge {colored_class}">{colored_label}</span></td>
+                                        <td><span class="coloring-reason {reason_class}">{coloring_reason}</span></td>
                                     </tr>'''
                 )
 
@@ -561,6 +813,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                                             <th>Matched Tag</th>
                                             <th>Excel</th>
                                             <th>Highlighted</th>
+                                            <th>Coloring Reason</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1157,6 +1410,48 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             color: #374151;
         }}
 
+        /* Coloring reason styles */
+        .coloring-reason {{
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 500;
+            letter-spacing: 0.3px;
+        }}
+
+        .reason-user {{
+            background: #dbeafe;
+            color: #1e40af;
+            border-left: 3px solid #2563eb;
+        }}
+
+        .reason-auto {{
+            background: #d1fae5;
+            color: #065f46;
+            border-left: 3px solid #10b981;
+        }}
+
+        .reason-custom {{
+            background: #fef3c7;
+            color: #92400e;
+            border-left: 3px solid #f59e0b;
+        }}
+
+        .reason-none {{
+            background: #f3f4f6;
+            color: #6b7280;
+            border-left: 3px solid #9ca3af;
+        }}
+
+        .reason-default {{
+            background: #ede9fe;
+            color: #5b21b6;
+            border-left: 3px solid #8b5cf6;
+        }}
+
         /* Duplicate detail panel styles */
         .duplicate-summary-cell {{
             display: flex;
@@ -1241,6 +1536,297 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         }}
 
         .duplicate-data-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        /* Not Found detail panel styles */
+        .not-found-data-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        .not-found-data-table th,
+        .not-found-data-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 13px;
+            text-align: left;
+        }}
+
+        .not-found-data-table th {{
+            background: #fffbeb;
+            color: #92400e;
+            font-weight: 600;
+        }}
+
+        .not-found-data-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        /* Continue Not Found detail panel styles */
+        .not-found-summary-cell {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .not-found-detail-toggle {{
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 9999px;
+            background: #fef3c7;
+            color: #92400e;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }}
+
+        .not-found-detail-toggle:hover {{
+            background: #fde68a;
+        }}
+
+        .not-found-detail-toggle:focus {{
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(180, 83, 9, 0.25);
+        }}
+
+        .not-found-detail-toggle .chevron {{
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }}
+
+        .not-found-detail-toggle.open .chevron {{
+            transform: rotate(180deg);
+        }}
+
+        .not-found-detail-row td {{
+            background: #fffbeb;
+            padding: 0;
+        }}
+
+        .not-found-detail-panel {{
+            background: #ffffff;
+            padding: 16px 20px;
+            border-top: 1px solid #fde68a;
+        }}
+
+        .not-found-detail-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+
+        .not-found-detail-title {{
+            font-size: 15px;
+            font-weight: 600;
+            color: #92400e;
+        }}
+
+        .not-found-detail-content {{
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }}
+
+        .detail-item {{
+            padding: 10px;
+            background: #faf5ff;
+            border-radius: 6px;
+            font-size: 13px;
+        }}
+
+        .detail-item strong {{
+            color: #92400e;
+            margin-right: 8px;
+        }}
+
+        .tag-value {{
+            font-family: 'Courier New', monospace;
+            font-weight: 600;
+            color: #b45309;
+        }}
+
+        .reason-value {{
+            color: #ea580c;
+            font-weight: 500;
+        }}
+
+        /* Found detail panel styles */
+        .found-summary-cell {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .found-detail-toggle {{
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 9999px;
+            background: #d1fae5;
+            color: #065f46;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }}
+
+        .found-detail-toggle:hover {{
+            background: #a7f3d0;
+        }}
+
+        .found-detail-toggle:focus {{
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
+        }}
+
+        .found-detail-toggle .chevron {{
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }}
+
+        .found-detail-toggle.open .chevron {{
+            transform: rotate(180deg);
+        }}
+
+        .found-detail-row td {{
+            background: #ecfdf5;
+            padding: 0;
+        }}
+
+        .found-detail-panel {{
+            background: #ffffff;
+            padding: 16px 20px;
+            border-top: 1px solid #a7f3d0;
+        }}
+
+        .found-detail-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+
+        .found-detail-title {{
+            font-size: 15px;
+            font-weight: 600;
+            color: #065f46;
+        }}
+
+        .found-data-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        .found-data-table th,
+        .found-data-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 13px;
+            text-align: left;
+        }}
+
+        .found-data-table th {{
+            background: #d1fae5;
+            color: #065f46;
+            font-weight: 600;
+        }}
+
+        .found-data-table tr:last-child td {{
+            border-bottom: none;
+        }}
+
+        /* Warning detail panel styles */
+        .warning-summary-cell {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .warning-detail-toggle {{
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 9999px;
+            background: #fed7aa;
+            color: #7c2d12;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease, transform 0.2s ease;
+        }}
+
+        .warning-detail-toggle:hover {{
+            background: #fdba74;
+        }}
+
+        .warning-detail-toggle:focus {{
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.25);
+        }}
+
+        .warning-detail-toggle .chevron {{
+            font-size: 12px;
+            transition: transform 0.2s ease;
+        }}
+
+        .warning-detail-toggle.open .chevron {{
+            transform: rotate(180deg);
+        }}
+
+        .warning-detail-row td {{
+            background: #ffedd5;
+            padding: 0;
+        }}
+
+        .warning-detail-panel {{
+            background: #ffffff;
+            padding: 16px 20px;
+            border-top: 1px solid #fdba74;
+        }}
+
+        .warning-detail-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 12px;
+        }}
+
+        .warning-detail-title {{
+            font-size: 15px;
+            font-weight: 600;
+            color: #7c2d12;
+        }}
+
+        .warning-data-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        .warning-data-table th,
+        .warning-data-table td {{
+            padding: 10px 12px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 13px;
+            text-align: left;
+        }}
+
+        .warning-data-table th {{
+            background: #ffedd5;
+            color: #9a3412;
+            font-weight: 600;
+        }}
+
+        .warning-data-table tr:last-child td {{
             border-bottom: none;
         }}
 
@@ -1550,6 +2136,72 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             return false;
         }}
 
+        function toggleNotFoundDetail(detailId, trigger) {{
+            const row = document.getElementById(detailId);
+            if (!row) {{
+                return false;
+            }}
+
+            const isHidden = row.classList.toggle('hidden');
+
+            if (isHidden) {{
+                row.style.display = 'none';
+            }} else {{
+                row.style.display = '';
+            }}
+
+            if (trigger) {{
+                trigger.classList.toggle('open', !isHidden);
+                trigger.setAttribute('aria-expanded', String(!isHidden));
+            }}
+
+            return false;
+        }}
+
+        function toggleFoundDetail(detailId, trigger) {{
+            const row = document.getElementById(detailId);
+            if (!row) {{
+                return false;
+            }}
+
+            const isHidden = row.classList.toggle('hidden');
+
+            if (isHidden) {{
+                row.style.display = 'none';
+            }} else {{
+                row.style.display = '';
+            }}
+
+            if (trigger) {{
+                trigger.classList.toggle('open', !isHidden);
+                trigger.setAttribute('aria-expanded', String(!isHidden));
+            }}
+
+            return false;
+        }}
+
+        function toggleWarningDetail(detailId, trigger) {{
+            const row = document.getElementById(detailId);
+            if (!row) {{
+                return false;
+            }}
+
+            const isHidden = row.classList.toggle('hidden');
+
+            if (isHidden) {{
+                row.style.display = 'none';
+            }} else {{
+                row.style.display = '';
+            }}
+
+            if (trigger) {{
+                trigger.classList.toggle('open', !isHidden);
+                trigger.setAttribute('aria-expanded', String(!isHidden));
+            }}
+
+            return false;
+        }}
+
         // Table sorting
         function sortTable(tableId, column) {{
             const table = document.getElementById(tableId);
@@ -1559,6 +2211,9 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
             const isPageStatsTable = tableId === 'pageStatsTable';
             const isDuplicatesTable = tableId === 'duplicatesTable';
+            const isNotFoundTable = tableId === 'notFoundTable';
+            const isFoundTable = tableId === 'foundTable';
+            const isWarningsTable = tableId === 'warningsTable';
             const detailRowMap = {{}};
 
             let rows = allRows;
@@ -1575,6 +2230,33 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                 rows = [];
                 allRows.forEach(row => {{
                     if (row.classList.contains('duplicate-detail-row')) {{
+                        detailRowMap[row.id] = row;
+                    }} else {{
+                        rows.push(row);
+                    }}
+                }});
+            }} else if (isNotFoundTable) {{
+                rows = [];
+                allRows.forEach(row => {{
+                    if (row.classList.contains('not-found-detail-row')) {{
+                        detailRowMap[row.id] = row;
+                    }} else {{
+                        rows.push(row);
+                    }}
+                }});
+            }} else if (isFoundTable) {{
+                rows = [];
+                allRows.forEach(row => {{
+                    if (row.classList.contains('found-detail-row')) {{
+                        detailRowMap[row.id] = row;
+                    }} else {{
+                        rows.push(row);
+                    }}
+                }});
+            }} else if (isWarningsTable) {{
+                rows = [];
+                allRows.forEach(row => {{
+                    if (row.classList.contains('warning-detail-row')) {{
                         detailRowMap[row.id] = row;
                     }} else {{
                         rows.push(row);
@@ -1619,7 +2301,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             rows.forEach(row => {{
                 tbody.appendChild(row);
 
-                if (isPageStatsTable || isDuplicatesTable) {{
+                if (isPageStatsTable || isDuplicatesTable || isNotFoundTable || isFoundTable || isWarningsTable) {{
                     const detailId = row.getAttribute('data-detail-id');
                     if (detailId && detailRowMap[detailId]) {{
                         tbody.appendChild(detailRowMap[detailId]);
@@ -1659,6 +2341,66 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
                 if (tableId === 'duplicatesTable') {{
                     const summaryRows = Array.from(table.querySelectorAll('tbody tr.duplicate-summary-row'));
+                    summaryRows.forEach(row => {{
+                        const detailId = row.getAttribute('data-detail-id');
+                        const detailRow = detailId ? document.getElementById(detailId) : null;
+
+                        const combinedText = (row.textContent + (detailRow ? detailRow.textContent : '')).toLowerCase();
+                        const isMatch = combinedText.includes(searchTerm);
+
+                        row.style.display = isMatch ? '' : 'none';
+
+                        if (detailRow) {{
+                            detailRow.style.display = isMatch
+                                ? (detailRow.classList.contains('hidden') ? 'none' : '')
+                                : 'none';
+                        }}
+                    }});
+                    return;
+                }}
+
+                if (tableId === 'notFoundTable') {{
+                    const summaryRows = Array.from(table.querySelectorAll('tbody tr.not-found-summary-row'));
+                    summaryRows.forEach(row => {{
+                        const detailId = row.getAttribute('data-detail-id');
+                        const detailRow = detailId ? document.getElementById(detailId) : null;
+
+                        const combinedText = (row.textContent + (detailRow ? detailRow.textContent : '')).toLowerCase();
+                        const isMatch = combinedText.includes(searchTerm);
+
+                        row.style.display = isMatch ? '' : 'none';
+
+                        if (detailRow) {{
+                            detailRow.style.display = isMatch
+                                ? (detailRow.classList.contains('hidden') ? 'none' : '')
+                                : 'none';
+                        }}
+                    }});
+                    return;
+                }}
+
+                if (tableId === 'foundTable') {{
+                    const summaryRows = Array.from(table.querySelectorAll('tbody tr.found-summary-row'));
+                    summaryRows.forEach(row => {{
+                        const detailId = row.getAttribute('data-detail-id');
+                        const detailRow = detailId ? document.getElementById(detailId) : null;
+
+                        const combinedText = (row.textContent + (detailRow ? detailRow.textContent : '')).toLowerCase();
+                        const isMatch = combinedText.includes(searchTerm);
+
+                        row.style.display = isMatch ? '' : 'none';
+
+                        if (detailRow) {{
+                            detailRow.style.display = isMatch
+                                ? (detailRow.classList.contains('hidden') ? 'none' : '')
+                                : 'none';
+                        }}
+                    }});
+                    return;
+                }}
+
+                if (tableId === 'warningsTable') {{
+                    const summaryRows = Array.from(table.querySelectorAll('tbody tr.warning-summary-row'));
                     summaryRows.forEach(row => {{
                         const detailId = row.getAttribute('data-detail-id');
                         const detailRow = detailId ? document.getElementById(detailId) : null;

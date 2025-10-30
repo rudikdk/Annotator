@@ -2352,17 +2352,21 @@
       const [highlightColumn, setHighlightColumn] = useState("");
 
       // Color rules state (new advanced color system)
-      const [colorRules, setColorRules] = useState([]); // Array of {id, part, value, match_type, color}
+      const [colorRules, setColorRules] = useState([]); // Array of {id, rule_type, part, column_name, value, match_type, color}
       const [defaultHighlightColor, setDefaultHighlightColor] = useState("#FFFF00");
       const [enableDefaultColor, setEnableDefaultColor] = useState(true);
       const [excelConstraintMode, setExcelConstraintMode] = useState(true);  // Default to ON - only color tags from Excel
       const [excelConstraintLogic, setExcelConstraintLogic] = useState("AND");
       const [colorRulePanelOpen, setColorRulePanelOpen] = useState(false);
       const [colorRuleBuilderOpen, setColorRuleBuilderOpen] = useState(false);
+      const [newRuleType, setNewRuleType] = useState('tag_part'); // 'tag_part' or 'header_column'
       const [newRulePart, setNewRulePart] = useState(1);
+      const [newRuleColumn, setNewRuleColumn] = useState(''); // For header_column rule type
       const [newRuleValue, setNewRuleValue] = useState('');
       const [newRuleMatchType, setNewRuleMatchType] = useState('contains');
       const [newRuleColor, setNewRuleColor] = useState('#FFFF00');
+      const [ruleAvailableHeaderValues, setRuleAvailableHeaderValues] = useState([]); // For header column unique values
+      const [ruleLoadingHeaderValues, setRuleLoadingHeaderValues] = useState(false);
       const [colorPresets, setColorPresets] = useState({});
       const [showSaveColorPresetModal, setShowSaveColorPresetModal] = useState(false);
       const [colorPresetName, setColorPresetName] = useState('');
@@ -2414,15 +2418,19 @@
       const [tagMatchingPreviewLoading, setTagMatchingPreviewLoading] = useState(false);
 
       // Tag filtering state
-      const [tagFilters, setTagFilters] = useState([]); // Array of {part, value, match_type, action}
+      const [tagFilters, setTagFilters] = useState([]); // Array of {filter_type, part, value, match_type, action, column_name}
       const [filterLogic, setFilterLogic] = useState('AND'); // 'AND' or 'OR'
       const [tagFilterPanelOpen, setTagFilterPanelOpen] = useState(false);
       const [availableTagParts, setAvailableTagParts] = useState({}); // {part1: [{value, count}], part2: [...]}
       const [filterBuilderOpen, setFilterBuilderOpen] = useState(false);
+      const [newFilterType, setNewFilterType] = useState('tag_part'); // 'tag_part' or 'header_column'
       const [newFilterPart, setNewFilterPart] = useState(1);
+      const [newFilterColumn, setNewFilterColumn] = useState(''); // For header_column filter type
       const [newFilterValue, setNewFilterValue] = useState('');
       const [newFilterMatchType, setNewFilterMatchType] = useState('exact');
       const [newFilterAction, setNewFilterAction] = useState('include');
+      const [availableHeaderValues, setAvailableHeaderValues] = useState([]); // For header column unique values
+      const [loadingHeaderValues, setLoadingHeaderValues] = useState(false);
       const [filterMatchingCount, setFilterMatchingCount] = useState(null);
       const [filterPreviewOpen, setFilterPreviewOpen] = useState(false);
       const [filterPreviewTags, setFilterPreviewTags] = useState([]);
@@ -2556,20 +2564,37 @@
           return;
         }
 
+        // Validate header_column filter has column selected
+        if (newFilterType === 'header_column' && !newFilterColumn) {
+          setToast({ type: "error", text: "Please select a column for header-based filtering" });
+          return;
+        }
+
+        // Build filter object based on filter type
         const newFilter = {
-          part: newFilterPart,
+          filter_type: newFilterType,
           value: newFilterValue.trim(),
           match_type: newFilterMatchType,
           action: newFilterAction
         };
 
+        // Add type-specific fields
+        if (newFilterType === 'tag_part') {
+          newFilter.part = newFilterPart;
+        } else if (newFilterType === 'header_column') {
+          newFilter.column_name = newFilterColumn;
+        }
+
         setTagFilters([...tagFilters, newFilter]);
         setFilterBuilderOpen(false);
         // Reset builder fields
+        setNewFilterType('tag_part');
         setNewFilterPart(1);
+        setNewFilterColumn('');
         setNewFilterValue('');
         setNewFilterMatchType('exact');
         setNewFilterAction('include');
+        setAvailableHeaderValues([]);
         setToast({ type: "success", text: "Filter added successfully" });
       }
 
@@ -2630,6 +2655,42 @@
           });
       }
 
+      // Function to fetch unique values from a header column for filter building
+      function handleFetchHeaderValuesForFilter(columnName) {
+        if (!columnName) {
+          setAvailableHeaderValues([]);
+          return;
+        }
+
+        setLoadingHeaderValues(true);
+        fetch("/get_header_unique_values", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selected_excel: selectedExcel,
+            column_name: columnName,
+            header_row: headerRow
+          })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setLoadingHeaderValues(false);
+            if (data.error) {
+              setToast({ type: "error", text: data.error });
+              setAvailableHeaderValues([]);
+            } else {
+              setAvailableHeaderValues(data.values || []);
+              logToConsole(`Loaded ${data.values?.length || 0} unique values for column '${columnName}'`);
+            }
+          })
+          .catch((err) => {
+            setLoadingHeaderValues(false);
+            setToast({ type: "error", text: "Error fetching column values" });
+            setAvailableHeaderValues([]);
+            logToConsole(`Error fetching header values: ${err.message}`);
+          });
+      }
+
       function handlePreviewTagMatching() {
         if (!selectedPdfs || selectedPdfs.length === 0) {
           setToast({ type: "error", text: "Please select a PDF file first" });
@@ -2687,22 +2748,75 @@
           return;
         }
 
+        // Validate header_column rule has column selected
+        if (newRuleType === 'header_column' && !newRuleColumn) {
+          setToast({ type: "error", text: "Please select a column for header-based coloring" });
+          return;
+        }
+
+        // Build rule object based on rule type
         const newRule = {
           id: `rule_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-          part: newRulePart,
+          rule_type: newRuleType,
           value: newRuleValue.trim(),
           match_type: newRuleMatchType,
           color: newRuleColor
         };
 
+        // Add type-specific fields
+        if (newRuleType === 'tag_part') {
+          newRule.part = newRulePart;
+        } else if (newRuleType === 'header_column') {
+          newRule.column_name = newRuleColumn;
+        }
+
         setColorRules([...colorRules, newRule]);
         setColorRuleBuilderOpen(false);
         // Reset builder fields
+        setNewRuleType('tag_part');
         setNewRulePart(1);
+        setNewRuleColumn('');
         setNewRuleValue('');
         setNewRuleMatchType('contains');
         setNewRuleColor('#FFFF00');
+        setRuleAvailableHeaderValues([]);
         setToast({ type: "success", text: "Color rule added successfully" });
+      }
+
+      // Function to fetch unique values from a header column for color rule building
+      function handleFetchHeaderValuesForRule(columnName) {
+        if (!columnName) {
+          setRuleAvailableHeaderValues([]);
+          return;
+        }
+
+        setRuleLoadingHeaderValues(true);
+        fetch("/get_header_unique_values", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selected_excel: selectedExcel,
+            column_name: columnName,
+            header_row: headerRow
+          })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setRuleLoadingHeaderValues(false);
+            if (data.error) {
+              setToast({ type: "error", text: data.error });
+              setRuleAvailableHeaderValues([]);
+            } else {
+              setRuleAvailableHeaderValues(data.values || []);
+              logToConsole(`Loaded ${data.values?.length || 0} unique values for column '${columnName}'`);
+            }
+          })
+          .catch((err) => {
+            setRuleLoadingHeaderValues(false);
+            setToast({ type: "error", text: "Error fetching column values" });
+            setRuleAvailableHeaderValues([]);
+            logToConsole(`Error fetching header values: ${err.message}`);
+          });
       }
 
       function handleRemoveColorRule(ruleId) {
@@ -3938,18 +4052,14 @@
                   type: "success",
                   text: `Test files downloaded! Upload data preserved. Ready for full run.`
                 });
-                // For test runs, only close the modal - workspace already has files
-                closeProcessing();
-                refreshWorkspace();
+                // Modal stays open for additional downloads
               } else {
                 logToConsole(`Full cleanup successful: deleted ${data.deleted_outputs} Excel output(s). PDFs remain in workspace.`);
                 setToast({
                   type: "success",
                   text: `Files downloaded! Annotated PDFs added to workspace for reprocessing.`
                 });
-                // For full runs, files remain in workspace - just close modal
-                closeProcessing();
-                refreshWorkspace();
+                // Modal stays open for additional downloads
               }
             } else {
               logToConsole(`Cleanup error: ${data.message}`);
@@ -4167,22 +4277,39 @@
                         <div>
                           <label className="block text-sm font-medium mb-2">Active Filters</label>
                           <div className="space-y-2">
-                            {tagFilters.map((filter, index) => (
-                              <div key={index} className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                                <span className="text-sm">
-                                  Part {filter.part} {filter.match_type === 'exact' ? '=' : '≈'} <strong>{filter.value}</strong>
-                                  <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${filter.action === 'include' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
-                                    {filter.action}
-                                  </span>
-                                </span>
-                                <button
-                                  onClick={() => handleRemoveFilter(index)}
-                                  className="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                                >
-                                  <i className="fa-solid fa-times"></i>
-                                </button>
-                              </div>
-                            ))}
+                            {tagFilters.map((filter, index) => {
+                              const filterType = filter.filter_type || 'tag_part'; // Default to tag_part for backward compatibility
+                              const matchSymbol = filter.match_type === 'exact' ? '=' : '≈';
+
+                              let filterDescription;
+                              if (filterType === 'header_column') {
+                                filterDescription = `${filter.column_name} ${matchSymbol} ${filter.value}`;
+                              } else {
+                                filterDescription = `Part ${filter.part} ${matchSymbol} ${filter.value}`;
+                              }
+
+                              return (
+                                <div key={index} className="flex items-center justify-between p-2 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                  <div className="flex-1 min-w-0">
+                                    <span className="text-sm">
+                                      <span className="text-xs text-zinc-500 dark:text-zinc-400 mr-1">
+                                        {filterType === 'header_column' ? '[Column]' : '[Tag]'}
+                                      </span>
+                                      {filterDescription.split(matchSymbol)[0]} {matchSymbol} <strong>{filter.value}</strong>
+                                      <span className={`ml-2 px-1.5 py-0.5 rounded text-xs ${filter.action === 'include' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' : 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'}`}>
+                                        {filter.action}
+                                      </span>
+                                    </span>
+                                  </div>
+                                  <button
+                                    onClick={() => handleRemoveFilter(index)}
+                                    className="ml-2 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 flex-shrink-0"
+                                  >
+                                    <i className="fa-solid fa-times"></i>
+                                  </button>
+                                </div>
+                              );
+                            })}
                           </div>
                           <button
                             onClick={handleClearAllFilters}
@@ -4210,71 +4337,191 @@
                           <div className="flex justify-between items-center">
                             <h4 className="font-medium text-sm">Add Filter Rule</h4>
                             <button
-                              onClick={() => setFilterBuilderOpen(false)}
+                              onClick={() => {
+                                setFilterBuilderOpen(false);
+                                setNewFilterType('tag_part');
+                                setNewFilterColumn('');
+                                setAvailableHeaderValues([]);
+                              }}
                               className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
                             >
                               <i className="fa-solid fa-times"></i>
                             </button>
                           </div>
 
-                          {/* Part Selector */}
+                          {/* Filter Type Selector */}
                           <div>
-                            <label className="block text-sm font-medium mb-1">Filter by Part</label>
-                            <select
-                              value={newFilterPart}
-                              onChange={(e) => {
-                                setNewFilterPart(Number(e.target.value));
-                                setNewFilterValue(''); // Reset value when part changes
-                              }}
-                              className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                            >
-                              {Object.keys(availableTagParts).map((partKey) => {
-                                const partNum = parseInt(partKey.replace('part', ''));
-                                const values = availableTagParts[partKey];
-                                return (
-                                  <option key={partKey} value={partNum}>
-                                    Part {partNum} ({values.length} unique values)
-                                  </option>
-                                );
-                              })}
-                            </select>
+                            <label className="block text-sm font-medium mb-1">Filter Type</label>
+                            <div className="flex gap-3">
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="filterType"
+                                  value="tag_part"
+                                  checked={newFilterType === 'tag_part'}
+                                  onChange={(e) => {
+                                    setNewFilterType(e.target.value);
+                                    setNewFilterValue('');
+                                    setNewFilterColumn('');
+                                    setAvailableHeaderValues([]);
+                                  }}
+                                  className="w-4 h-4 text-brand focus:ring-brand/60"
+                                />
+                                <span className="text-sm">Tag Part</span>
+                              </label>
+                              <label className="flex items-center space-x-2 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  name="filterType"
+                                  value="header_column"
+                                  checked={newFilterType === 'header_column'}
+                                  onChange={(e) => {
+                                    setNewFilterType(e.target.value);
+                                    setNewFilterValue('');
+                                  }}
+                                  className="w-4 h-4 text-brand focus:ring-brand/60"
+                                />
+                                <span className="text-sm">Header Column</span>
+                              </label>
+                            </div>
                           </div>
 
-                          {/* Value Selector/Input */}
-                          <div>
-                            <label className="block text-sm font-medium mb-1">Value</label>
-                            {availableTagParts[`part${newFilterPart}`] && availableTagParts[`part${newFilterPart}`].length > 0 ? (
-                              <select
-                                value={newFilterValue}
-                                onChange={(e) => setNewFilterValue(e.target.value)}
-                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                              >
-                                <option value="">Select a value...</option>
-                                <option value="__custom__">Custom value...</option>
-                                {availableTagParts[`part${newFilterPart}`].map((item, idx) => (
-                                  <option key={idx} value={item.value}>
-                                    {item.value} ({item.count} tags)
-                                  </option>
-                                ))}
-                              </select>
-                            ) : (
-                              <input
-                                type="text"
-                                value={newFilterValue}
-                                onChange={(e) => setNewFilterValue(e.target.value)}
-                                placeholder="Enter filter value..."
-                                className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                              />
-                            )}
-                            {newFilterValue === '__custom__' && (
-                              <input
-                                type="text"
-                                onChange={(e) => setNewFilterValue(e.target.value)}
-                                placeholder="Enter custom value..."
-                                className="w-full mt-2 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                              />
-                            )}
-                          </div>
+                          {/* Tag Part Filter Controls */}
+                          {newFilterType === 'tag_part' && (
+                            <>
+                              {/* Part Selector */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Filter by Part</label>
+                                <select
+                                  value={newFilterPart}
+                                  onChange={(e) => {
+                                    setNewFilterPart(Number(e.target.value));
+                                    setNewFilterValue(''); // Reset value when part changes
+                                  }}
+                                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                >
+                                  {Object.keys(availableTagParts).map((partKey) => {
+                                    const partNum = parseInt(partKey.replace('part', ''));
+                                    const values = availableTagParts[partKey];
+                                    return (
+                                      <option key={partKey} value={partNum}>
+                                        Part {partNum} ({values.length} unique values)
+                                      </option>
+                                    );
+                                  })}
+                                </select>
+                              </div>
+
+                              {/* Value Selector/Input */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Value</label>
+                                {availableTagParts[`part${newFilterPart}`] && availableTagParts[`part${newFilterPart}`].length > 0 ? (
+                                  <select
+                                    value={newFilterValue}
+                                    onChange={(e) => setNewFilterValue(e.target.value)}
+                                    className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                  >
+                                    <option value="">Select a value...</option>
+                                    <option value="__custom__">Custom value...</option>
+                                    {availableTagParts[`part${newFilterPart}`].map((item, idx) => (
+                                      <option key={idx} value={item.value}>
+                                        {item.value} ({item.count} tags)
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={newFilterValue}
+                                    onChange={(e) => setNewFilterValue(e.target.value)}
+                                    placeholder="Enter filter value..."
+                                    className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                  />
+                                )}
+                                {newFilterValue === '__custom__' && (
+                                  <input
+                                    type="text"
+                                    onChange={(e) => setNewFilterValue(e.target.value)}
+                                    placeholder="Enter custom value..."
+                                    className="w-full mt-2 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                  />
+                                )}
+                              </div>
+                            </>
+                          )}
+
+                          {/* Header Column Filter Controls */}
+                          {newFilterType === 'header_column' && (
+                            <>
+                              {/* Column Selector */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Excel Column</label>
+                                <select
+                                  value={newFilterColumn}
+                                  onChange={(e) => {
+                                    const col = e.target.value;
+                                    setNewFilterColumn(col);
+                                    setNewFilterValue('');
+                                    if (col) {
+                                      handleFetchHeaderValuesForFilter(col);
+                                    } else {
+                                      setAvailableHeaderValues([]);
+                                    }
+                                  }}
+                                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                >
+                                  <option value="">Select a column...</option>
+                                  {excelColumns.filter(c => c !== tagColumn).map((col) => (
+                                    <option key={col} value={col}>
+                                      {col}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              {/* Value Selector/Input */}
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Value</label>
+                                {loadingHeaderValues ? (
+                                  <div className="p-3 text-center text-sm text-zinc-500">
+                                    <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                                    Loading values...
+                                  </div>
+                                ) : availableHeaderValues.length > 0 ? (
+                                  <select
+                                    value={newFilterValue}
+                                    onChange={(e) => setNewFilterValue(e.target.value)}
+                                    className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                  >
+                                    <option value="">Select a value...</option>
+                                    <option value="__custom__">Custom value...</option>
+                                    {availableHeaderValues.map((item, idx) => (
+                                      <option key={idx} value={item.value}>
+                                        {item.value} ({item.count} rows)
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <input
+                                    type="text"
+                                    value={newFilterValue}
+                                    onChange={(e) => setNewFilterValue(e.target.value)}
+                                    placeholder={newFilterColumn ? "Enter filter value..." : "Select a column first"}
+                                    disabled={!newFilterColumn}
+                                    className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                                  />
+                                )}
+                                {newFilterValue === '__custom__' && (
+                                  <input
+                                    type="text"
+                                    onChange={(e) => setNewFilterValue(e.target.value)}
+                                    placeholder="Enter custom value..."
+                                    className="w-full mt-2 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                  />
+                                )}
+                              </div>
+                            </>
+                          )}
 
                           {/* Match Type */}
                           <div>
@@ -4874,48 +5121,63 @@
                             <div>
                               <label className="block text-sm font-medium mb-2">Active Color Rules</label>
                               <div className="space-y-2">
-                                {colorRules.map((rule, index) => (
-                                  <div key={rule.id} className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
-                                    <div
-                                      className="w-6 h-6 rounded border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
-                                      style={{ backgroundColor: rule.color }}
-                                      title={rule.color}
-                                    ></div>
-                                    <div className="flex-1 min-w-0">
-                                      <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
-                                        Part {rule.part} {rule.match_type === 'exact' ? '=' : '≈'} <strong>{rule.value}</strong>
+                                {colorRules.map((rule, index) => {
+                                  const ruleType = rule.rule_type || 'tag_part'; // Default to tag_part for backward compatibility
+                                  const matchSymbol = rule.match_type === 'exact' ? '=' : '≈';
+
+                                  let ruleDescription;
+                                  if (ruleType === 'header_column') {
+                                    ruleDescription = `${rule.column_name} ${matchSymbol} ${rule.value}`;
+                                  } else {
+                                    ruleDescription = `Part ${rule.part} ${matchSymbol} ${rule.value}`;
+                                  }
+
+                                  return (
+                                    <div key={rule.id} className="flex items-center gap-2 p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-lg border border-zinc-200 dark:border-zinc-700">
+                                      <div
+                                        className="w-6 h-6 rounded border border-zinc-300 dark:border-zinc-600 flex-shrink-0"
+                                        style={{ backgroundColor: rule.color }}
+                                        title={rule.color}
+                                      ></div>
+                                      <div className="flex-1 min-w-0">
+                                        <div className="text-sm font-medium text-zinc-800 dark:text-zinc-200">
+                                          <span className="text-xs text-zinc-500 dark:text-zinc-400 mr-1">
+                                            {ruleType === 'header_column' ? '[Column]' : '[Tag]'}
+                                          </span>
+                                          {ruleDescription.split(matchSymbol)[0]} {matchSymbol} <strong>{rule.value}</strong>
+                                        </div>
+                                        <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                                          {rule.match_type === 'exact' ? 'Exact match' : 'Contains match'}
+                                        </div>
                                       </div>
-                                      <div className="text-xs text-zinc-500 dark:text-zinc-400">
-                                        {rule.match_type === 'exact' ? 'Exact match' : 'Contains match'}
+                                      <div className="flex items-center gap-1">
+                                        <button
+                                          onClick={() => handleMoveColorRule(rule.id, 'up')}
+                                          disabled={index === 0}
+                                          className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                                          title="Move up"
+                                        >
+                                          <i className="fa-solid fa-arrow-up text-xs"></i>
+                                        </button>
+                                        <button
+                                          onClick={() => handleMoveColorRule(rule.id, 'down')}
+                                          disabled={index === colorRules.length - 1}
+                                          className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                                          title="Move down"
+                                        >
+                                          <i className="fa-solid fa-arrow-down text-xs"></i>
+                                        </button>
+                                        <button
+                                          onClick={() => handleRemoveColorRule(rule.id)}
+                                          className="p-1 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
+                                          title="Remove rule"
+                                        >
+                                          <i className="fa-solid fa-times"></i>
+                                        </button>
                                       </div>
                                     </div>
-                                    <div className="flex items-center gap-1">
-                                      <button
-                                        onClick={() => handleMoveColorRule(rule.id, 'up')}
-                                        disabled={index === 0}
-                                        className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        title="Move up"
-                                      >
-                                        <i className="fa-solid fa-arrow-up text-xs"></i>
-                                      </button>
-                                      <button
-                                        onClick={() => handleMoveColorRule(rule.id, 'down')}
-                                        disabled={index === colorRules.length - 1}
-                                        className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                                        title="Move down"
-                                      >
-                                        <i className="fa-solid fa-arrow-down text-xs"></i>
-                                      </button>
-                                      <button
-                                        onClick={() => handleRemoveColorRule(rule.id)}
-                                        className="p-1 text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300"
-                                        title="Remove rule"
-                                      >
-                                        <i className="fa-solid fa-times"></i>
-                                      </button>
-                                    </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                               <button
                                 onClick={handleClearAllColorRules}
@@ -4943,26 +5205,158 @@
                               <div className="flex justify-between items-center">
                                 <h5 className="font-medium text-sm">Add Color Rule</h5>
                                 <button
-                                  onClick={() => setColorRuleBuilderOpen(false)}
+                                  onClick={() => {
+                                    setColorRuleBuilderOpen(false);
+                                    setNewRuleType('tag_part');
+                                    setNewRuleColumn('');
+                                    setRuleAvailableHeaderValues([]);
+                                  }}
                                   className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
                                 >
                                   <i className="fa-solid fa-times"></i>
                                 </button>
                               </div>
 
-                              {/* Part Selector */}
+                              {/* Rule Type Selector */}
                               <div>
-                                <label className="block text-sm font-medium mb-1">Tag Part</label>
-                                <select
-                                  value={newRulePart}
-                                  onChange={(e) => setNewRulePart(Number(e.target.value))}
-                                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                                >
-                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
-                                    <option key={n} value={n}>Part {n}</option>
-                                  ))}
-                                </select>
+                                <label className="block text-sm font-medium mb-1">Rule Type</label>
+                                <div className="flex gap-3">
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name="ruleType"
+                                      value="tag_part"
+                                      checked={newRuleType === 'tag_part'}
+                                      onChange={(e) => {
+                                        setNewRuleType(e.target.value);
+                                        setNewRuleValue('');
+                                        setNewRuleColumn('');
+                                        setRuleAvailableHeaderValues([]);
+                                      }}
+                                      className="w-4 h-4 text-brand focus:ring-brand/60"
+                                    />
+                                    <span className="text-sm">Tag Part</span>
+                                  </label>
+                                  <label className="flex items-center space-x-2 cursor-pointer">
+                                    <input
+                                      type="radio"
+                                      name="ruleType"
+                                      value="header_column"
+                                      checked={newRuleType === 'header_column'}
+                                      onChange={(e) => {
+                                        setNewRuleType(e.target.value);
+                                        setNewRuleValue('');
+                                      }}
+                                      className="w-4 h-4 text-brand focus:ring-brand/60"
+                                    />
+                                    <span className="text-sm">Header Column</span>
+                                  </label>
+                                </div>
                               </div>
+
+                              {/* Tag Part Rule Controls */}
+                              {newRuleType === 'tag_part' && (
+                                <>
+                                  {/* Part Selector */}
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Tag Part</label>
+                                    <select
+                                      value={newRulePart}
+                                      onChange={(e) => setNewRulePart(Number(e.target.value))}
+                                      className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                    >
+                                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => (
+                                        <option key={n} value={n}>Part {n}</option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* Value Input */}
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Value</label>
+                                    <input
+                                      type="text"
+                                      value={newRuleValue}
+                                      onChange={(e) => setNewRuleValue(e.target.value)}
+                                      placeholder="e.g., HV, PV, TI"
+                                      className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                    />
+                                  </div>
+                                </>
+                              )}
+
+                              {/* Header Column Rule Controls */}
+                              {newRuleType === 'header_column' && (
+                                <>
+                                  {/* Column Selector */}
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Excel Column</label>
+                                    <select
+                                      value={newRuleColumn}
+                                      onChange={(e) => {
+                                        const col = e.target.value;
+                                        setNewRuleColumn(col);
+                                        setNewRuleValue('');
+                                        if (col) {
+                                          handleFetchHeaderValuesForRule(col);
+                                        } else {
+                                          setRuleAvailableHeaderValues([]);
+                                        }
+                                      }}
+                                      className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                    >
+                                      <option value="">Select a column...</option>
+                                      {excelColumns.filter(c => c !== tagColumn).map((col) => (
+                                        <option key={col} value={col}>
+                                          {col}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* Value Selector/Input */}
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Value</label>
+                                    {ruleLoadingHeaderValues ? (
+                                      <div className="p-3 text-center text-sm text-zinc-500">
+                                        <i className="fa-solid fa-spinner fa-spin mr-2"></i>
+                                        Loading values...
+                                      </div>
+                                    ) : ruleAvailableHeaderValues.length > 0 ? (
+                                      <select
+                                        value={newRuleValue}
+                                        onChange={(e) => setNewRuleValue(e.target.value)}
+                                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                      >
+                                        <option value="">Select a value...</option>
+                                        <option value="__custom__">Custom value...</option>
+                                        {ruleAvailableHeaderValues.map((item, idx) => (
+                                          <option key={idx} value={item.value}>
+                                            {item.value} ({item.count} rows)
+                                          </option>
+                                        ))}
+                                      </select>
+                                    ) : (
+                                      <input
+                                        type="text"
+                                        value={newRuleValue}
+                                        onChange={(e) => setNewRuleValue(e.target.value)}
+                                        placeholder={newRuleColumn ? "Enter value..." : "Select a column first"}
+                                        disabled={!newRuleColumn}
+                                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      />
+                                    )}
+                                    {newRuleValue === '__custom__' && (
+                                      <input
+                                        type="text"
+                                        onChange={(e) => setNewRuleValue(e.target.value)}
+                                        placeholder="Enter custom value..."
+                                        className="w-full mt-2 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
+                                      />
+                                    )}
+                                  </div>
+                                </>
+                              )}
 
                               {/* Match Type */}
                               <div>
@@ -4991,18 +5385,6 @@
                                     <span className="text-sm">Contains</span>
                                   </label>
                                 </div>
-                              </div>
-
-                              {/* Value Input */}
-                              <div>
-                                <label className="block text-sm font-medium mb-1">Value</label>
-                                <input
-                                  type="text"
-                                  value={newRuleValue}
-                                  onChange={(e) => setNewRuleValue(e.target.value)}
-                                  placeholder="e.g., HV, PV, TI"
-                                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                                />
                               </div>
 
                               {/* Color Picker */}

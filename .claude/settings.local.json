@@ -17,7 +17,8 @@
       "Bash(curl:*)",
       "Bash(timeout:*)",
       "Bash(exit 0)",
-      "Bash(start_annotator.bat)"
+      "Bash(start_annotator.bat)",
+      "Bash(./venv/Scripts/python.exe:*)"
     ],
     "deny": [],
     "ask": []
