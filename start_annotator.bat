@@ -7,15 +7,20 @@ echo    PID Annotator - Starting...
 echo ========================================
 echo.
 
-:: Check if Python is installed - try both 'python' and 'py' commands
+:: Check if Python is installed - use Windows Python Launcher to get system Python
 set PYTHON_CMD=
-python --version >nul 2>&1
+py -3.11 --version >nul 2>&1
 if not errorlevel 1 (
-    set PYTHON_CMD=python
+    set PYTHON_CMD=py -3.11
 ) else (
-    py --version >nul 2>&1
+    py -3 --version >nul 2>&1
     if not errorlevel 1 (
-        set PYTHON_CMD=py
+        set PYTHON_CMD=py -3
+    ) else (
+        py --version >nul 2>&1
+        if not errorlevel 1 (
+            set PYTHON_CMD=py
+        )
     )
 )
 
