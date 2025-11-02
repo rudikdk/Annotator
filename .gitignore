@@ -130,3 +130,4 @@ Thumbs.db
 # Application specific
 # Note: uploads and output folders are mounted as Docker volumes
 # and should be preserved, but their contents are transient
+*.md
