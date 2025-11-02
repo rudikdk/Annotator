@@ -60,8 +60,10 @@ A powerful web-based tool for automatically annotating P&ID (Piping & Instrument
    ```
 
 3. **Access the application:**
-   - Open your browser and go to: `http://your-ip:18080`
-   - The application will be available on port 18080 as specified
+   - Open your browser and go to: `http://your-ip:8080`
+   - The application will be available on port 8080 by default
+
+**For Raspberry Pi 5 specific quick start, see [RASPBERRY_PI_QUICKSTART.md](RASPBERRY_PI_QUICKSTART.md)**
 
 ### Manual Docker Build
 
@@ -74,7 +76,7 @@ docker build -t pid-annotator-web .
 # Run the container
 docker run -d \
   --name pid-annotator-web \
-  -p 18080:8080 \
+  -p 8080:8080 \
   -v $(pwd)/persistent_uploads:/app/uploads \
   -v $(pwd)/persistent_output:/app/output \
   --restart unless-stopped \
@@ -507,25 +509,71 @@ For more details, see [OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md).
 
 ## Configuration
 
-### Port Mapping
-- External port: 18080 (as requested)
-- Internal port: 8080
-- Access via: `http://localhost:18080` or `http://your-ip:18080`
+### Port Configuration
+
+**Standard Port**: 8080
+
+- **Internal container port**: 8080 (Dockerfile EXPOSE 8080)
+- **Default external port**: 8080 (docker-compose.yml)
+- **CasaOS configurable**: Change external port in CasaOS UI
+
+**Port Mapping Examples**:
+- `8080:8080` - Direct mapping (default)
+- `9000:8080` - Custom external port 9000
+- `YOUR_PORT:8080` - Any available port you choose
+
+**Accessing the Application**:
+- **Default**: `http://your-ip:8080`
+- **Custom port**: `http://your-ip:YOUR_PORT` (if you changed the external port)
+- **Local development**: `http://localhost:5001` (Flask debug server)
+
+**Changing the Port**:
+
+Edit `docker-compose.yml`:
+```yaml
+ports:
+  - "9000:8080"  # Use external port 9000 instead of 8080
+```
+
+Then restart the container:
+```bash
+docker-compose down
+docker-compose up -d
+```
 
 ### Resource Limits
+
 The application is configured with resource limits suitable for Raspberry Pi 5:
-- Memory limit: 2GB
-- CPU limit: 2 cores
+
+**4GB Model (Default)**:
+- Memory limit: 1792MB (1.75GB)
 - Memory reservation: 512MB
-- CPU reservation: 0.5 cores
+- CPU limit: 2.5 cores
+- Gunicorn workers: 1
+
+**8GB Model (Recommended changes)**:
+- Memory limit: 2560MB (2.5GB)
+- Memory reservation: 768MB
+- CPU limit: 3.0 cores
+- Gunicorn workers: 2
+
+To configure for 8GB model, edit `docker-compose.yml`:
+```yaml
+environment:
+  - GUNICORN_WORKERS=2  # Change from 1 to 2
+mem_limit: 2560m  # Change from 1792m
+mem_reservation: 768m  # Change from 512m
+cpus: 3.0  # Change from 2.5
+```
 
 ### Persistent Storage
+
 The following directories are mounted for persistent data:
 - `./persistent_uploads` → `/app/uploads` (uploaded files)
 - `./persistent_output` → `/app/output` (generated PDFs)
-- `./data` → `/app/data` (application data)
 
 ### Tag Format Support
+
 The application accepts tags in multiple formats:
 - Delimiter support: `-` and `.` (e.g., `A-B-C` or `A.B.C`)
 - Hierarchical tags: 3-5 parts (e.g., `TAG-001-A`, `SYS.PUMP.01`)
@@ -535,6 +583,7 @@ The application accepts tags in multiple formats:
 ## Architecture
 
 ### Technology Stack
+
 - **Backend**: Flask with SocketIO for real-time updates
 - **Frontend**: HTML5, CSS3, JavaScript with Bootstrap
 - **PDF Processing**: PyMuPDF (same as desktop version)
@@ -543,6 +592,7 @@ The application accepts tags in multiple formats:
 - **Web Server**: Gunicorn with eventlet workers
 
 ### File Structure
+
 ```
 pid-web-app/
 ├── app.py                 # Main Flask application
@@ -555,6 +605,8 @@ pid-web-app/
 ├── requirements.txt      # Python dependencies
 ├── Dockerfile           # Container build instructions
 ├── docker-compose.yml   # Docker Compose configuration
+├── entrypoint.sh        # Container startup script with safety checks
+├── .dockerignore        # Docker build exclusions
 └── README.md           # This file
 ```
 
@@ -574,6 +626,7 @@ pid-web-app/
    - Explicit garbage collection every 100 pages
    - PyMuPDF cache shrinking: `fitz.TOOLS.store_shrink(100)`
    - Document close/reopen between phases in streaming mode
+   - MALLOC_ARENA_MAX=2 to reduce memory fragmentation
 
 4. **Watermark Implementation**
    - ReportLab generates overlay PDF
@@ -591,6 +644,15 @@ pid-web-app/
    - Auto-trigger for first-time users (dismissible)
    - Step-by-step overlay with spotlight effects
    - Replayable from FAQ section
+
+7. **Entrypoint Safety Checks** (entrypoint.sh)
+   - Architecture verification (ARM64 check)
+   - Memory availability validation
+   - Disk space monitoring
+   - CPU temperature checks (Raspberry Pi)
+   - Port and worker count validation
+   - Automatic permission fixes for mounted volumes
+   - Comprehensive startup logging
 
 ## Configuration Profiles
 
@@ -673,47 +735,6 @@ The application includes 5 pre-configured templates:
 }
 ```
 
-## Interactive Tutorial
-
-### First-Time Experience
-
-New users automatically see an interactive tutorial:
-- Appears 1 second after page load
-- Highlights each feature with overlay
-- 10 steps covering all functionality
-- Can be skipped at any time
-
-### Tutorial Steps
-
-1. **Welcome & File Upload** - Upload area introduction
-2. **Header Row Configuration** - Excel structure setup
-3. **Tag Column Selection** - Identifying tag column
-4. **Configuration Profiles** - Templates and saved profiles
-5. **Comment Columns** - Selecting annotation content
-6. **Conditional Highlighting** - Attribute-based colors
-7. **Excel Annotation** - Excel highlighting feature
-8. **Watermark Feature** - PDF overlay labels
-9. **Start Processing** - Running full or test jobs
-10. **FAQ & Help** - Support resources
-
-### Tutorial Controls
-
-- **Next/Previous**: Navigate between steps
-- **Skip Tutorial**: Dismiss (tracked in localStorage)
-- **Progress Dots**: Visual step indicator
-- **Replay**: Available anytime from FAQ → "Start Tutorial" button
-
-### Persistence
-
-Tutorial state stored in browser localStorage:
-- `tutorial_completed`: Whether user finished tutorial
-- `tutorial_dismissed_count`: Times skipped (max 3 auto-shows)
-- `tutorial_started`: Initial trigger tracking
-
-Auto-start only for:
-- First-time visitors (no completion flag)
-- Users who dismissed < 3 times
-
 ## Deployment Comparison
 
 | Feature | Local Server (localhost:5001) | Docker/Web Deployment |
@@ -745,6 +766,7 @@ Auto-start only for:
 ## Troubleshooting
 
 ### Container Won't Start
+
 ```bash
 # Check logs
 docker-compose logs pid-annotator
@@ -757,19 +779,21 @@ systemctl status docker
 ```
 
 ### Port Already in Use
+
 ```bash
-# Check what's using port 18080 (Linux)
-sudo netstat -tulpn | grep 18080
+# Check what's using port 8080 (Linux)
+sudo netstat -tulpn | grep 8080
 
 # Check on Windows
-netstat -ano | findstr :18080
+netstat -ano | findstr :8080
 
 # Or change the port in docker-compose.yml
 ports:
-  - "19080:8080"  # Use different external port
+  - "9000:8080"  # Use different external port
 ```
 
 ### Memory Issues
+
 ```bash
 # Check system memory
 free -h  # Linux
@@ -779,22 +803,25 @@ systeminfo | findstr /C:"Available Physical Memory"  # Windows
 deploy:
   resources:
     limits:
-      memory: 1G  # Reduce from 2G
+      memory: 1G  # Reduce from 1792m if necessary
 ```
 
 ### File Upload Issues
+
 - Check that upload directories exist and have proper permissions
 - Ensure sufficient disk space is available
 - Check file size limits (default: 100MB in Flask)
 - Review session ID in browser console
 
 ### Processing Errors
+
 - Check that Excel file has the correct header row
 - Verify tag column contains valid tag formats
 - Ensure PDF is not password-protected
 - Check Docker logs for Python errors
 
 ### Performance Issues
+
 - For large files (>50MB), streaming mode activates automatically
 - Ensure sufficient CPU cores are available
 - Check memory usage with `docker stats`
@@ -804,6 +831,26 @@ deploy:
   pid_annotator_core.PARALLEL_INDEXING_ENABLED = False
   ```
 
+### Raspberry Pi Specific Issues
+
+**Temperature Throttling:**
+- Monitor temperature: `vcgencmd measure_temp`
+- Warning threshold: 65°C
+- Throttling threshold: 75°C
+- Solution: Improve cooling (heatsink/fan)
+
+**SD Card Performance:**
+- Use Class 10 or UHS-I SD card
+- Consider SSD via USB 3.0 for better performance
+- Monitor disk I/O with `iostat`
+
+**Memory Pressure:**
+- Reduce Gunicorn workers from 2 to 1
+- Lower memory limit in docker-compose.yml
+- Close unnecessary services
+
+For Raspberry Pi specific quick start and troubleshooting, see [RASPBERRY_PI_QUICKSTART.md](RASPBERRY_PI_QUICKSTART.md).
+
 ## Security Notes
 
 - The application runs as a non-root user (`appuser`) inside the container
@@ -812,6 +859,7 @@ deploy:
 - Resource limits prevent resource exhaustion
 - Filenames are namespaced with session IDs
 - Automatic file cleanup after 24 hours
+- Entrypoint script performs security validation before startup
 
 ## WebSocket Events
 
@@ -854,57 +902,338 @@ See `process_files()` in [app.py](app.py:200) for implementation details.
 
 ## FAQ
 
-The web application includes a **comprehensive FAQ modal** with categorized help topics:
+The web application includes a **comprehensive FAQ modal** with categorized help topics. Below are the most frequently asked questions:
 
-### FAQ Categories
+### Getting Started
 
-1. **Getting Started** (3 questions)
-   - How to start using PID Annotator
-   - Excel header row configuration
-   - Tag column selection
+**Q1: How do I start using the PID Annotator?**
 
-2. **Features & Configuration** (7 questions)
-   - Configuration profiles explained
-   - Start vs Test Run differences
-   - Excel annotation details
-   - Watermark feature guide
-   - Conditional highlighting
-   - Multi-PDF processing
-   - HTML Report generation and usage
+A: Follow these steps:
+1. Upload your Excel file containing component tags
+2. Upload one or more PDF files you want to annotate
+3. Configure the header row (default is row 6)
+4. Select which column contains your tags
+5. (Optional) Load a configuration profile for quick setup
+6. Click "Start" to begin processing
 
-3. **Troubleshooting** (6 questions)
-   - Tags not found in PDF
-   - Slow processing for large files
-   - File size limits
-   - File storage duration
-   - Different Excel structures
-   - HTML Report not downloading
+For first-time users, an interactive tutorial will guide you through the process.
 
-4. **Technical Details** (6 questions)
-   - Supported tag formats
-   - PDF annotation content
-   - Output file locations
-   - Parallel processing explanation
-   - Streaming mode details
-   - HTML Report structure and format
+**Q2: What is the header row and how do I set it?**
 
-5. **About & Licenses** (2 questions)
-   - Python library licenses
-   - Application creator info
+A: The header row is the row in your Excel file that contains column names (like "Tag", "Description", "Location"). By default, the application expects it to be row 6, but you can change it in the configuration section. The header row number refers to the Excel row number (visible in Excel), not a zero-based index.
 
-### FAQ Features
+**Q3: How do I select the tag column?**
 
-- **Searchable**: Real-time search across all questions and answers
-- **Categorized**: Organized by topic with icon badges
-- **Interactive**: Click categories to browse specific topics
-- **Tutorial Link**: Launch interactive tutorial directly from FAQ
-- **Question Count**: See number of questions per category
+A: After uploading your Excel file and setting the header row, a dropdown menu will appear showing all available columns. Select the column that contains your component tags (e.g., "Tag", "Component ID", etc.). This is the column the application will use to search for tags in your PDF.
 
-### Accessing the FAQ
+**Q4: What are configuration profiles and how do I use them?**
 
-- Click the "FAQ" button in the top-right corner of the application
-- Press during tutorial to learn about help resources
-- Searchable interface helps find answers quickly
+A: Configuration profiles let you save and reuse your settings. The application includes 5 built-in templates:
+- **Minimal Setup**: Fast processing with just tag highlighting
+- **Standard Documentation**: Balanced features for typical use
+- **Production Ready**: All features enabled for comprehensive documentation
+- **Quick Review**: Optimized for test runs
+- **Excel Focus**: Prioritizes Excel annotation
+
+You can also create custom profiles by configuring your settings and clicking "Save" in the Configuration Profiles section.
+
+---
+
+### Features & Configuration
+
+**Q5: What's the difference between "Start" and "Test Run"?**
+
+A:
+- **Start**: Processes all tags from your Excel file and creates complete annotated PDFs
+- **Test Run**: Processes only the first 100 tags for quick validation
+
+Use Test Run to verify your configuration before running the full processing job, especially for large files.
+
+**Q6: What does Excel annotation do?**
+
+A: When Excel annotation is enabled, the application highlights tags in your Excel file with a green background color to indicate which tags were successfully found in the PDF. This provides a quick visual reference of annotation coverage. The annotated Excel file is available for download after processing completes.
+
+**Q7: How does the watermark feature work?**
+
+A: The watermark feature adds text overlays near each found tag in the PDF. You can select which Excel columns to display (e.g., "Description", "Location") and customize the text color. Watermarks are positioned automatically near the tag location and help provide context without opening the Excel file.
+
+**Q8: What is conditional highlighting?**
+
+A: Conditional highlighting allows you to change the highlight color based on values in a specific Excel column. For example, you could highlight all "Critical" components in red while keeping others yellow. Select the attribute column and choose the highlight color in the configuration section.
+
+**Q9: Can I process multiple PDF files at once?**
+
+A: Yes! The application supports batch processing of multiple PDFs with a single Excel file. Simply drag and drop or select multiple PDF files when uploading. All PDFs will be processed sequentially, and each will get its own annotated output file. Progress is shown for all files combined.
+
+**Q10: What is the HTML Report and how do I use it?**
+
+A: The HTML Report is an interactive document generated after processing that shows:
+- Summary statistics (found/not found tags, duplicates, warnings)
+- Detailed tables of all tags with page locations and bookmarks
+- Real-time search and filter capabilities
+- Export to Excel functionality
+- Print-ready formatting
+
+Download the report after processing completes and open it in any web browser. You can search for specific tags, sort by any column, filter results, and export filtered data to Excel for further analysis.
+
+**Q11: How do I export HTML Report data to Excel?**
+
+A: In the HTML Report:
+1. (Optional) Use the search box to filter results
+2. Click the "Export Filtered Data (Excel)" button
+3. The browser will download an Excel file containing all visible/filtered data
+4. The Excel file includes all sections: Found Tags, Not Found, Duplicates, and Warnings
+
+Note: Export functionality requires internet connection for the SheetJS library (loaded via CDN).
+
+---
+
+### Troubleshooting
+
+**Q12: Why aren't my tags being found in the PDF?**
+
+A: Common reasons and solutions:
+- **Wrong tag format**: Tags must be 3-5 parts with hyphens or periods (e.g., A-B-C, A.B.C)
+- **OCR quality**: If your PDF is scanned, poor OCR quality can affect tag recognition
+- **Case sensitivity**: Try normalizing case in your Excel file
+- **Extra spaces**: Remove leading/trailing spaces in Excel tags
+- **Wrong column**: Verify you selected the correct tag column
+
+Run a Test Run with 100 tags to quickly identify the issue before processing all tags.
+
+**Q13: Processing is slow for large files. Is this normal?**
+
+A: Yes, processing time depends on file size and page count:
+- Small files (10 pages): ~7 seconds
+- Medium files (100 pages): ~18 seconds
+- Large files (500 pages): ~2-3 minutes
+- Very large files (1000 pages): ~6 minutes
+
+For files over 50MB, the application automatically switches to streaming mode which is slower but uses less memory. Enable parallel processing to speed up large files (enabled by default for files with >20 pages).
+
+**Q14: What are the file size limits?**
+
+A:
+- **Upload limit**: 100MB per file (configurable in Flask)
+- **Recommended**: Under 200MB for optimal performance
+- **Streaming mode**: Automatically activated for files ≥50MB
+- **Very large files** (>200MB): May take 10+ minutes to process
+
+If you need to process larger files, consider splitting them into smaller PDFs or increasing the upload limit and resource allocation.
+
+**Q15: How long are my files stored?**
+
+A: Files are automatically deleted after 24 hours. This includes:
+- Uploaded PDFs and Excel files
+- Generated annotated PDFs
+- HTML reports
+
+Download important files immediately after processing. Use the "Clear All" button to manually delete files sooner if needed.
+
+**Q16: Can I use different Excel structures?**
+
+A: Yes! The application is flexible:
+- Set the correct header row number (default: 6)
+- Choose any column as the tag column
+- Select multiple comment columns
+- Tag format must still be 3-5 part hierarchical format (A-B-C)
+
+The application will parse your Excel structure based on your configuration.
+
+**Q17: Why won't my HTML Report download?**
+
+A: Common issues:
+- **Browser popup blocker**: Allow popups for the application URL
+- **Insufficient disk space**: Free up space on your computer
+- **Large report size**: Reports with 10,000+ tags may be slow to generate
+- **Browser compatibility**: Use Chrome 90+, Firefox 88+, Safari 14+, or Edge 90+
+
+Check the browser console (F12) for specific error messages.
+
+---
+
+### Technical Details
+
+**Q18: What tag formats are supported?**
+
+A: The application supports hierarchical tags with 3-5 parts:
+- **Delimiters**: Hyphens (`-`) or periods (`.`)
+- **Examples**:
+  - `A-B-C` (3 parts)
+  - `TAG-001-A` (3 parts)
+  - `SYS.PUMP.01` (3 parts)
+  - `A-B-C-D` (4 parts)
+  - `A.B.C.D.E` (5 parts)
+- **Not supported**: Tags with fewer than 3 or more than 5 parts
+
+Tags are matched case-insensitively, and both delimiters are accepted regardless of which is used in the Excel file.
+
+**Q19: What information is added to the PDF annotations?**
+
+A: Each annotation includes:
+- **Highlight**: Yellow (or custom color) highlight around the tag
+- **Note/Comment**: Contains selected comment columns from Excel (e.g., Description, Location)
+- **Watermark** (if enabled): Text overlay near tag with selected attributes
+- **Bookmark reference**: Tagged with PDF bookmark name if available
+
+Annotations are visible when opening the PDF in any standard PDF reader.
+
+**Q20: Where are output files stored?**
+
+A: Files are stored in session-namespaced directories:
+- **Uploads**: `/app/uploads/{session_id}_{filename}`
+- **Output**: `/app/output/{session_id}_{filename}`
+- **Persistent volumes**: Mapped to host directories via Docker volumes
+
+Files are isolated by session ID to prevent conflicts between users. After 24 hours, files are automatically deleted.
+
+**Q21: What is parallel processing and how does it work?**
+
+A: Parallel processing uses multiple CPU cores to process PDF pages simultaneously:
+- **Enabled by default** for PDFs with >20 pages
+- **Worker count**: Automatically set to CPU cores minus 1
+- **Speed improvement**: Up to 2.5x faster for medium/large files
+- **Memory usage**: Slightly higher but still within limits
+
+On Raspberry Pi 5, parallel processing is optimized for 4-core CPU with configurable worker count (1 for 4GB model, 2 for 8GB model).
+
+**Q22: What is streaming mode?**
+
+A: Streaming mode is automatically activated for files ≥50MB:
+- **Chunk-based processing**: Processes file in segments rather than loading entirely into memory
+- **Memory efficiency**: Reduces RAM usage for very large files
+- **Document reopen**: Closes and reopens PDF between processing phases
+- **Explicit garbage collection**: Runs every 100 pages to free memory
+
+This allows processing of files up to 200MB+ on Raspberry Pi 5 without running out of memory.
+
+**Q23: How are bookmarks used in the HTML Report?**
+
+A: PDF bookmarks (section markers) are extracted during processing:
+- Each tag is associated with the bookmark of the page where it's found
+- The HTML Report shows bookmark names in the "Bookmarks" column (e.g., "Sheet 1", "Process Flow")
+- Helps identify which drawing section contains each tag
+- If no bookmarks exist in the PDF, "N/A" is displayed
+
+Bookmarks provide context for where components are located in large multi-sheet PDFs.
+
+---
+
+### Deployment & Docker
+
+**Q24: Why use Docker instead of running locally?**
+
+A: Docker deployment offers several advantages:
+- **Consistency**: Same environment on any system
+- **Isolation**: No conflicts with other Python applications
+- **Auto-restart**: Container automatically restarts if it crashes
+- **Multi-user**: Session-based isolation for concurrent users
+- **Production-ready**: Gunicorn server with proper resource limits
+- **Easy updates**: Pull new version and restart
+- **CasaOS integration**: One-click installation on compatible systems
+
+Local development (localhost:5001) is still available for testing and development.
+
+**Q25: What is port 8080 and can I change it?**
+
+A: Port 8080 is the standard port where the application listens inside the Docker container:
+- **Internal port**: Always 8080 (Dockerfile EXPOSE 8080)
+- **External port**: Configurable in docker-compose.yml (default: 8080)
+- **Accessing**: `http://your-ip:8080` (default) or `http://your-ip:YOUR_PORT` (custom)
+
+To change the external port, edit docker-compose.yml:
+```yaml
+ports:
+  - "9000:8080"  # Access via port 9000 instead
+```
+
+**Q26: What is CasaOS and how do I deploy to it?**
+
+A: CasaOS is a home server operating system that simplifies Docker app deployment:
+- **One-click install**: Use the CasaOS app store (if available)
+- **Manual installation**: Import docker-compose.yml via CasaOS UI
+- **Configuration**: Edit environment variables and ports in UI
+- **Labeled for CasaOS**: Application includes CasaOS metadata labels
+
+The docker-compose.yml file includes CasaOS-specific labels for proper integration (app name, icon, category, etc.).
+
+**Q27: How do I configure for Raspberry Pi 5 (4GB vs 8GB)?**
+
+A: The default configuration is optimized for the 4GB model. For 8GB:
+
+Edit `docker-compose.yml`:
+```yaml
+environment:
+  - GUNICORN_WORKERS=2  # Change from 1
+mem_limit: 2560m  # Change from 1792m
+mem_reservation: 768m  # Change from 512m
+cpus: 3.0  # Change from 2.5
+tmpfs:
+  - /tmp:size=512M  # Change from 384M
+  - /app/.cache:size=256M  # Change from 192M
+```
+
+See [RASPBERRY_PI_QUICKSTART.md](RASPBERRY_PI_QUICKSTART.md) for detailed instructions.
+
+**Q28: What does entrypoint.sh do?**
+
+A: The entrypoint script (entrypoint.sh) performs comprehensive safety checks before starting the application:
+- **Architecture verification**: Confirms ARM64 platform (Raspberry Pi 5)
+- **Memory validation**: Checks available memory (warns if <1500MB)
+- **Disk space check**: Ensures sufficient disk space (warns if <1000MB)
+- **CPU temperature**: Monitors temperature on Raspberry Pi (warns if >70°C)
+- **Port validation**: Verifies PORT is numeric and in valid range
+- **Worker count validation**: Checks GUNICORN_WORKERS configuration
+- **Permission fixes**: Automatically fixes mounted volume permissions
+- **Application verification**: Confirms all required files exist
+
+The script logs all checks and switches to non-root user (appuser) before starting the application.
+
+---
+
+### About & License
+
+**Q29: What Python libraries are used?**
+
+A: Key dependencies:
+- **Flask**: Web framework
+- **Flask-SocketIO**: Real-time WebSocket communication
+- **PyMuPDF (fitz)**: PDF processing and annotation
+- **openpyxl**: Excel file manipulation
+- **pandas**: Data processing
+- **ReportLab**: PDF watermark generation
+- **PyPDF2**: PDF merging
+- **Gunicorn**: Production WSGI server
+- **eventlet**: Async worker for WebSocket support
+
+See [requirements.txt](requirements.txt) for complete list with versions.
+
+**Q30: Who created this application?**
+
+A: PID Annotator was created by **Rudi S. Kærgaard** (rudikdk@gmail.com).
+
+- **Desktop version**: Original standalone application
+- **Web version**: Flask-based web application with Docker support
+- **Optimization**: Raspberry Pi 5 specific performance tuning
+- **License**: See project repository for license information
+
+**Q31: How do I replay the interactive tutorial?**
+
+A: To replay the tutorial:
+1. Click the "FAQ" button in the top-right corner
+2. Scroll to the bottom of the FAQ modal
+3. Click the "Start Tutorial" button
+4. The tutorial will restart from step 1
+
+This is useful for training new team members or refreshing your memory about features.
+
+---
+
+**Additional Help**: For more detailed information, see:
+- [RASPBERRY_PI_QUICKSTART.md](RASPBERRY_PI_QUICKSTART.md) - Quick start for Raspberry Pi 5
+- [CLAUDE.md](CLAUDE.md) - Developer documentation
+- [OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md) - Performance tuning guide
+- [Troubleshooting Section](#troubleshooting) - Common issues and solutions
 
 ---
 
@@ -978,6 +1307,7 @@ For issues or questions:
 - Check Docker logs for error messages: `docker-compose logs pid-annotator`
 - Review [CLAUDE.md](CLAUDE.md) for development guidance
 - Review [OPTIMIZATION_GUIDE.md](OPTIMIZATION_GUIDE.md) for performance tuning
+- See [RASPBERRY_PI_QUICKSTART.md](RASPBERRY_PI_QUICKSTART.md) for Raspberry Pi 5 specific help
 
 ## Credits
 
@@ -1015,18 +1345,20 @@ See project repository for license information.
   - Visual progress indicators
 
 - **Comprehensive FAQ System**
-  - 21+ questions across 5 categories
+  - 30+ questions across 5 categories
   - Real-time search functionality
   - Category-based navigation with icons
   - Expandable answers with detailed explanations
   - Direct tutorial launch from FAQ
 
 - **Improved Documentation**
-  - Common workflows section with 4 scenarios
+  - Common workflows section with 5 scenarios
   - Step-by-step usage examples
   - Known limitations documented
   - Enhanced troubleshooting guide
   - Table of contents for easy navigation
+  - Port configuration clarification (8080)
+  - Raspberry Pi 5 specific deployment guide
 
 ### Earlier Updates (v2.0)
 
@@ -1040,3 +1372,6 @@ See project repository for license information.
 - **Session Management**: UUID-based session isolation
 - **Auto-Cleanup**: 24-hour file retention policy
 - **React 18 Frontend**: Modern UI with TailwindCSS and dark mode
+- **Docker Optimization**: Multi-stage builds, BuildKit caching, ARM64 support
+- **Entrypoint Safety Checks**: Comprehensive startup validation and permission fixes
+- **Memory Optimization**: MALLOC_ARENA_MAX=2, tmpfs mounts, garbage collection
