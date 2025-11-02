@@ -991,7 +991,7 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
                                   enable_default_color=True, excel_tags_set=None,
                                   excel_constraint_mode=False, excel_constraint_logic="AND",
                                   tag_filters=None, filter_logic="AND",
-                                  progress_callback=None, page_bookmark_map=None):
+                                  progress_callback=None, page_bookmark_map=None, df=None, tag_col=None, header_row=6):
     """
     Apply color rules to ALL text in the PDF that matches tag patterns, with optional Excel constraints.
 
@@ -1042,6 +1042,38 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
     if excel_tags_set is None:
         excel_tags_set = set()
 
+    # Build mapping from tag to Excel row data if df is provided
+    tag_to_row_data = {}
+    if df is not None and tag_col is not None:
+        import pandas as pd
+        for idx, row in df.iterrows():
+            tag = str(row[tag_col]).strip()
+            if not tag or tag.lower() == 'nan':
+                continue
+
+            # Normalize tag for matching
+            normalized_tag = tag.upper()
+
+            # Build row data dict with all Excel columns
+            excel_row_num = header_row + 1 + idx
+            row_dict = {'excel_row': excel_row_num}
+            for col in df.columns:
+                row_dict[col] = row[col] if pd.notna(row[col]) else ''
+
+            # Store with ALL variants of the tag as keys to handle both dash and dot delimiters
+            tag_variants = set()
+            tag_variants.add(normalized_tag)  # Original format
+
+            # Generate dash and dot variants
+            if '-' in normalized_tag:
+                tag_variants.add(convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."))
+            elif '.' in normalized_tag:
+                tag_variants.add(convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-"))
+
+            # Store row data for each variant
+            for variant in tag_variants:
+                tag_to_row_data[variant] = row_dict
+
     # Process all tags found in the PDF
     for tag_text, locations in tag_index.items():
         # Check if tag is in Excel list
@@ -1065,6 +1097,8 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
 
         # Determine if this tag should be colored based on constraint mode
         should_color = False
+        coloring_reason = "Not colored"
+
         if not excel_constraint_mode:
             # No constraint - color all tags (or filtered tags if filters are enabled)
             if passes_filters:
@@ -1072,34 +1106,63 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
                 if highlight_color is not None:
                     # Has a color rule match
                     should_color = True
+                    if matched_rule_id:
+                        coloring_reason = f"Color rule matched (Rule ID: {matched_rule_id})"
+                    else:
+                        coloring_reason = "Color rule matched"
                 elif enable_default_color:
                     # No rule match but default color enabled
                     should_color = True
                     highlight_color = default_highlight_color
+                    coloring_reason = "Default color (no specific rule matched)"
+            else:
+                coloring_reason = "Excluded by tag filters"
         elif excel_constraint_logic == 'AND':
             # AND logic: Tag must be in Excel AND (match a color rule OR use default color)
             if in_excel:
                 if matched_rule_id is not None:
                     should_color = True
+                    coloring_reason = f"Excel tag with color rule (Rule ID: {matched_rule_id})"
                 elif enable_default_color:
                     # Use default color for Excel tags that don't match any specific rule
                     should_color = True
                     if not highlight_color:
                         highlight_color = default_highlight_color
+                    coloring_reason = "Excel tag with default color"
+                else:
+                    coloring_reason = "In Excel but no color rule matched"
+            else:
+                coloring_reason = "Not in Excel (AND constraint active)"
         elif excel_constraint_logic == 'OR':
             # OR logic: Color if (tag passes filters AND matches rules) OR tag is in Excel
             if passes_filters and highlight_color is not None:
                 # Tag matches filters and has a color rule
                 should_color = True
+                if matched_rule_id:
+                    coloring_reason = f"Color rule matched (Rule ID: {matched_rule_id})"
+                else:
+                    coloring_reason = "Color rule matched"
             elif in_excel:
                 # Tag is in Excel - use matched color or default
                 should_color = True
                 if not highlight_color and enable_default_color:
                     highlight_color = default_highlight_color
+                if matched_rule_id:
+                    coloring_reason = f"Excel tag with color rule (Rule ID: {matched_rule_id})"
+                else:
+                    coloring_reason = "Excel tag with default color"
             elif passes_filters and enable_default_color:
                 # Tag passes filters but has no specific rule - use default color
                 should_color = True
                 highlight_color = default_highlight_color
+                coloring_reason = "Passed filters with default color"
+            else:
+                if not passes_filters:
+                    coloring_reason = "Excluded by tag filters"
+                elif not in_excel:
+                    coloring_reason = "Not in Excel (OR constraint active)"
+                else:
+                    coloring_reason = "No color rules matched"
 
         # Track page-level statistics for all tags
         for page_num, rects, original_tag in locations:
@@ -1130,8 +1193,14 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
                 'tag': tag_text,
                 'found_text': original_tag,
                 'in_excel': bool(in_excel),
-                'colored': False
+                'colored': False,
+                'coloring_reason': coloring_reason
             }
+
+            # Add row_data if tag is in Excel and we have the data
+            if in_excel and tag_text in tag_to_row_data:
+                detail_entry['row_data'] = tag_to_row_data[tag_text]
+
             page_stats[page_num]['tag_details'].append(detail_entry)
             detail_lookup[occurrence_key] = detail_entry
 
@@ -1168,6 +1237,9 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
                 detail_entry = detail_lookup.get(occurrence_key)
                 if detail_entry:
                     detail_entry['colored'] = True
+                    # Update coloring reason to reflect that it was actually colored
+                    if 'Not colored' in detail_entry.get('coloring_reason', ''):
+                        detail_entry['coloring_reason'] = coloring_reason
 
             except Exception as e:
                 print(f"Error coloring tag {tag_text} on page {page_num}: {e}")
@@ -1180,7 +1252,7 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
     }
 
 
-def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None):
+def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None, df=None, tag_col=None, header_row=6):
     """
     Build page-level statistics for all tags in the tag index.
     This shows how many tags were found per page, regardless of coloring.
@@ -1189,6 +1261,9 @@ def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None
         tag_index: Pre-built tag index from build_tag_index()
         page_bookmark_map: dict mapping page numbers to bookmark titles (optional)
         excel_tags_set: Set of tags from Excel to mark as "colored" (optional)
+        df: DataFrame with Excel data (optional, for including row_data)
+        tag_col: Column name containing tags in Excel (optional)
+        header_row: Excel header row number (1-based) for row number tracking (default: 6)
 
     Returns:
         dict: Page statistics {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title'}}
@@ -1210,6 +1285,38 @@ def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None
         else:
             coords = tuple()
         return (page_num, original_tag.upper(), coords)
+
+    # Build mapping from tag to Excel row data if df is provided
+    tag_to_row_data = {}
+    if df is not None and tag_col is not None:
+        import pandas as pd
+        for idx, row in df.iterrows():
+            tag = str(row[tag_col]).strip()
+            if not tag or tag.lower() == 'nan':
+                continue
+
+            # Normalize tag for matching
+            normalized_tag = tag.upper()
+
+            # Build row data dict with all Excel columns
+            excel_row_num = header_row + 1 + idx
+            row_dict = {'excel_row': excel_row_num}
+            for col in df.columns:
+                row_dict[col] = row[col] if pd.notna(row[col]) else ''
+
+            # Store with ALL variants of the tag as keys to handle both dash and dot delimiters
+            tag_variants = set()
+            tag_variants.add(normalized_tag)  # Original format
+
+            # Generate dash and dot variants
+            if '-' in normalized_tag:
+                tag_variants.add(convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."))
+            elif '.' in normalized_tag:
+                tag_variants.add(convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-"))
+
+            # Store row data for each variant
+            for variant in tag_variants:
+                tag_to_row_data[variant] = row_dict
 
     # Process all tags found in the PDF
     for tag_text, locations in tag_index.items():
@@ -1242,12 +1349,26 @@ def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None
             if in_excel:
                 page_stats[page_num]['colored_count'] += 1
 
-            page_stats[page_num]['tag_details'].append({
+            # Determine coloring reason
+            if in_excel:
+                coloring_reason = "Tag found in Excel list"
+            else:
+                coloring_reason = "Tag not in Excel list"
+
+            # Create tag detail entry
+            tag_detail = {
                 'tag': tag_text,
                 'found_text': original_tag,
                 'in_excel': bool(in_excel),
-                'colored': bool(in_excel)
-            })
+                'colored': bool(in_excel),
+                'coloring_reason': coloring_reason
+            }
+
+            # Add row_data if tag is in Excel and we have the data
+            if in_excel and tag_text in tag_to_row_data:
+                tag_detail['row_data'] = tag_to_row_data[tag_text]
+
+            page_stats[page_num]['tag_details'].append(tag_detail)
 
     return page_stats
 
@@ -1426,10 +1547,16 @@ def process_annotations_from_index(
 
         if not tag_locations:
             # Tag not found in PDF - add to report
+            # Build row_data dict with all Excel columns
+            row_dict = {'excel_row': excel_row}
+            for col in df.columns:
+                row_dict[col] = row[col] if pd.notna(row[col]) else ''
+
             report_data['not_found'].append({
                 'tag': tag,
                 'excel_row': excel_row,
-                'reason': 'not_in_pdf'
+                'reason': 'not_in_pdf',
+                'row_data': row_dict
             })
             continue  # Tag not found in PDF
         
@@ -1605,12 +1732,18 @@ def process_annotations_from_index(
             else:
                 bookmarks = ["N/A"] * len(pages)
 
+            # Build row_data dict with all Excel columns
+            row_dict = {'excel_row': excel_row}
+            for col in df.columns:
+                row_dict[col] = row[col] if pd.notna(row[col]) else ''
+
             report_data['found'].append({
                 'tag': tag,
                 'pages': pages,
                 'bookmarks': bookmarks,
                 'occurrence_count': len(tag_locations),
-                'excel_row': excel_row
+                'excel_row': excel_row,
+                'row_data': row_dict
             })
 
     # Process duplicate detection
@@ -1886,9 +2019,22 @@ def _annotate_pdf_standard(
             if not tag or tag.lower() == 'nan':
                 continue
             if apply_tag_filters(tag, tag_filters, filter_logic, row_data=row):
-                excel_tags_set.add(tag)
+                # Add all variants of the tag (normalized and with different delimiters)
+                normalized = tag.upper()
+                excel_tags_set.add(normalized)
+                if '-' in normalized:
+                    excel_tags_set.add(convert_tag_format(normalized, from_delimiter="-", to_delimiter="."))
+                elif '.' in normalized:
+                    excel_tags_set.add(convert_tag_format(normalized, from_delimiter=".", to_delimiter="-"))
     else:
-        excel_tags_set = set(tags)
+        # Add all variants of all tags
+        for tag in tags:
+            normalized = tag.upper()
+            excel_tags_set.add(normalized)
+            if '-' in normalized:
+                excel_tags_set.add(convert_tag_format(normalized, from_delimiter="-", to_delimiter="."))
+            elif '.' in normalized:
+                excel_tags_set.add(convert_tag_format(normalized, from_delimiter=".", to_delimiter="-"))
 
     # PHASE 1.5: Apply color rules to ALL matching text in PDF (if color rules provided OR default color enabled)
     color_stats = None
@@ -1902,7 +2048,10 @@ def _annotate_pdf_standard(
             excel_constraint_logic=excel_constraint_logic,
             tag_filters=tag_filters,
             filter_logic=filter_logic,
-            page_bookmark_map=page_bookmark_map
+            page_bookmark_map=page_bookmark_map,
+            df=df,
+            tag_col=tag_col,
+            header_row=header_row
         )
         print(f"Colored {color_stats['colored_tags']} out of {color_stats['total_tags']} tag occurrences based on color rules.")
 
@@ -1950,7 +2099,10 @@ def _annotate_pdf_standard(
         report_data['page_stats'] = build_page_statistics(
             tag_index,
             page_bookmark_map=page_bookmark_map,
-            excel_tags_set=excel_tags_set
+            excel_tags_set=excel_tags_set,
+            df=df,
+            tag_col=tag_col,
+            header_row=header_row
         )
 
     # Merge annotation statistics from process_annotations_from_index
@@ -2357,25 +2509,38 @@ def _annotate_pdf_streaming(
     # Build page statistics if not already included in report_data
     if 'page_stats' not in report_data or not report_data['page_stats']:
         update_progress(96, "Building page statistics...")
-        # Build excel_tags_set from filtered tags
+        # Build excel_tags_set from filtered tags with all variants
         tags = df[tag_col].dropna().unique().tolist()
         excel_tags_set = set()
         if tag_filters:
             for tag in tags:
                 tag_str = str(tag).strip()
-                normalized_tag = normalize_tag(tag_str)
+                normalized_tag = tag_str.upper()
                 if _apply_tag_filters(tag_str, tag_filters, filter_logic):
+                    # Add all variants of the tag (normalized and with different delimiters)
                     excel_tags_set.add(normalized_tag)
+                    if '-' in normalized_tag:
+                        excel_tags_set.add(convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."))
+                    elif '.' in normalized_tag:
+                        excel_tags_set.add(convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-"))
         else:
             for tag in tags:
                 tag_str = str(tag).strip()
-                normalized_tag = normalize_tag(tag_str)
+                normalized_tag = tag_str.upper()
+                # Add all variants of the tag
                 excel_tags_set.add(normalized_tag)
+                if '-' in normalized_tag:
+                    excel_tags_set.add(convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."))
+                elif '.' in normalized_tag:
+                    excel_tags_set.add(convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-"))
 
         report_data['page_stats'] = build_page_statistics(
             tag_index,
             page_bookmark_map=page_bookmark_map,
-            excel_tags_set=excel_tags_set
+            excel_tags_set=excel_tags_set,
+            df=df,
+            tag_col=tag_col,
+            header_row=header_row
         )
 
     # Merge annotation statistics from process_annotations_from_index (same as standard mode)

@@ -762,7 +762,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
         if has_details:
             detail_entries = []
-            for detail in tag_details:
+            for detail_idx, detail in enumerate(tag_details):
                 detected_text = detail.get('found_text') or detail.get('tag') or 'N/A'
                 normalized_tag = detail.get('tag') or 'N/A'
                 excel_match = bool(detail.get('in_excel'))
@@ -788,15 +788,80 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
                     elif 'not' in reason_lower or 'none' in reason_lower:
                         reason_class = 'reason-none'
 
-                detail_entries.append(
-                    f'''                                    <tr>
-                                        <td>{detected_text}</td>
+                # Check if this tag has Excel row data
+                row_data = detail.get('row_data', {})
+                has_row_data = len(row_data) > 0
+                tag_excel_detail_id = f"pageStatsTagDetail{idx}_{detail_idx}"
+
+                # Build toggle button if we have row data
+                toggle_button_html = ''
+                if has_row_data:
+                    toggle_button_html = (
+                        f'<button type="button" class="page-tag-excel-toggle" '
+                        f'aria-expanded="false" aria-controls="{tag_excel_detail_id}" '
+                        f'onclick="return togglePageTagExcel(\'{tag_excel_detail_id}\', this);">'
+                        f'<span class="chevron-small">▼</span>'
+                        f'</button>'
+                    )
+
+                # Main tag row
+                tag_row_html = f'''                                    <tr class="page-tag-summary-row" {('data-excel-detail-id="' + tag_excel_detail_id + '"') if has_row_data else ''}>
+                                        <td>
+                                            <div class="page-tag-cell">
+                                                {toggle_button_html}
+                                                <span>{detected_text}</span>
+                                            </div>
+                                        </td>
                                         <td class="detail-tag">{normalized_tag}</td>
                                         <td><span class="status-badge {excel_class}">{excel_label}</span></td>
                                         <td><span class="status-badge {colored_class}">{colored_label}</span></td>
                                         <td><span class="coloring-reason {reason_class}">{coloring_reason}</span></td>
                                     </tr>'''
-                )
+
+                detail_entries.append(tag_row_html)
+
+                # Add Excel row data detail row if available
+                if has_row_data:
+                    # Get column headers from row data (excluding excel_row as it's shown separately)
+                    headers = [col for col in row_data.keys() if col != 'excel_row']
+
+                    # Build detail table with single row of data
+                    detail_table_cells = []
+                    detail_table_cells.append(f'<td class="excel-row">{row_data.get("excel_row", "")}</td>')
+                    for header in headers:
+                        value = row_data.get(header, "")
+                        # Convert to string and escape HTML
+                        value_str = str(value) if value != "" else ""
+                        detail_table_cells.append(f'<td>{value_str}</td>')
+
+                    detail_row_html = f'''                                    <tr>
+                                        {chr(10).join(detail_table_cells)}
+                                    </tr>'''
+
+                    # Build header row for detail table
+                    header_cells = ['<th>Excel Row</th>'] + [f'<th>{h}</th>' for h in headers]
+                    header_row_html = '\n                                            '.join(header_cells)
+
+                    excel_detail_row = f'''                                    <tr id="{tag_excel_detail_id}" class="page-tag-excel-row hidden">
+                                        <td colspan="5">
+                                            <div class="page-tag-excel-panel">
+                                                <div class="page-tag-excel-header">
+                                                    <span class="page-tag-excel-title">Excel Data: {normalized_tag}</span>
+                                                </div>
+                                                <table class="page-tag-excel-table">
+                                                    <thead>
+                                                        <tr>
+                                                            {header_row_html}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+{detail_row_html}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </td>
+                                    </tr>'''
+                    detail_entries.append(excel_detail_row)
 
             detail_rows_html = '\n'.join(detail_entries)
             detail_row = f'''                    <tr id="{detail_id}" class="page-detail-row hidden">
@@ -1382,6 +1447,96 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             font-family: 'Courier New', monospace;
             font-weight: 600;
             color: #1d4ed8;
+        }}
+
+        /* Nested page tag Excel detail styles */
+        .page-tag-cell {{
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+
+        .page-tag-excel-toggle {{
+            width: 20px;
+            height: 20px;
+            border: none;
+            border-radius: 4px;
+            background: #dbeafe;
+            color: #1e40af;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s ease;
+            font-size: 10px;
+        }}
+
+        .page-tag-excel-toggle:hover {{
+            background: #bfdbfe;
+        }}
+
+        .page-tag-excel-toggle:focus {{
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.25);
+        }}
+
+        .page-tag-excel-toggle .chevron-small {{
+            font-size: 10px;
+            transition: transform 0.2s ease;
+        }}
+
+        .page-tag-excel-toggle.open .chevron-small {{
+            transform: rotate(180deg);
+        }}
+
+        .page-tag-excel-row td {{
+            background: #f0f9ff;
+            padding: 0;
+        }}
+
+        .page-tag-excel-panel {{
+            background: #ffffff;
+            padding: 12px 16px;
+            border-top: 1px solid #bfdbfe;
+            border-left: 3px solid #3b82f6;
+            margin: 4px 0;
+        }}
+
+        .page-tag-excel-header {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 8px;
+        }}
+
+        .page-tag-excel-title {{
+            font-size: 13px;
+            font-weight: 600;
+            color: #1e40af;
+        }}
+
+        .page-tag-excel-table {{
+            width: 100%;
+            border-collapse: collapse;
+        }}
+
+        .page-tag-excel-table th,
+        .page-tag-excel-table td {{
+            padding: 8px 10px;
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 12px;
+            text-align: left;
+        }}
+
+        .page-tag-excel-table th {{
+            background: #eff6ff;
+            color: #1e3a8a;
+            font-weight: 600;
+        }}
+
+        .page-tag-excel-table tr:last-child td {{
+            border-bottom: none;
         }}
 
         .status-badge {{
@@ -2181,6 +2336,28 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         }}
 
         function toggleWarningDetail(detailId, trigger) {{
+            const row = document.getElementById(detailId);
+            if (!row) {{
+                return false;
+            }}
+
+            const isHidden = row.classList.toggle('hidden');
+
+            if (isHidden) {{
+                row.style.display = 'none';
+            }} else {{
+                row.style.display = '';
+            }}
+
+            if (trigger) {{
+                trigger.classList.toggle('open', !isHidden);
+                trigger.setAttribute('aria-expanded', String(!isHidden));
+            }}
+
+            return false;
+        }}
+
+        function togglePageTagExcel(detailId, trigger) {{
             const row = document.getElementById(detailId);
             if (!row) {{
                 return false;

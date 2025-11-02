@@ -413,6 +413,9 @@ def preview_filtered_tags():
 
         df = df.dropna(axis=1, how="all")
 
+        # Strip whitespace from column names for consistent matching
+        df.columns = [str(col).strip() for col in df.columns]
+
         # Validate tag column exists
         if tag_column not in df.columns:
             return jsonify({'success': False, 'message': f'Tag column "{tag_column}" not found in Excel file'})
@@ -695,6 +698,9 @@ def process_files():
                 df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
 
             df = df.dropna(axis=1, how="all")
+
+            # Strip whitespace from column names for consistent matching
+            df.columns = [str(col).strip() for col in df.columns]
 
             # Count tags that pass the filters
             tags = df[tag_column].dropna().astype(str).str.strip()
