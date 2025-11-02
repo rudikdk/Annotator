@@ -27,11 +27,12 @@ services:
 
     # Network configuration
     ports:
-      - "5001:5001"  # Web interface - accessible at http://your-pi-ip:5001
+      - "8080:8080"  # Web interface - accessible at http://your-pi-ip:8080
 
     # Environment variables
     environment:
-      PORT: "5001"
+      PORT: "8080"
+      GUNICORN_WORKERS: "1"  # Explicit for 4GB RAM model (use 2 for 8GB model)
       FLASK_ENV: "production"
       PYTHONUNBUFFERED: "1"
       TZ: "Europe/Copenhagen"  # Change to your timezone
@@ -49,37 +50,39 @@ services:
 
     # tmpfs mounts to reduce SD card wear (important for Pi!)
     tmpfs:
-      - /tmp:size=512M,mode=1777
-      - /app/.cache:size=256M,mode=755
+      - /tmp:size=384M,mode=1777
+      - /app/.cache:size=192M,mode=755
 
     # Restart policy
     restart: unless-stopped
 
     # Health check
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:5001/ || exit 1"]
-      interval: 45s
-      timeout: 10s
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-8080}/ || exit 1"]
+      interval: 30s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 45s
 
     # Resource limits - IMPORTANT: Adjust based on your Raspberry Pi 5 model
     #
     # For Raspberry Pi 5 with 4GB RAM:
-    #   mem_limit: 1536m (1.5GB)
+    #   mem_limit: 1792m (1.75GB with headroom)
     #   mem_reservation: 512m
     #   cpus: 2.5
+    #   GUNICORN_WORKERS: 1
     #
     # For Raspberry Pi 5 with 8GB RAM (recommended):
     #   mem_limit: 2560m (2.5GB)
     #   mem_reservation: 768m
     #   cpus: 3.0
+    #   GUNICORN_WORKERS: 2
     #
     # Current configuration is for 4GB model:
-    mem_limit: 1536m
+    mem_limit: 1792m
     mem_reservation: 512m
     cpus: 2.5
-    pids_limit: 512
+    pids_limit: 1024  # Support parallel processing
 
     # Logging - prevent disk fill on SD card
     logging:
@@ -134,9 +137,9 @@ services:
 
       # Port configuration
       net.casaos.app.index: "/"
-      net.casaos.app.web-port: "5001"
+      net.casaos.app.web-port: "8080"
       net.casaos.app.protocol: "http"
-      net.casaos.app.web-ui: "http://localhost:5001"
+      net.casaos.app.web-ui: "http://localhost:8080"
 
       # System requirements
       net.casaos.app.architectures: "arm64"
@@ -144,7 +147,7 @@ services:
       net.casaos.app.min-disk: "2048"   # 2GB minimum
 
       # Health monitoring
-      net.casaos.app.healthcheck: "http://localhost:5001/"
+      net.casaos.app.healthcheck: "http://localhost:8080/"
 
       # Store metadata
       net.casaos.app.store: "custom"
@@ -156,9 +159,11 @@ services:
         For best performance, use Raspberry Pi 5 with 8GB RAM.
 
       net.casaos.app.tips.after_install.en_us: |
-        Access the web interface at http://your-pi-ip:5001
+        Access the web interface at http://your-pi-ip:8080
         Upload a P&ID PDF and corresponding Excel file to begin annotation.
         Files are automatically cleaned up after 24 hours.
+
+        For 8GB Pi 5: Set GUNICORN_WORKERS=2 and mem_limit: 2560m for better performance.
 
       # Changelog
       net.casaos.app.changelog.en_us: |
@@ -171,6 +176,9 @@ services:
         - Real-time WebSocket progress updates
         - CasaOS integration with proper labels
         - tmpfs mounts to reduce SD card wear
+        - Standardized port 8080
+        - BuildKit optimization for faster builds
+        - Memory tuning for ARM64 architecture
 
 # Networks
 networks:

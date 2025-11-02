@@ -8,31 +8,38 @@ services:
     container_name: pid-annotator-web
     platform: linux/arm64
     ports:
-      - "5001:5001"  # Map to port 5001 (configurable in CasaOS)
+      - "8080:8080"  # Standardized port 8080 (configurable in CasaOS)
     environment:
-      - PORT=5001
+      - PORT=8080
+      - GUNICORN_WORKERS=1  # Explicit for 4GB RAM model (use 2 for 8GB model)
       - FLASK_ENV=production
       - TZ=Europe/Copenhagen  # Adjust to your timezone
       - PYTHONUNBUFFERED=1
+      # FOR RASPBERRY PI 5 8GB MODEL - Use these settings:
+      # - GUNICORN_WORKERS=2
+      # - mem_limit: 2560m
+      # - mem_reservation: 768m
+      # - cpus: 3.0
+      # - tmpfs: /tmp:size=512M, /app/.cache:size=256M
     volumes:
       # Named volumes for better CasaOS integration
       - pid_uploads:/app/uploads:rw
       - pid_output:/app/output:rw
       # tmpfs for temporary files to reduce SD card wear
     tmpfs:
-      - /tmp:size=512M,mode=1777
-      - /app/.cache:size=256M,mode=755
+      - /tmp:size=384M,mode=1777
+      - /app/.cache:size=192M,mode=755
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:5001/ || exit 1"]
-      interval: 45s
-      timeout: 10s
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-8080}/ || exit 1"]
+      interval: 30s
+      timeout: 5s
       retries: 3
-      start_period: 60s
+      start_period: 45s
     # Optimized resource limits for Raspberry Pi 5 (4GB RAM)
-    # For 4GB model: use mem_limit: 1536m, cpus: 2.5
+    # For 4GB model: use mem_limit: 1792m, cpus: 2.5
     # For 8GB model: use mem_limit: 2560m, cpus: 3.0
-    mem_limit: 1536m  # 1.5GB for 4GB Pi 5
+    mem_limit: 1792m  # 1.75GB for 4GB Pi 5 (256MB headroom added)
     mem_reservation: 512m  # Minimum guaranteed memory
     cpus: 2.5  # Use 2.5 of 4 cores (leave 1.5 for system)
     # Logging configuration - prevent disk fill
@@ -54,10 +61,10 @@ services:
       net.casaos.app.category: "Utilities"
       net.casaos.app.icon: "https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/pdf.png"
       # Port configuration
-      net.casaos.app.web-port: "5001"
+      net.casaos.app.web-port: "8080"
       net.casaos.app.protocol: "http"
       # Health check
-      net.casaos.app.healthcheck: "http://localhost:5001/"
+      net.casaos.app.healthcheck: "http://localhost:8080/"
 
 # Named volumes for CasaOS volume management
 volumes:

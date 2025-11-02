@@ -1,0 +1,112 @@
+# Git files and history
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments (not needed in container)
+venv/
+env/
+ENV/
+.venv
+.env
+.env.local
+
+# IDE and editor files (not needed in container)
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# Testing and coverage (regeneratable)
+test_*.py
+*_test.py
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.hypothesis/
+*.cover
+
+# Documentation (not needed in runtime container)
+*.md
+docs/
+README.md
+CLAUDE.md
+OPTIMIZATION_GUIDE.md
+CONFIGURATION_PROFILES_GUIDE.md
+PROFILE_DEVELOPER_GUIDE.md
+PROFILE_IMPROVEMENTS_SUMMARY.md
+PROFILE_QUICK_REFERENCE.md
+TAG_MATCHING_PREVIEW_UPDATE.md
+REFACTOR_SUMMARY.md
+RASPBERRY_PI_DEPLOYMENT.md
+
+# Docker files (avoid recursive context)
+docker-compose*.yml
+Dockerfile.old
+docker-compose.override.yml
+.dockerignore
+
+# Temporary and build files
+uploads/
+output/
+persistent_uploads/
+persistent_output/
+*.tmp
+*.bak
+*.log
+*.pid
+
+# Windows specific files
+*.bat
+*.exe
+*.dll
+*.lnk
+*.Zone.Identifier
+*:Zone.Identifier
+
+# CI/CD and version control
+.github/
+.gitlab-ci.yml
+.travis.yml
+.circleci/
+Jenkinsfile
+
+# Data and cache directories (mounted as volumes)
+data/
+.cache/
+node_modules/
+
+# Build artifacts and egg-info
+build/
+*.egg-info/
+dist/

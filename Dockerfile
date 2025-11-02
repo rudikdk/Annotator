@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     g++ \
     libffi-dev \
     libssl-dev \
+    libz-dev \
+    libmupdf-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -27,9 +29,10 @@ RUN mkdir -p /root/.cache/pip
 # Copy requirements first for better layer caching
 COPY requirements.txt .
 
-# Install Python dependencies with wheel caching
+# Install Python dependencies with BuildKit cache mount and prefer binary wheels
 # Use --prefer-binary to avoid building from source when possible
-RUN pip install --upgrade pip setuptools wheel && \
+RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
+    pip install --upgrade pip setuptools wheel && \
     pip install --prefer-binary -r requirements.txt
 
 # Production stage - Bookworm for better ARM64 support
@@ -40,12 +43,16 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PORT=8080
+ENV MALLOC_ARENA_MAX=2
+ENV PYTHONHASHSEED=random
 ENV PYTHONOPTIMIZE=1
 
 # Install runtime dependencies (minimal set)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi8 \
     libssl3 \
+    libz1 \
+    libmupdf1 \
     gosu \
     wget \
     ca-certificates \
@@ -83,11 +90,22 @@ RUN mkdir -p uploads output .cache && \
 EXPOSE 8080
 
 # Optimized health check using wget (already installed)
-HEALTHCHECK --interval=45s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget -q --spider http://localhost:8080/ || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
+    CMD wget -q --spider http://localhost:${PORT:-8080}/ || exit 1
 
 # Set entrypoint and start command
 # Using gunicorn with eventlet for WebSocket support
-# Optimized for Raspberry Pi 5: 1 worker, reasonable timeouts
+# Optimized for Raspberry Pi 5: dynamic worker count, memory leak prevention
 ENTRYPOINT ["./entrypoint.sh"]
-CMD ["sh", "-c", "gunicorn --worker-class eventlet -w 1 --bind 0.0.0.0:${PORT:-8080} --timeout 300 --graceful-timeout 30 --keep-alive 5 --log-level warning app:app"]
+CMD ["sh", "-c", "gunicorn --worker-class eventlet \
+     -w ${GUNICORN_WORKERS:-1} \
+     --bind 0.0.0.0:${PORT:-8080} \
+     --timeout 300 \
+     --graceful-timeout 30 \
+     --keep-alive 5 \
+     --max-requests 1000 \
+     --max-requests-jitter 50 \
+     --log-level warning \
+     --access-logfile - \
+     --error-logfile - \
+     app:app"]
