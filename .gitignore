@@ -130,4 +130,16 @@ Thumbs.db
 # Application specific
 # Note: uploads and output folders are mounted as Docker volumes
 # and should be preserved, but their contents are transient
-*.md
+
+# Test outputs (should be regenerated, not committed)
+test_report_output.html
+test_*.html
+*_output.html
+
+# Windows metadata (from downloaded files)
+*.Zone.Identifier
+*:Zone.Identifier
+
+# Temporary text files (Windows junk)
+**/New*.txt
+**/*Tekstdokument*.txt
