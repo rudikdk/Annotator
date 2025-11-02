@@ -106,34 +106,6 @@
       height: 100%;
     }
 
-    /* Tutorial spotlight pulse animation */
-    @keyframes pulse-spotlight {
-      0%, 100% {
-        opacity: 1;
-        transform: scale(1);
-      }
-      50% {
-        opacity: 0.95;
-        transform: scale(1.01);
-      }
-    }
-
-    /* Smooth transitions for tutorial elements */
-    .tutorial-tooltip {
-      animation: fadeIn 0.3s ease-out;
-    }
-
-    @keyframes fadeIn {
-      from {
-        opacity: 0;
-        transform: translateY(-10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
     /* Bounce animation for tag column selector when no "tag" column detected */
     @keyframes bounce-attention {
       0%, 100% {
@@ -408,7 +380,7 @@
               validateAndUpload(files);
             }}
             className={cx(
-              "upload-area-tutorial group cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-10 text-center transition-colors duration-300",
+              "group cursor-pointer rounded-2xl border-2 border-dashed p-8 sm:p-10 text-center transition-colors duration-300",
               "bg-white dark:bg-zinc-950/40 border-zinc-300/60 dark:border-zinc-700",
               "hover:border-brand/60 hover:bg-brand/5",
               dragOver && "border-brand bg-brand/10"
@@ -514,10 +486,9 @@
     }
 
     // New FileWorkspace component
-    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh, tutorialActive, tutorialDemoKey, loadingColumns, setLoadingColumns }) {
+    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh, loadingColumns, setLoadingColumns }) {
       const inputRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
-      const tutorialDemo = tutorialActive && tutorialDemoKey ? tutorialDemoContent[tutorialDemoKey] : null;
 
       function formatFileSize(bytes) {
         if (bytes === 0) return '0 B';
@@ -692,7 +663,7 @@
               handleFileUpload(files);
             }}
             className={cx(
-              "upload-area-tutorial cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-300",
+              "cursor-pointer rounded-xl border-2 border-dashed p-6 text-center transition-colors duration-300",
               "bg-white dark:bg-zinc-950/40 border-zinc-300/60 dark:border-zinc-700",
               "hover:border-brand/60 hover:bg-brand/5",
               dragOver && "border-brand bg-brand/10"
@@ -716,28 +687,6 @@
               }}
             />
           </div>
-
-          {tutorialDemo && tutorialDemo.sampleFiles && tutorialDemoKey === 'upload' && (
-            <div className="rounded-lg border border-brand/30 bg-brand/5 p-4 text-left">
-              <div className="text-xs font-semibold text-brand uppercase tracking-wide mb-2">Tutorial sample files</div>
-              <div className="flex flex-wrap gap-2">
-                {tutorialDemo.sampleFiles.map((file, idx) => (
-                  <span
-                    key={`${file.name}-${idx}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white dark:bg-zinc-900 border border-brand/20 px-3 py-1 text-[11px] font-medium text-brand"
-                  >
-                    <i
-                      className={cx(
-                        'fa-solid',
-                        file.type === 'excel' ? 'fa-file-excel text-emerald-500' : 'fa-file-pdf text-rose-500'
-                      )}
-                    ></i>
-                    {file.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
 
           {/* Workspace Header */}
           {totalFiles > 0 && (
@@ -1316,718 +1265,8 @@
       );
     }
 
-    // Tutorial/Onboarding System
-    const baseDemoRows = [
-      { tag: 'P-101A', description: 'Condensate Pump A', service: 'Condensate Return', status: 'Running' },
-      { tag: 'P-101B', description: 'Condensate Pump B', service: 'Condensate Return', status: 'Standby' },
-      { tag: 'TIC-204', description: 'Column Reboiler TIC', service: 'Steam Control', status: 'High Alarm' },
-    ];
 
-    const baseTagMetadata = [
-      { label: 'Tags Located', value: '38', tone: 'brand' },
-      { label: 'With Comments', value: '18', tone: 'success' },
-      { label: 'Needs Follow-up', value: '4', tone: 'warning' },
-    ];
-
-    const baseHighlightRules = [
-      { label: 'Status = High Alarm', color: '#f97316', description: 'Highlight alarm conditions' },
-      { label: 'Service contains Steam', color: '#2563eb', description: 'Highlight steam circuits' },
-      { label: 'Notes column populated', color: '#22c55e', description: 'Highlight rows with comments' },
-    ];
-
-    const basePdfStats = {
-      pages: 18,
-      matches: 112,
-      coverage: '9 drawings',
-      lastRun: '2 minutes ago',
-    };
-
-    const tutorialDemoContent = {
-      upload: {
-        sampleFiles: [
-          { name: 'Equipment_Tags.xlsx', type: 'excel' },
-          { name: 'Unit-101 PID.pdf', type: 'pdf' },
-          { name: 'Utility-Steam.pdf', type: 'pdf' },
-        ],
-        excelRows: baseDemoRows,
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Upload the tag register (Excel) first, then add one or more PID drawings. The sample below shows how the matches look after processing.',
-      },
-      headerRow: {
-        excelRows: baseDemoRows.map((row, index) => ({
-          ...row,
-          header: index === 0 ? 'Row 6 (headers)' : `Row ${6 + index}`,
-        })),
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Headers default to row 6. Update this value if your titles sit elsewhere so each column is read correctly.',
-      },
-      tagColumn: {
-        excelRows: baseDemoRows.map((row) => ({
-          ...row,
-          tagPreview: row.tag,
-        })),
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Select the column that stores the tag IDs. The preview confirms what will be matched against the drawings.',
-      },
-      profile: {
-        excelRows: baseDemoRows,
-        tagMetadata: [
-          ...baseTagMetadata,
-          { label: 'Template', value: 'Standard Operations', tone: 'brand' },
-        ],
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Profiles store the header row, tag column, watermark settings, and highlight rules so repeat jobs start with one click.',
-      },
-      comments: {
-        excelRows: baseDemoRows.map((row) => ({
-          ...row,
-          notes: row.tag === 'TIC-204' ? 'Alarm acknowledged with operator' : '—',
-        })),
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Choose which Excel columns feed the annotation card. Here the Notes field becomes a short comment on the markup.',
-      },
-      highlighting: {
-        excelRows: baseDemoRows,
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules.map((rule, idx) => ({
-          ...rule,
-          active: idx !== 1 ? true : false,
-        })),
-        pdfStats: basePdfStats,
-        blurb: 'Toggle highlight rules to draw attention to alarms, services, or any other priority tags.',
-      },
-      excelAnnotation: {
-        excelRows: baseDemoRows.map((row) => ({
-          ...row,
-          excelStatus: row.tag.includes('P-101') ? 'Found' : 'Pending',
-        })),
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Excel annotation flags each row that was located in the PDFs so you can filter anything still pending.',
-      },
-      watermark: {
-        excelRows: baseDemoRows,
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        watermarkPreview: [
-          { label: 'P-101A', text: 'Condensate Feed Pump', color: '#2563eb' },
-          { label: 'TIC-204', text: 'Alarm High', color: '#f97316' },
-        ],
-        blurb: 'Watermarks add a concise label next to each tag marker. Adjust the fields and colors to match your site standard.',
-      },
-      start: {
-        excelRows: baseDemoRows,
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'Run the full job when everything is set, or choose Test Run to confirm the setup on a small sample.',
-      },
-      faq: {
-        excelRows: baseDemoRows,
-        tagMetadata: baseTagMetadata,
-        highlightRules: baseHighlightRules,
-        pdfStats: basePdfStats,
-        blurb: 'The FAQ includes quick guides, short videos, and a link to replay this tutorial whenever you need it.',
-      },
-    };
-
-    const tutorialSteps = [
-      {
-        id: 1,
-        target: '.upload-area-tutorial',
-        title: 'Welcome to PID Annotator!',
-        content: (
-          <>
-            <p>
-              Start by uploading your Excel workbook and the PID drawings you want to annotate. Drop them anywhere in the upload
-              zone or click to browse.
-            </p>
-            <ul className="mt-2 space-y-1 text-xs text-zinc-500 dark:text-zinc-400">
-              <li className="flex items-center gap-2"><i className="fa-solid fa-circle-check text-brand"></i>Excel first so we can read the tag list.</li>
-              <li className="flex items-center gap-2"><i className="fa-solid fa-circle-check text-brand"></i>Add one or many PDFs afterward.</li>
-            </ul>
-          </>
-        ),
-        position: 'bottom',
-        canSkip: true
-      },
-      {
-        id: 2,
-        target: '#header-row',
-        title: 'Configure Header Row',
-        content: (
-          <>
-            <p>
-              Tell the app which row contains your column titles. We default to row 6 because that covers most vendor templates,
-              but you can dial it in for your sheet.
-            </p>
-          </>
-        ),
-        position: 'right'
-      },
-      {
-        id: 3,
-        target: '#tag-column',
-        title: 'Select Tag Column',
-        content: (
-          <>
-            <p>
-              Choose the Excel column that holds the tag identifiers (for example P-101A or TIC-204). The current selection drives
-              matching against the drawings.
-            </p>
-          </>
-        ),
-        position: 'right'
-      },
-      {
-        id: 4,
-        target: '#profile-select',
-        title: 'Configuration Profiles',
-        content: (
-          <>
-            <p>
-              Use profiles to save your header row, tag column, highlight palette, and watermark setup. Load a template to jumpstart
-              a common workflow or save your own for future runs.
-            </p>
-          </>
-        ),
-        position: 'bottom'
-      },
-      {
-        id: 5,
-        target: '.comment-columns-tutorial',
-        title: 'Comment Columns',
-        content: (
-          <>
-            <p>
-              Pick the Excel columns that should flow into the annotation card on each tag. Include troubleshooting notes, service
-              descriptions, or any fields your team needs in the field.
-            </p>
-          </>
-        ),
-        position: 'top'
-      },
-      {
-        id: 6,
-        target: '#highlight-attribute',
-        title: 'Conditional Highlighting',
-        content: (
-          <>
-            <p>
-              Apply conditional highlighting to make priority equipment pop. Pick an attribute column and color rules to control
-              how each tag appears on the PDF preview.
-            </p>
-          </>
-        ),
-        position: 'right'
-      },
-      {
-        id: 7,
-        target: '.excel-annotation-tutorial',
-        title: 'Excel Annotation',
-        content: (
-          <>
-            <p>
-              Enable Excel annotation to mark rows that were successfully matched in the PDFs. It gives your workbook a quick
-              at-a-glance completion audit.
-            </p>
-          </>
-        ),
-        position: 'right'
-      },
-      {
-        id: 8,
-        target: '.watermark-tutorial',
-        title: 'Watermark Feature',
-        content: (
-          <>
-            <p>
-              Turn on watermarks to place readable labels next to each tag. Combine tag IDs with service or status text to mirror
-              your plant standard.
-            </p>
-          </>
-        ),
-        position: 'right'
-      },
-      {
-        id: 9,
-        target: '.start-button-tutorial',
-        title: 'Start Processing',
-        content: (
-          <>
-            <p>
-              Run the full pipeline to annotate every drawing, or choose Test Run to sample the first 100 tags for a quick
-              validation before committing to the entire set.
-            </p>
-          </>
-        ),
-        position: 'top'
-      },
-      {
-        id: 10,
-        target: '.faq-button-tutorial',
-        title: 'Need Help?',
-        content: (
-          <>
-            <p>
-              Visit the FAQ when you need deeper dives, best practices, or to replay this interactive walkthrough.
-            </p>
-          </>
-        ),
-        position: 'top'
-      }
-    ];
-
-    function TutorialDemo({ demoKey, demo }) {
-      const payload = demo || (demoKey ? tutorialDemoContent[demoKey] : null);
-      if (!payload) return null;
-
-      const {
-        blurb,
-        sampleFiles,
-        excelRows,
-        tagMetadata,
-        highlightRules,
-        pdfStats,
-        watermarkPreview,
-      } = payload;
-
-      const columnLabels = {
-        tag: 'Tag',
-        description: 'Description',
-        service: 'Service',
-        status: 'Status',
-        header: 'Header Row',
-        tagPreview: 'Tag Preview',
-        notes: 'Notes',
-        excelStatus: 'Excel Flag',
-      };
-
-      const excelColumns = excelRows
-        ? Object.keys(
-            excelRows.reduce((acc, row) => {
-              Object.keys(row).forEach((key) => {
-                if (!acc[key]) acc[key] = true;
-              });
-              return acc;
-            }, {})
-          ).filter((key) => columnLabels[key])
-        : [];
-
-      return (
-        <div className="mt-4 space-y-3">
-          {blurb && (
-            <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">{blurb}</p>
-          )}
-
-          {sampleFiles && sampleFiles.length > 0 && (
-            <div className="rounded-lg border border-dashed border-brand/40 bg-brand/10 p-3">
-              <div className="text-xs font-semibold text-brand mb-2">Sample upload queue</div>
-              <div className="flex flex-wrap gap-2">
-                {sampleFiles.map((file, idx) => (
-                  <span
-                    key={`${file.name}-${idx}`}
-                    className="inline-flex items-center gap-2 rounded-full bg-white/80 dark:bg-zinc-900/80 border border-brand/20 px-2 py-1 text-[11px] font-medium text-brand"
-                  >
-                    <i
-                      className={cx(
-                        'fa-solid',
-                        file.type === 'excel' ? 'fa-file-excel text-emerald-500' : 'fa-file-pdf text-rose-500'
-                      )}
-                    ></i>
-                    {file.name}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {excelRows && excelRows.length > 0 && excelColumns.length > 0 && (
-            <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 overflow-hidden">
-              <table className="min-w-full text-[11px]">
-                <thead className="bg-zinc-50/80 dark:bg-zinc-800/60 text-zinc-600 dark:text-zinc-300">
-                  <tr>
-                    {excelColumns.map((col) => (
-                      <th key={col} className="px-2 py-1 text-left font-semibold tracking-wide uppercase">
-                        {columnLabels[col]}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className="bg-white/80 dark:bg-zinc-900/80">
-                  {excelRows.map((row, idx) => (
-                    <tr key={`${row.tag}-${idx}`} className="border-t border-zinc-100 dark:border-zinc-800/60">
-                      {excelColumns.map((col) => (
-                        <td key={`${col}-${idx}`} className="px-2 py-1 text-zinc-600 dark:text-zinc-300">
-                          {row[col] || '—'}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {tagMetadata && tagMetadata.length > 0 && (
-            <div className="grid grid-cols-2 gap-2">
-              {tagMetadata.map((meta, idx) => (
-                <div
-                  key={`${meta.label}-${idx}`}
-                  className={cx(
-                    'rounded-lg px-3 py-2 text-[11px] font-semibold shadow-sm border',
-                    meta.tone === 'success'
-                      ? 'bg-green-500/10 text-green-600 border-green-500/20'
-                      : meta.tone === 'warning'
-                      ? 'bg-amber-500/10 text-amber-600 border-amber-500/20'
-                      : 'bg-brand/10 text-brand border-brand/20'
-                  )}
-                >
-                  <div className="uppercase tracking-wide text-[10px] opacity-80">{meta.label}</div>
-                  <div className="text-sm">{meta.value}</div>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {highlightRules && highlightRules.length > 0 && (
-            <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 p-3">
-              <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 mb-2">Highlight rules</div>
-              <ul className="space-y-2">
-                {highlightRules.map((rule, idx) => (
-                  <li key={`${rule.label}-${idx}`} className="flex items-start gap-3 text-xs text-zinc-600 dark:text-zinc-300">
-                    <span
-                      className="mt-0.5 inline-flex h-3 w-3 flex-shrink-0 items-center justify-center rounded-full"
-                      style={{ backgroundColor: rule.color }}
-                    >
-                      {rule.active === false && (
-                        <i className="fa-solid fa-ban text-[8px] text-white/80"></i>
-                      )}
-                    </span>
-                    <div>
-                      <div className="font-semibold text-[11px] text-zinc-700 dark:text-zinc-200">{rule.label}</div>
-                      {rule.description && <div className="text-[10px] opacity-80">{rule.description}</div>}
-                      {rule.active === false && (
-                        <div className="text-[10px] text-amber-600 dark:text-amber-400">Temporarily disabled in this preset</div>
-                      )}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {pdfStats && (
-            <div className="grid grid-cols-2 gap-2">
-              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
-                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Pages</div>
-                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.pages}</div>
-              </div>
-              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
-                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Matched tags</div>
-                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.matches}</div>
-              </div>
-              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
-                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Coverage</div>
-                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.coverage}</div>
-              </div>
-              <div className="rounded-lg bg-zinc-100/80 dark:bg-zinc-800/60 px-3 py-2 text-[11px]">
-                <div className="uppercase tracking-wide text-[10px] text-zinc-500 dark:text-zinc-400">Last run</div>
-                <div className="text-sm font-semibold text-zinc-700 dark:text-zinc-200">{pdfStats.lastRun}</div>
-              </div>
-            </div>
-          )}
-
-          {watermarkPreview && watermarkPreview.length > 0 && (
-            <div className="rounded-lg border border-zinc-200/70 dark:border-zinc-700/70 p-3">
-              <div className="text-xs font-semibold text-zinc-600 dark:text-zinc-300 mb-2">Watermark preview</div>
-              <div className="flex flex-wrap gap-2">
-                {watermarkPreview.map((mark, idx) => (
-                  <span
-                    key={`${mark.label}-${idx}`}
-                    className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-[11px] font-semibold text-white shadow"
-                    style={{ backgroundColor: mark.color }}
-                  >
-                    <span className="uppercase tracking-wide text-[10px]">{mark.label}</span>
-                    <span className="text-xs font-medium">{mark.text}</span>
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    function TutorialTooltip({ step, currentStep, totalSteps, onNext, onPrev, onSkip, onComplete }) {
-      if (!step) return null;
-
-      const isFirst = currentStep === 1;
-      const isLast = currentStep === totalSteps;
-      const tooltipRef = React.useRef(null);
-      const [tooltipStyle, setTooltipStyle] = React.useState({});
-      const [arrowStyle, setArrowStyle] = React.useState({});
-      const [arrowPosition, setArrowPosition] = React.useState('top');
-
-      // Calculate tooltip position based on target element
-      useEffect(() => {
-        if (!step?.target || !tooltipRef.current) return;
-
-        const targetElement = document.querySelector(step.target);
-        if (!targetElement) return;
-
-        const targetRect = targetElement.getBoundingClientRect();
-        const tooltipRect = tooltipRef.current.getBoundingClientRect();
-        const viewportWidth = window.innerWidth;
-        const viewportHeight = window.innerHeight;
-        const padding = 16;
-        const arrowSize = 12;
-
-        let top, left, arrowPos = 'top', arrowLeft = '50%', arrowTop = '-12px';
-
-        // Determine best position based on step.position and available space
-        const position = step.position || 'bottom';
-
-        if (position === 'bottom') {
-          top = targetRect.bottom + arrowSize + padding;
-          left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
-          arrowPos = 'top';
-          arrowTop = '-12px';
-          arrowLeft = '50%';
-        } else if (position === 'top') {
-          top = targetRect.top - tooltipRect.height - arrowSize - padding;
-          left = targetRect.left + (targetRect.width / 2) - (tooltipRect.width / 2);
-          arrowPos = 'bottom';
-          arrowTop = 'auto';
-          arrowLeft = '50%';
-        } else if (position === 'right') {
-          top = targetRect.top + (targetRect.height / 2) - (tooltipRect.height / 2);
-          left = targetRect.right + arrowSize + padding;
-          arrowPos = 'left';
-          arrowTop = '50%';
-          arrowLeft = '-12px';
-        } else if (position === 'left') {
-          top = targetRect.top + (targetRect.height / 2) - (tooltipRect.height / 2);
-          left = targetRect.left - tooltipRect.width - arrowSize - padding;
-          arrowPos = 'right';
-          arrowTop = '50%';
-          arrowLeft = 'auto';
-        }
-
-        // Adjust if tooltip goes off screen
-        if (left < padding) left = padding;
-        if (left + tooltipRect.width > viewportWidth - padding) {
-          left = viewportWidth - tooltipRect.width - padding;
-        }
-        if (top < padding) top = padding;
-        if (top + tooltipRect.height > viewportHeight - padding) {
-          top = viewportHeight - tooltipRect.height - padding;
-        }
-
-        setTooltipStyle({ top: `${top}px`, left: `${left}px` });
-        setArrowPosition(arrowPos);
-        setArrowStyle({
-          top: arrowTop === 'auto' ? 'auto' : arrowTop,
-          bottom: arrowPos === 'bottom' ? '-12px' : 'auto',
-          left: arrowLeft === 'auto' ? 'auto' : arrowLeft,
-          right: arrowPos === 'right' ? '-12px' : 'auto',
-          transform: arrowLeft === '50%' || arrowTop === '50%' ? 'translate(-50%, -50%)' : 'none'
-        });
-      }, [step, currentStep]);
-
-      return (
-        <div
-          ref={tooltipRef}
-          className="tutorial-tooltip fixed z-[60] bg-white dark:bg-zinc-900 border-2 border-brand rounded-xl shadow-soft p-4 max-w-sm transition-all duration-300"
-          style={tooltipStyle}
-        >
-          {/* Arrow pointer */}
-          <div
-            className="absolute w-0 h-0"
-            style={{
-              ...arrowStyle,
-              borderLeft: arrowPosition === 'right' ? '12px solid transparent' : arrowPosition === 'left' ? '12px solid var(--color-brand)' : '12px solid transparent',
-              borderRight: arrowPosition === 'left' ? '12px solid transparent' : arrowPosition === 'right' ? '12px solid var(--color-brand)' : '12px solid transparent',
-              borderTop: arrowPosition === 'bottom' ? '12px solid transparent' : arrowPosition === 'top' ? '12px solid var(--color-brand)' : '12px solid transparent',
-              borderBottom: arrowPosition === 'top' ? '12px solid transparent' : arrowPosition === 'bottom' ? '12px solid var(--color-brand)' : '12px solid transparent',
-            }}
-          />
-          <div className="flex items-start justify-between mb-3">
-            <div className="flex-1">
-              <h4 className="font-semibold text-lg text-brand">{step.title}</h4>
-              <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1">
-                Step {currentStep} of {totalSteps}
-              </div>
-            </div>
-            <button
-              onClick={onSkip}
-              className="rounded-lg p-1 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
-              aria-label="Close tutorial"
-            >
-              <i className="fa-solid fa-xmark"></i>
-            </button>
-          </div>
-
-          <div className="text-sm text-zinc-700 dark:text-zinc-300 mb-4 space-y-3">
-            {typeof step.content === 'string' ? <p>{step.content}</p> : step.content}
-            {(step.demo || step.demoKey) && (
-              <TutorialDemo demoKey={step.demoKey} demo={step.demo} />
-            )}
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex gap-1">
-              {Array.from({ length: totalSteps }).map((_, i) => (
-                <div
-                  key={i}
-                  className={cx(
-                    "w-2 h-2 rounded-full transition-colors",
-                    i + 1 === currentStep
-                      ? "bg-brand"
-                      : i + 1 < currentStep
-                      ? "bg-brand/50"
-                      : "bg-zinc-300 dark:bg-zinc-700"
-                  )}
-                />
-              ))}
-            </div>
-
-            <div className="flex gap-2">
-              {!isFirst && (
-                <button
-                  onClick={onPrev}
-                  className="rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
-                >
-                  <i className="fa-solid fa-arrow-left mr-1"></i>
-                  Back
-                </button>
-              )}
-              {!isLast ? (
-                <button
-                  onClick={onNext}
-                  className="rounded-lg bg-brand text-white px-3 py-1.5 text-sm font-medium hover:bg-brand-hover transition-colors"
-                >
-                  Next
-                  <i className="fa-solid fa-arrow-right ml-1"></i>
-                </button>
-              ) : (
-                <button
-                  onClick={onComplete}
-                  className="rounded-lg bg-success text-white px-3 py-1.5 text-sm font-medium hover:bg-success-hover transition-colors"
-                >
-                  <i className="fa-solid fa-check mr-1"></i>
-                  Finish
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-      );
-    }
-
-    function TutorialOverlay({ active, currentStep, onNext, onPrev, onSkip, onComplete }) {
-      if (!active) return null;
-
-      const step = tutorialSteps[currentStep - 1];
-      const [spotlightStyle, setSpotlightStyle] = React.useState({});
-
-      useEffect(() => {
-        // Scroll to target element
-        if (step?.target) {
-          const element = document.querySelector(step.target);
-          if (element) {
-            element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-            // Calculate spotlight position
-            setTimeout(() => {
-              const rect = element.getBoundingClientRect();
-              const padding = 8;
-              setSpotlightStyle({
-                top: `${rect.top - padding}px`,
-                left: `${rect.left - padding}px`,
-                width: `${rect.width + padding * 2}px`,
-                height: `${rect.height + padding * 2}px`,
-              });
-            }, 100);
-          }
-        }
-      }, [currentStep, step?.target]);
-
-      // Keyboard navigation
-      useEffect(() => {
-        const handleKeyDown = (e) => {
-          if (e.key === 'ArrowRight' || e.key === 'Enter') {
-            e.preventDefault();
-            onNext();
-          } else if (e.key === 'ArrowLeft') {
-            e.preventDefault();
-            onPrev();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            onSkip();
-          }
-        };
-
-        document.addEventListener('keydown', handleKeyDown);
-        return () => document.removeEventListener('keydown', handleKeyDown);
-      }, [onNext, onPrev, onSkip]);
-
-      return (
-        <>
-          <div className="tutorial-backdrop fixed inset-0 z-[55] bg-black/40 dark:bg-black/60" />
-
-          {/* Animated spotlight effect */}
-          {step?.target && (
-            <div
-              className="tutorial-spotlight fixed z-[56] rounded-lg border-2 border-brand shadow-[0_0_0_9999px_rgba(0,0,0,0.3)] pointer-events-none transition-all duration-300 ease-out"
-              style={{
-                ...spotlightStyle,
-                boxShadow: '0 0 0 9999px rgba(0, 0, 0, 0.3), 0 0 20px 4px rgba(var(--color-brand-rgb), 0.5), inset 0 0 20px rgba(var(--color-brand-rgb), 0.2)',
-                animation: 'pulse-spotlight 2s ease-in-out infinite'
-              }}
-            />
-          )}
-
-          <TutorialTooltip
-            step={step}
-            currentStep={currentStep}
-            totalSteps={tutorialSteps.length}
-            onNext={onNext}
-            onPrev={onPrev}
-            onSkip={onSkip}
-            onComplete={onComplete}
-          />
-
-          {/* Keyboard hints */}
-          <div className="fixed bottom-4 right-4 z-[60] bg-white/90 dark:bg-zinc-900/90 border border-zinc-300 dark:border-zinc-700 rounded-lg px-3 py-2 text-xs text-zinc-600 dark:text-zinc-400 backdrop-blur-sm">
-            <div className="flex items-center gap-3">
-              <span className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono">←</kbd>
-                <kbd className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono">→</kbd>
-                Navigate
-              </span>
-              <span className="flex items-center gap-1">
-                <kbd className="px-1.5 py-0.5 bg-zinc-200 dark:bg-zinc-800 rounded text-[10px] font-mono">ESC</kbd>
-                Skip
-              </span>
-            </div>
-          </div>
-        </>
-      );
-    }
-
-    function FAQModal({ open, onClose, onStartTutorial }) {
+    function FAQModal({ open, onClose }) {
       const [activeCategory, setActiveCategory] = React.useState('getting-started');
       const [searchQuery, setSearchQuery] = React.useState('');
 
@@ -2041,7 +1280,7 @@
           questions: [
             {
               q: 'How do I get started with PID Annotator?',
-              a: 'Start the interactive tutorial (click "Start Tutorial" below) or follow these steps: 1) Upload your Excel file with component tags, 2) Upload one or more PDF files, 3) Configure settings or load a template, 4) Click "Start" to process.'
+              a: 'Follow these steps: 1) Upload your Excel file with component tags, 2) Upload one or more PDF files, 3) Configure settings or load a template, 4) Click "Start" to process.'
             },
             {
               q: 'Which row is used as headers in Excel?',
@@ -2276,22 +1515,10 @@
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-between px-5 py-3 border-t border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
+            <div className="px-5 py-3 border-t border-zinc-200/60 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
               <div className="text-xs text-zinc-500 dark:text-zinc-400">
                 <p><strong>Created by:</strong> Rudi S. Kærgaard — <strong>Email:</strong> rudikdk@gmail.com</p>
               </div>
-              <button
-                onClick={() => {
-                  onClose();
-                  if (onStartTutorial) {
-                    onStartTutorial();
-                  }
-                }}
-                className="rounded-lg bg-brand text-white px-4 py-2 text-sm font-semibold hover:bg-brand-hover transition-colors"
-              >
-                <i className="fa-solid fa-play mr-1"></i>
-                Start Tutorial
-              </button>
             </div>
           </div>
         </div>
@@ -2401,13 +1628,6 @@
       const [currentSettingsPreview, setCurrentSettingsPreview] = useState(null);
       const [activeProfileName, setActiveProfileName] = useState("");
       const [showImportProfileModal, setShowImportProfileModal] = useState(false);
-
-      // Tutorial state
-      const [tutorialActive, setTutorialActive] = useState(false);
-      const [tutorialStep, setTutorialStep] = useState(1);
-      const activeTutorialDemoKey = tutorialActive
-        ? tutorialSteps[Math.min(tutorialSteps.length - 1, Math.max(0, tutorialStep - 1))]?.demoKey
-        : null;
 
       // UI state
       const [showFAQ, setShowFAQ] = useState(false);
@@ -3541,40 +2761,6 @@
         reader.readAsText(file);
       }
 
-      // Tutorial control functions
-      function startTutorial() {
-        setTutorialActive(true);
-        setTutorialStep(1);
-        localStorage.setItem('tutorial_started', 'true');
-      }
-
-      function nextTutorialStep() {
-        if (tutorialStep < tutorialSteps.length) {
-          setTutorialStep(tutorialStep + 1);
-        }
-      }
-
-      function prevTutorialStep() {
-        if (tutorialStep > 1) {
-          setTutorialStep(tutorialStep - 1);
-        }
-      }
-
-      function skipTutorial() {
-        setTutorialActive(false);
-        setTutorialStep(1);
-        localStorage.setItem('tutorial_completed', 'true');
-        const dismissCount = parseInt(localStorage.getItem('tutorial_dismissed_count') || '0');
-        localStorage.setItem('tutorial_dismissed_count', String(dismissCount + 1));
-      }
-
-      function completeTutorial() {
-        setTutorialActive(false);
-        setTutorialStep(1);
-        localStorage.setItem('tutorial_completed', 'true');
-        setToast({ type: 'success', text: 'Tutorial completed! You\'re ready to start annotating PDFs.' });
-      }
-
       // Workspace functions
       function refreshWorkspace() {
         fetch("/list_workspace_files")
@@ -3662,20 +2848,6 @@
       // Load workspace files on mount
       useEffect(() => {
         refreshWorkspace();
-      }, []);
-
-      // Check for first-time user on mount
-      useEffect(() => {
-        const tutorialCompleted = localStorage.getItem('tutorial_completed');
-        const dismissCount = parseInt(localStorage.getItem('tutorial_dismissed_count') || '0');
-
-        // Auto-start tutorial for first-time users (not completed and dismissed < 3 times)
-        if (!tutorialCompleted && dismissCount < 3) {
-          // Delay to let page render
-          setTimeout(() => {
-            startTutorial();
-          }, 1000);
-        }
       }, []);
 
       // Load profiles, templates, and restore settings from localStorage on mount
@@ -4006,8 +3178,6 @@
                 onColumnsLoaded={onColumnsLoaded}
                 setToast={setToast}
                 onRefresh={refreshWorkspace}
-                tutorialActive={tutorialActive}
-                tutorialDemoKey={activeTutorialDemoKey}
                 loadingColumns={loadingColumns}
                 setLoadingColumns={setLoadingColumns}
               />
@@ -4082,7 +3252,7 @@
                 </div>
 
                 {/* Comment Columns Section */}
-                <div className="comment-columns-tutorial">
+                <div>
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Comment Columns</h3>
                   <div className="mb-3 flex flex-wrap gap-2">
                     <button
@@ -4142,7 +3312,7 @@
                 </div>
 
                 {/* Excel Annotation Section */}
-                <div className="excel-annotation-tutorial">
+                <div>
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Excel Annotation</h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">
@@ -4186,7 +3356,7 @@
                 </div>
 
                 {/* Watermark Section */}
-                <div className="watermark-tutorial">
+                <div>
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Watermark</h3>
                   <div className="space-y-4">
                     <div>
@@ -6020,7 +5190,7 @@
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <button
                   onClick={() => startProcessing(false)}
-                  className="start-button-tutorial inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-3 font-semibold shadow-soft hover:bg-brand-hover transition-all hover:shadow-md hover:scale-[1.01]"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-3 font-semibold shadow-soft hover:bg-brand-hover transition-all hover:shadow-md hover:scale-[1.01]"
                 >
                   <i className="fa-solid fa-play"></i>
                   Start
@@ -6045,7 +5215,7 @@
                     setShowFAQ(true);
                     console.log('setShowFAQ(true) called');
                   }}
-                  className="faq-button-tutorial inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-200/90 dark:bg-zinc-800 px-4 py-3 font-semibold hover:bg-zinc-300/80 dark:hover:bg-zinc-700 transition-all"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-zinc-200/90 dark:bg-zinc-800 px-4 py-3 font-semibold hover:bg-zinc-300/80 dark:hover:bg-zinc-700 transition-all"
                 >
                   <i className="fa-solid fa-circle-question"></i>
                   FAQ
@@ -6111,15 +5281,7 @@
             presetName={colorPresetName}
             setPresetName={setColorPresetName}
           />
-          <TutorialOverlay
-            active={tutorialActive}
-            currentStep={tutorialStep}
-            onNext={nextTutorialStep}
-            onPrev={prevTutorialStep}
-            onSkip={skipTutorial}
-            onComplete={completeTutorial}
-          />
-          <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} onStartTutorial={startTutorial} />
+          <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} />
 
           {/* Floating Action Button */}
           {selectedPdfs.length > 0 && selectedExcel && (
