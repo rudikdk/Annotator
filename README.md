@@ -1,3 +1,6 @@
+Disclaimer: This app is programmed with vibe-coding. Please keep that in mind when you look through this app. You’re free to fork it and contribute if you like.
+You can try it live here: [https:](https://rudisk.com/)
+
 # PID Annotator
 
 > Automatically find and highlight components from Excel spreadsheets in your PDF documents
@@ -504,5 +507,6 @@ Please report it on GitHub Issues with as much detail as possible.
 [⭐ Star on GitHub](https://github.com/rudikdk/pid-annotator) | [📖 Documentation](CLAUDE.md) | [🐛 Report Bug](https://github.com/rudikdk/pid-annotator/issues)
 
 </div>
+
 
 
