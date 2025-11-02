@@ -19,7 +19,8 @@
       "Bash(exit 0)",
       "Bash(start_annotator.bat)",
       "Bash(./venv/Scripts/python.exe:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(cp:*)"
     ],
     "deny": [],
     "ask": []
