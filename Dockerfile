@@ -16,7 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi-dev \
     libssl-dev \
     libz-dev \
-    libmupdf-dev \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
@@ -52,7 +51,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libffi8 \
     libssl3 \
     libz1 \
-    libmupdf1 \
     gosu \
     wget \
     ca-certificates \
@@ -73,6 +71,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application files
 COPY app.py .
 COPY pid_annotator_core.py .
+COPY report_template.py .
 COPY templates/ templates/
 COPY static/ static/
 COPY entrypoint.sh .

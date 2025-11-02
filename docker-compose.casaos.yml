@@ -9,6 +9,7 @@
 #
 # CasaOS App Store metadata included for easy deployment
 
+
 name: pid-annotator
 
 services:
@@ -27,7 +28,7 @@ services:
 
     # Network configuration
     ports:
-      - "8080:8080"  # Web interface - accessible at http://your-pi-ip:8080
+      - "5001:8080"  # Web interface - accessible at http://your-pi-ip:5001
 
     # Environment variables
     environment:
@@ -137,9 +138,9 @@ services:
 
       # Port configuration
       net.casaos.app.index: "/"
-      net.casaos.app.web-port: "8080"
+      net.casaos.app.web-port: "5001"
       net.casaos.app.protocol: "http"
-      net.casaos.app.web-ui: "http://localhost:8080"
+      net.casaos.app.web-ui: "http://localhost:5001"
 
       # System requirements
       net.casaos.app.architectures: "arm64"
@@ -159,7 +160,7 @@ services:
         For best performance, use Raspberry Pi 5 with 8GB RAM.
 
       net.casaos.app.tips.after_install.en_us: |
-        Access the web interface at http://your-pi-ip:8080
+        Access the web interface at http://your-pi-ip:5001
         Upload a P&ID PDF and corresponding Excel file to begin annotation.
         Files are automatically cleaned up after 24 hours.
 
