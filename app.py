@@ -2226,71 +2226,36 @@ def get_templates():
             'message': f'Error loading templates: {str(e)}'
         })
 
-@app.route('/save_profile', methods=['POST'])
-def save_profile():
-    """Save current configuration as a named profile"""
-    try:
-        data = request.get_json()
-
-        # Validate profile data
-        is_valid, message = validate_profile_data(data)
-        if not is_valid:
-            return jsonify({
-                'success': False,
-                'message': f'Invalid profile data: {message}'
-            })
-
-        # Create profile object
-        profile = {
-            'name': data['name'],
-            'description': data.get('description', ''),
-            'version': '1.0',
-            'created_at': datetime.now().isoformat(),
-            'settings': data['settings']
-        }
-
-        # Sanitize filename
-        filename = secure_filename(data['name']) + '.json'
-        filepath = os.path.join(PROFILES_FOLDER, filename)
-
-        # Save to file
-        with open(filepath, 'w') as f:
-            json.dump(profile, f, indent=2)
-
-        print(f"[PROFILE] Saved profile: {data['name']}")
-
-        return jsonify({
-            'success': True,
-            'message': f'Profile "{data["name"]}" saved successfully',
-            'filename': filename
-        })
-
-    except Exception as e:
-        print(f"[PROFILE ERROR] Failed to save profile: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Error saving profile: {str(e)}'
-        })
-
-@app.route('/load_profiles', methods=['GET'])
-def load_profiles():
-    """Get list of all saved profiles"""
+# New read-only API endpoints for server-side template profiles
+@app.route('/api/profiles', methods=['GET'])
+def get_server_profiles():
+    """Get list of template profiles available on server (read-only)"""
     try:
         profiles = []
+
+        # Check if profiles folder exists
+        if not os.path.exists(PROFILES_FOLDER):
+            return jsonify({
+                'success': True,
+                'profiles': [],
+                'count': 0
+            })
 
         # Load all JSON files from profiles folder
         for filename in os.listdir(PROFILES_FOLDER):
             if filename.endswith('.json'):
-                filepath = os.path.join(PROFILES_FOLDER, filename)
                 try:
+                    # Just return filename and basic metadata (don't load full content)
+                    filepath = os.path.join(PROFILES_FOLDER, filename)
                     with open(filepath, 'r') as f:
-                        profile = json.load(f)
-                        # Add metadata
-                        profile['filename'] = filename
-                        profile['builtin'] = False
-                        profiles.append(profile)
+                        profile_data = json.load(f)
+                        profiles.append({
+                            'filename': filename,
+                            'name': profile_data.get('name', filename.replace('.json', '')),
+                            'description': profile_data.get('description', '')
+                        })
                 except Exception as e:
-                    print(f"[PROFILE WARNING] Failed to load profile {filename}: {str(e)}")
+                    print(f"[PROFILE WARNING] Failed to read profile {filename}: {str(e)}")
                     continue
 
         return jsonify({
@@ -2300,19 +2265,19 @@ def load_profiles():
         })
 
     except Exception as e:
-        print(f"[PROFILE ERROR] Failed to load profiles: {str(e)}")
+        print(f"[PROFILE ERROR] Failed to load server profiles: {str(e)}")
         return jsonify({
             'success': False,
             'message': f'Error loading profiles: {str(e)}',
             'profiles': []
         })
 
-@app.route('/load_profile/<filename>', methods=['GET'])
-def load_profile(filename):
-    """Load a specific profile by filename"""
+@app.route('/api/profiles/<profile_name>', methods=['GET'])
+def get_server_profile(profile_name):
+    """Load a specific template profile from server (read-only)"""
     try:
         # Sanitize filename
-        filename = secure_filename(filename)
+        filename = secure_filename(profile_name)
         if not filename.endswith('.json'):
             filename += '.json'
 
@@ -2321,13 +2286,13 @@ def load_profile(filename):
         if not os.path.exists(filepath):
             return jsonify({
                 'success': False,
-                'message': f'Profile not found: {filename}'
-            })
+                'message': f'Profile not found: {profile_name}'
+            }), 404
 
         with open(filepath, 'r') as f:
             profile = json.load(f)
 
-        print(f"[PROFILE] Loaded profile: {profile.get('name', filename)}")
+        print(f"[PROFILE] Loaded server template profile: {profile.get('name', filename)}")
 
         return jsonify({
             'success': True,
@@ -2335,175 +2300,11 @@ def load_profile(filename):
         })
 
     except Exception as e:
-        print(f"[PROFILE ERROR] Failed to load profile {filename}: {str(e)}")
+        print(f"[PROFILE ERROR] Failed to load profile {profile_name}: {str(e)}")
         return jsonify({
             'success': False,
             'message': f'Error loading profile: {str(e)}'
-        })
-
-@app.route('/delete_profile/<filename>', methods=['DELETE'])
-def delete_profile(filename):
-    """Delete a profile"""
-    try:
-        # Sanitize filename
-        filename = secure_filename(filename)
-        if not filename.endswith('.json'):
-            filename += '.json'
-
-        filepath = os.path.join(PROFILES_FOLDER, filename)
-
-        if not os.path.exists(filepath):
-            return jsonify({
-                'success': False,
-                'message': f'Profile not found: {filename}'
-            })
-
-        os.remove(filepath)
-        print(f"[PROFILE] Deleted profile: {filename}")
-
-        return jsonify({
-            'success': True,
-            'message': f'Profile deleted successfully'
-        })
-
-    except Exception as e:
-        print(f"[PROFILE ERROR] Failed to delete profile {filename}: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Error deleting profile: {str(e)}'
-        })
-
-@app.route('/export_profile', methods=['POST'])
-def export_profile():
-    """Export a profile as JSON download"""
-    try:
-        data = request.get_json()
-        profile_name = data.get('name')
-
-        if not profile_name:
-            return jsonify({
-                'success': False,
-                'message': 'Profile name is required'
-            })
-
-        # Sanitize filename
-        filename = secure_filename(profile_name) + '.json'
-        filepath = os.path.join(PROFILES_FOLDER, filename)
-
-        if not os.path.exists(filepath):
-            return jsonify({
-                'success': False,
-                'message': f'Profile not found: {profile_name}'
-            })
-
-        # Send file as download
-        return send_file(
-            filepath,
-            as_attachment=True,
-            download_name=filename,
-            mimetype='application/json'
-        )
-
-    except Exception as e:
-        print(f"[PROFILE ERROR] Failed to export profile: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Error exporting profile: {str(e)}'
-        })
-
-@app.route('/import_profile', methods=['POST'])
-def import_profile():
-    """Import a profile from JSON upload"""
-    try:
-        if 'profile_file' not in request.files:
-            return jsonify({
-                'success': False,
-                'message': 'No file provided'
-            })
-
-        file = request.files['profile_file']
-
-        if file.filename == '':
-            return jsonify({
-                'success': False,
-                'message': 'No file selected'
-            })
-
-        if not file.filename.endswith('.json'):
-            return jsonify({
-                'success': False,
-                'message': 'File must be a JSON file'
-            })
-
-        # Parse JSON
-        try:
-            profile_data = json.load(file)
-        except json.JSONDecodeError as e:
-            return jsonify({
-                'success': False,
-                'message': f'Invalid JSON format: {str(e)}'
-            })
-
-        # Validate profile data
-        is_valid, message = validate_profile_data(profile_data)
-        if not is_valid:
-            return jsonify({
-                'success': False,
-                'message': f'Invalid profile data: {message}'
-            })
-
-        # Save imported profile
-        profile_name = profile_data.get('name', 'imported_profile')
-        filename = secure_filename(profile_name) + '.json'
-        filepath = os.path.join(PROFILES_FOLDER, filename)
-
-        # Update timestamps
-        profile_data['imported_at'] = datetime.now().isoformat()
-
-        with open(filepath, 'w') as f:
-            json.dump(profile_data, f, indent=2)
-
-        print(f"[PROFILE] Imported profile: {profile_name}")
-
-        return jsonify({
-            'success': True,
-            'message': f'Profile "{profile_name}" imported successfully',
-            'profile': profile_data
-        })
-
-    except Exception as e:
-        print(f"[PROFILE ERROR] Failed to import profile: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Error importing profile: {str(e)}'
-        })
-
-@app.route('/preview_profile', methods=['POST'])
-def preview_profile():
-    """Generate a detailed preview of a profile"""
-    try:
-        data = request.get_json()
-
-        if not data or 'profile' not in data:
-            return jsonify({
-                'success': False,
-                'message': 'No profile data provided'
-            })
-
-        profile = data['profile']
-        preview = generate_profile_preview(profile)
-
-        return jsonify({
-            'success': True,
-            'preview': preview
-        })
-
-    except Exception as e:
-        print(f"[PROFILE ERROR] Failed to generate preview: {str(e)}")
-        return jsonify({
-            'success': False,
-            'message': f'Error generating preview: {str(e)}'
-        })
+        }), 500
 
 @socketio.on('connect')
 def handle_connect():

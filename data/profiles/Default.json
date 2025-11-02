@@ -1,8 +1,8 @@
 {
-  "name": "test3",
-  "description": "",
+  "name": "Default",
+  "description": "Exported profile from PID Annotator",
   "version": "1.0",
-  "created_at": "2025-11-02T07:53:18.333462",
+  "exported_at": "2025-11-02T07:18:33.634Z",
   "settings": {
     "header_row": 6,
     "tag_column": "LRS Tag no.",
@@ -28,14 +28,14 @@
     ],
     "highlight_column": "",
     "highlight_color": "#FFFF00",
-    "annotate_excel": false,
+    "annotate_excel": true,
     "watermark_enabled": false,
     "watermark_attributes": [],
     "watermark_text_color": "#000000",
     "watermark_background_enabled": false,
-    "tag_matching_preset": "custom",
-    "tag_matching_min_parts": 4,
-    "tag_matching_max_parts": 4,
+    "tag_matching_preset": "default",
+    "tag_matching_min_parts": 3,
+    "tag_matching_max_parts": 5,
     "tag_matching_separators": [
       "-",
       "."
