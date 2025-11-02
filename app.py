@@ -1951,7 +1951,7 @@ def get_builtin_templates():
     return [
         {
             "name": "Minimal Setup",
-            "description": "Only tag highlighting, no comments or watermarks",
+            "description": "Fast & simple: Yellow PDF highlights only. No Excel annotation, no watermarks. Best for quick reviews of small PDFs.",
             "version": "1.0",
             "builtin": True,
             "settings": {
@@ -1968,7 +1968,7 @@ def get_builtin_templates():
         },
         {
             "name": "Standard Documentation",
-            "description": "Tag highlighting with basic comments",
+            "description": "Balanced approach: Yellow highlights with optional comments. Good for most documentation tasks. Add comment columns as needed.",
             "version": "1.0",
             "builtin": True,
             "settings": {
@@ -1985,7 +1985,7 @@ def get_builtin_templates():
         },
         {
             "name": "Production Ready",
-            "description": "All features enabled - comprehensive annotations",
+            "description": "Full featured: Red highlights + Excel annotation + watermarks. Comprehensive documentation for final deliverables.",
             "version": "1.0",
             "builtin": True,
             "settings": {
@@ -2002,7 +2002,7 @@ def get_builtin_templates():
         },
         {
             "name": "Quick Review",
-            "description": "Optimized for test runs and quick validation",
+            "description": "Testing mode: Green highlights, minimal processing. Perfect for validating configurations before production runs.",
             "version": "1.0",
             "builtin": True,
             "settings": {
@@ -2019,7 +2019,7 @@ def get_builtin_templates():
         },
         {
             "name": "Excel Focus",
-            "description": "Prioritizes Excel annotation with highlighting",
+            "description": "Excel-centric: Light green highlights + Excel annotation enabled. Perfect when Excel output is your primary deliverable.",
             "version": "1.0",
             "builtin": True,
             "settings": {
@@ -2035,6 +2035,143 @@ def get_builtin_templates():
             }
         }
     ]
+
+def generate_profile_preview(profile):
+    """Generate a detailed human-readable preview of a profile"""
+    settings = profile.get('settings', {})
+
+    # Define setting descriptions
+    setting_descriptions = {
+        'header_row': {
+            'label': 'Header Row',
+            'description': 'Which Excel row contains column headers',
+            'value_formatter': lambda v: f'Row {v}'
+        },
+        'tag_column': {
+            'label': 'Tag Column',
+            'description': 'Excel column containing component identifiers (e.g., A-001, SYS.PUMP)',
+            'value_formatter': lambda v: v if v else 'Auto-detect'
+        },
+        'comment_columns': {
+            'label': 'Comment Columns',
+            'description': 'Additional Excel columns to include in PDF annotations (e.g., Description, Location)',
+            'value_formatter': lambda v: ', '.join(v) if v else 'None'
+        },
+        'highlight_column': {
+            'label': 'Highlight Column',
+            'description': 'Excel column used for conditional highlighting (e.g., "Critical" column for priority filtering)',
+            'value_formatter': lambda v: v if v else 'Not used'
+        },
+        'highlight_color': {
+            'label': 'Highlight Color',
+            'description': 'Color used for tag highlights in PDF (hex format)',
+            'value_formatter': lambda v: v
+        },
+        'annotate_excel': {
+            'label': 'Annotate Excel',
+            'description': 'Highlight found tags in the Excel output file with green background',
+            'value_formatter': lambda v: 'Enabled' if v else 'Disabled'
+        },
+        'watermark_enabled': {
+            'label': 'Watermark',
+            'description': 'Add text watermarks to PDF pages with component metadata',
+            'value_formatter': lambda v: 'Enabled' if v else 'Disabled'
+        },
+        'watermark_attributes': {
+            'label': 'Watermark Attributes',
+            'description': 'Excel columns to include in watermark text (e.g., Location, Responsible)',
+            'value_formatter': lambda v: ', '.join(v) if v else 'None'
+        },
+        'watermark_text_color': {
+            'label': 'Watermark Color',
+            'description': 'Text color for watermarks (hex format)',
+            'value_formatter': lambda v: v
+        },
+        'tag_matching_preset': {
+            'label': 'Tag Matching Preset',
+            'description': 'Pre-configured tag matching rules (Standard, Permissive, Strict, or Custom)',
+            'value_formatter': lambda v: v if v else 'Standard'
+        },
+        'tag_matching_min_parts': {
+            'label': 'Min Tag Parts',
+            'description': 'Minimum number of parts in a tag (e.g., 3 for A-B-C)',
+            'value_formatter': lambda v: str(v) if v else '3'
+        },
+        'tag_matching_max_parts': {
+            'label': 'Max Tag Parts',
+            'description': 'Maximum number of parts in a tag (e.g., 5 for A-B-C-D-E)',
+            'value_formatter': lambda v: str(v) if v else '5'
+        },
+        'tag_matching_separators': {
+            'label': 'Tag Separators',
+            'description': 'Characters used to split tag parts (e.g., - for dash, . for dot)',
+            'value_formatter': lambda v: ', '.join(v) if v and isinstance(v, list) else str(v) if v else '- (dash), . (dot)'
+        },
+        'tag_matching_min_part_length': {
+            'label': 'Min Part Length',
+            'description': 'Minimum characters per tag part',
+            'value_formatter': lambda v: str(v) if v else '1'
+        },
+        'tag_matching_max_part_length': {
+            'label': 'Max Part Length',
+            'description': 'Maximum characters per tag part',
+            'value_formatter': lambda v: str(v) if v else '5'
+        },
+        'tag_matching_allow_partial': {
+            'label': 'Allow Partial Matches',
+            'description': 'Allow matching partial tags (e.g., A-B matches A-B-C)',
+            'value_formatter': lambda v: 'Yes' if v else 'No'
+        },
+        'tag_matching_custom_regex': {
+            'label': 'Custom Regex',
+            'description': 'Custom regular expression pattern for advanced tag matching',
+            'value_formatter': lambda v: v if v else 'Not set (using preset)'
+        }
+    }
+
+    # Build preview data
+    preview = {
+        'name': profile.get('name', 'Unknown'),
+        'description': profile.get('description', ''),
+        'builtin': profile.get('builtin', False),
+        'created_at': profile.get('created_at', ''),
+        'settings_detail': []
+    }
+
+    # Create detailed settings information
+    for key, value in settings.items():
+        if key in setting_descriptions:
+            desc = setting_descriptions[key]
+            preview['settings_detail'].append({
+                'key': key,
+                'label': desc['label'],
+                'value': value,
+                'display_value': desc['value_formatter'](value),
+                'description': desc['description']
+            })
+
+    # Calculate profile complexity score
+    complexity_score = 0
+    if settings.get('annotate_excel'):
+        complexity_score += 2
+    if settings.get('watermark_enabled'):
+        complexity_score += 3
+    if settings.get('comment_columns'):
+        complexity_score += 1
+
+    complexity_levels = {
+        0: 'Minimal',
+        1: 'Minimal',
+        2: 'Moderate',
+        3: 'Moderate',
+        4: 'Moderate',
+        5: 'Comprehensive',
+        6: 'Comprehensive'
+    }
+    preview['complexity'] = complexity_levels.get(min(complexity_score, 6), 'Minimal')
+    preview['complexity_score'] = complexity_score
+
+    return preview
 
 def validate_profile_data(data):
     """Validate profile data structure"""
@@ -2339,6 +2476,33 @@ def import_profile():
         return jsonify({
             'success': False,
             'message': f'Error importing profile: {str(e)}'
+        })
+
+@app.route('/preview_profile', methods=['POST'])
+def preview_profile():
+    """Generate a detailed preview of a profile"""
+    try:
+        data = request.get_json()
+
+        if not data or 'profile' not in data:
+            return jsonify({
+                'success': False,
+                'message': 'No profile data provided'
+            })
+
+        profile = data['profile']
+        preview = generate_profile_preview(profile)
+
+        return jsonify({
+            'success': True,
+            'preview': preview
+        })
+
+    except Exception as e:
+        print(f"[PROFILE ERROR] Failed to generate preview: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error generating preview: {str(e)}'
         })
 
 @socketio.on('connect')
