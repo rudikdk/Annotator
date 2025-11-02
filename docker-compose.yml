@@ -8,9 +8,9 @@ services:
     container_name: pid-annotator-web
     platform: linux/arm64
     ports:
-      - "8080:8080"  # Standardized port 8080 (configurable in CasaOS)
+      - "5001:5001"  # Port 5001 for both internal and external
     environment:
-      - PORT=8080
+      - PORT=5001
       - GUNICORN_WORKERS=1  # Explicit for 4GB RAM model (use 2 for 8GB model)
       - FLASK_ENV=production
       - TZ=Europe/Copenhagen  # Adjust to your timezone
@@ -31,7 +31,7 @@ services:
       - /app/.cache:size=192M,mode=755
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-8080}/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-5001}/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -61,10 +61,10 @@ services:
       net.casaos.app.category: "Utilities"
       net.casaos.app.icon: "https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/pdf.png"
       # Port configuration
-      net.casaos.app.web-port: "8080"
+      net.casaos.app.web-port: "5001"
       net.casaos.app.protocol: "http"
       # Health check
-      net.casaos.app.healthcheck: "http://localhost:8080/"
+      net.casaos.app.healthcheck: "http://localhost:5001/"
 
 # Named volumes for CasaOS volume management
 volumes:

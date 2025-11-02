@@ -125,6 +125,16 @@
     .animate-bounce-attention {
       animation: bounce-attention 1s ease-in-out 5;
     }
+
+    /* Fast fade-in animation for tooltips */
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
   </style>
 </head>
 <body class="bg-white text-gray-900 dark:bg-zinc-900 dark:text-zinc-100 transition-colors duration-500 ease-smooth">
@@ -137,6 +147,191 @@
     // UI helpers
     function cx(...classes) {
       return classes.filter(Boolean).join(" ");
+    }
+
+    // Help content for all features
+    const HELP_CONTENT = {
+      headerRow: "Specify which row in your Excel file contains the column headers. The application will read column names from this row. Default is row 6, but adjust to match your file structure.",
+      tagColumn: "Select the Excel column containing your component identifiers (tags). These tags will be searched for in your PDF files. Examples: TAG-001-A, SYS.PUMP.01, A.B.C",
+      commentColumns: "Choose which Excel columns to include as annotations in the PDF. Selected columns will appear as notes attached to each found tag. Useful for adding descriptions, specifications, or notes.",
+      excelAnnotation: "When enabled, the application highlights Excel rows (with green fill) where tags were successfully found in the PDF. Only works with .xlsx files. Helps you identify which components were located.",
+      watermark: "Add text labels near tags in the PDF using values from your Excel file. Choose which attribute columns to display, customize text color, and optionally add a white background for better readability.",
+      conditionalHighlighting: "Highlight only tags where a specific Excel column has a value. For example, select 'Critical' column to highlight only critical components. Combine with color rules for advanced filtering.",
+      configurationProfiles: "Save and reuse your settings across sessions. Load built-in templates for common workflows, or create custom profiles by importing/exporting JSON configuration files. Your settings auto-save to your browser.",
+      tagFilters: "Control which tags get processed by creating include/exclude rules based on tag structure or Excel column values. Combine multiple filters with AND/OR logic to precisely target the tags you need.",
+      customTagMatching: "Customize how tags are identified in PDFs. Choose from presets (Default for standard tags, Match All for any text) or create custom patterns with configurable separators, part counts, and lengths.",
+      colorRules: "Apply different highlight colors based on tag structure or Excel column values. Create rules to match specific tag parts or column criteria, set priority order, and use default colors for unmatched tags.",
+      testRun: "Process only the first 100 tags from your Excel file to quickly verify your configuration before running the full job. Perfect for testing color rules, filters, and settings without processing thousands of tags.",
+      startProcessing: "Begin full processing of all selected PDFs with all tags from your Excel file. The application will search for tags, apply highlights, add annotations, and generate watermarks if enabled.",
+      fileWorkspace: "Manage all your files in one place. Upload PDFs and Excel/CSV files, select which files to process, and reuse annotated outputs as inputs. Files persist across sessions until you clear the workspace."
+    };
+
+    /**
+     * HelpIcon Component
+     *
+     * A reusable help icon that displays a tooltip on hover (desktop) or click (mobile)
+     * with keyboard accessibility support. Uses fixed positioning to avoid clipping by parent containers.
+     */
+    function HelpIcon({ content, position = 'top' }) {
+      const [isOpen, setIsOpen] = useState(false);
+      const [isMobile, setIsMobile] = useState(false);
+      const [tooltipPos, setTooltipPos] = useState({ top: 0, left: 0 });
+      const buttonRef = useRef(null);
+      const tooltipRef = useRef(null);
+
+      // Detect mobile devices
+      useEffect(() => {
+        const checkMobile = () => {
+          setIsMobile(window.matchMedia('(max-width: 768px)').matches || 'ontouchstart' in window);
+        };
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+      }, []);
+
+      // Calculate tooltip position for fixed positioning
+      const calculatePosition = () => {
+        if (!buttonRef.current || !tooltipRef.current) return;
+
+        const buttonRect = buttonRef.current.getBoundingClientRect();
+        const tooltipRect = tooltipRef.current.getBoundingClientRect();
+        const gap = 12;
+        let top = 0,
+          left = 0;
+
+        if (position === 'top') {
+          top = buttonRect.top - tooltipRect.height - gap;
+          left = buttonRect.left + buttonRect.width / 2 - tooltipRect.width / 2;
+        } else if (position === 'bottom') {
+          top = buttonRect.bottom + gap;
+          left = buttonRect.left + buttonRect.width / 2 - tooltipRect.width / 2;
+        } else if (position === 'left') {
+          top = buttonRect.top + buttonRect.height / 2 - tooltipRect.height / 2;
+          left = buttonRect.left - tooltipRect.width - gap;
+        } else if (position === 'right') {
+          top = buttonRect.top + buttonRect.height / 2 - tooltipRect.height / 2;
+          left = buttonRect.right + gap;
+        }
+
+        // Adjust for viewport boundaries
+        const padding = 8;
+        if (left < padding) left = padding;
+        if (left + tooltipRect.width > window.innerWidth - padding) {
+          left = window.innerWidth - tooltipRect.width - padding;
+        }
+        if (top < padding) top = padding;
+        if (top + tooltipRect.height > window.innerHeight - padding) {
+          top = window.innerHeight - tooltipRect.height - padding;
+        }
+
+        setTooltipPos({ top, left });
+      };
+
+      // Update position when tooltip opens
+      useEffect(() => {
+        if (isOpen) {
+          calculatePosition();
+          window.addEventListener('scroll', calculatePosition);
+          window.addEventListener('resize', calculatePosition);
+          return () => {
+            window.removeEventListener('scroll', calculatePosition);
+            window.removeEventListener('resize', calculatePosition);
+          };
+        }
+      }, [isOpen, position]);
+
+      // Close tooltip when clicking outside
+      useEffect(() => {
+        if (!isMobile || !isOpen) return;
+
+        function handleClickOutside(event) {
+          if (buttonRef.current && !buttonRef.current.contains(event.target) &&
+              tooltipRef.current && !tooltipRef.current.contains(event.target)) {
+            setIsOpen(false);
+          }
+        }
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('touchstart', handleClickOutside);
+        return () => {
+          document.removeEventListener('mousedown', handleClickOutside);
+          document.removeEventListener('touchstart', handleClickOutside);
+        };
+      }, [isOpen, isMobile]);
+
+      const handleToggle = (e) => {
+        e.stopPropagation();
+        if (isMobile) {
+          setIsOpen(!isOpen);
+        }
+      };
+
+      const handleKeyDown = (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          e.stopPropagation();
+          setIsOpen(!isOpen);
+        } else if (e.key === 'Escape' && isOpen) {
+          setIsOpen(false);
+        }
+      };
+
+      return (
+        <>
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={handleToggle}
+            onKeyDown={handleKeyDown}
+            className={cx(
+              "inline-flex items-center justify-center",
+              "h-5 w-5 rounded-full",
+              "border border-brand/30 text-brand/50 dark:border-brand/20 dark:text-brand/40 hover:border-brand hover:text-brand dark:hover:border-brand dark:hover:text-brand",
+              "transition-all duration-200",
+              "focus:outline-none focus:ring-2 focus:ring-brand/50 focus:ring-offset-2",
+              "dark:focus:ring-offset-zinc-900",
+              "cursor-help",
+              "ml-1.5",
+              "flex-shrink-0",
+              "text-xs font-medium leading-none"
+            )}
+            aria-label="Help information"
+            aria-expanded={isOpen}
+            tabIndex={0}
+            onMouseEnter={() => !isMobile && setIsOpen(true)}
+            onMouseLeave={() => !isMobile && setIsOpen(false)}
+          >
+            ?
+          </button>
+
+          {/* Tooltip - Fixed positioning to break out of container constraints */}
+          {isOpen && (
+            <div
+              ref={tooltipRef}
+              className="fixed z-50 w-64 sm:w-72 pointer-events-auto"
+              style={{
+                top: `${tooltipPos.top}px`,
+                left: `${tooltipPos.left}px`,
+                animation: 'fadeIn 0.15s ease-in'
+              }}
+              role="tooltip"
+            >
+              <div className="relative">
+                {/* Tooltip content */}
+                <div className={cx(
+                  "rounded-lg px-3 py-2.5",
+                  "bg-zinc-800 dark:bg-zinc-200",
+                  "text-zinc-100 dark:text-zinc-900",
+                  "text-xs leading-relaxed",
+                  "shadow-lg border border-zinc-700 dark:border-zinc-300"
+                )}>
+                  {content}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      );
     }
 
     function ThemeToggle() {
@@ -3166,7 +3361,13 @@
 
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 sm:px-6 py-6 sm:py-8 space-y-6">
             {/* File Workspace */}
-            <SectionCard title="File Workspace">
+            <SectionCard 
+              title={
+                <span className="flex items-center">
+                  File Workspace
+                  <HelpIcon content={HELP_CONTENT.fileWorkspace} />
+                </span>
+              }>
               <FileWorkspace
                 workspaceFiles={workspaceFiles}
                 selectedPdfs={selectedPdfs}
@@ -3191,8 +3392,11 @@
                   <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Configuration</h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div>
-                      <label htmlFor="header-row" className="block text-sm font-medium mb-1">
-                        Header Row
+                      <label htmlFor="header-row" className="block text-sm font-medium mb-1 flex items-center">
+                        <span className="flex items-center">
+                          Header Row
+                          <HelpIcon content={HELP_CONTENT.headerRow} />
+                        </span>
                         {loadingColumns && (
                           <span className="ml-2 text-xs text-brand">
                             <i className="fa-solid fa-spinner fa-spin"></i> Loading...
@@ -3224,8 +3428,11 @@
                       </div>
                     </div>
                     <div>
-                      <label htmlFor="tag-column" className="block text-sm font-medium mb-1">
-                        Tag Column
+                      <label htmlFor="tag-column" className="block text-sm font-medium mb-1 flex items-center">
+                        <span className="flex items-center">
+                          Tag Column
+                          <HelpIcon content={HELP_CONTENT.tagColumn} />
+                        </span>
                       </label>
                       <select
                         id="tag-column"
@@ -3253,7 +3460,12 @@
 
                 {/* Comment Columns Section */}
                 <div>
-                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Comment Columns</h3>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3 flex items-center">
+                    <span className="flex items-center">
+                      Comment Columns
+                      <HelpIcon content={HELP_CONTENT.commentColumns} />
+                    </span>
+                  </h3>
                   <div className="mb-3 flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -3313,7 +3525,12 @@
 
                 {/* Excel Annotation Section */}
                 <div>
-                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Excel Annotation</h3>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3 flex items-center">
+                    <span className="flex items-center">
+                      Excel Annotation
+                      <HelpIcon content={HELP_CONTENT.excelAnnotation} />
+                    </span>
+                  </h3>
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="sm:col-span-2">
                       <label className={cx(
@@ -3357,7 +3574,12 @@
 
                 {/* Watermark Section */}
                 <div>
-                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3">Watermark</h3>
+                  <h3 className="text-sm font-semibold text-zinc-500 dark:text-zinc-400 mb-3 flex items-center">
+                    <span className="flex items-center">
+                      Watermark
+                      <HelpIcon content={HELP_CONTENT.watermark} />
+                    </span>
+                  </h3>
                   <div className="space-y-4">
                     <div>
                       <label className="flex items-center gap-3">
@@ -3496,7 +3718,12 @@
                             profilesExpanded ? "fa-chevron-down" : "fa-chevron-right",
                             "transition-transform duration-200"
                           )}></i>
-                          <h3 className="text-sm font-semibold">Configuration Profiles</h3>
+                          <h3 className="text-sm font-semibold flex items-center">
+                          <span className="flex items-center">
+                            Configuration Profiles
+                            <HelpIcon content={HELP_CONTENT.configurationProfiles} />
+                          </span>
+                        </h3>
                         </div>
                         {activeProfileName && (
                           <span className="text-xs px-2 py-1 rounded bg-brand/10 text-brand font-medium">
@@ -3786,7 +4013,12 @@
                             tagFiltersExpanded ? "fa-chevron-down" : "fa-chevron-right",
                             "transition-transform duration-200"
                           )}></i>
-                          <h3 className="text-sm font-semibold">Tag Filters</h3>
+                          <h3 className="text-sm font-semibold flex items-center">
+                          <span className="flex items-center">
+                            Tag Filters
+                            <HelpIcon content={HELP_CONTENT.tagFilters} />
+                          </span>
+                        </h3>
                         </div>
                         {tagFilters.length > 0 && (
                           <span className="text-xs px-2 py-1 rounded bg-brand/10 text-brand font-medium">
@@ -4314,7 +4546,12 @@
                             tagMatchingPanelOpen ? "fa-chevron-down" : "fa-chevron-right",
                             "transition-transform duration-200"
                           )}></i>
-                          <h3 className="text-sm font-semibold">Custom Tag Matching</h3>
+                          <h3 className="text-sm font-semibold flex items-center">
+                          <span className="flex items-center">
+                            Custom Tag Matching
+                            <HelpIcon content={HELP_CONTENT.customTagMatching} />
+                          </span>
+                        </h3>
                         </div>
                       </button>
 
@@ -4671,7 +4908,12 @@
                             colorRulesExpanded ? "fa-chevron-down" : "fa-chevron-right",
                             "transition-transform duration-200"
                           )}></i>
-                          <h3 className="text-sm font-semibold">Color Rules</h3>
+                          <h3 className="text-sm font-semibold flex items-center">
+                          <span className="flex items-center">
+                            Color Rules
+                            <HelpIcon content={HELP_CONTENT.colorRules} />
+                          </span>
+                        </h3>
                         </div>
                         {colorRules.length > 0 && (
                           <span className="text-xs px-2 py-1 rounded bg-brand/10 text-brand font-medium">
@@ -5193,14 +5435,20 @@
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-brand text-white px-4 py-3 font-semibold shadow-soft hover:bg-brand-hover transition-all hover:shadow-md hover:scale-[1.01]"
                 >
                   <i className="fa-solid fa-play"></i>
-                  Start
+                  <span className="flex items-center gap-1.5">
+                    Start
+                    <HelpIcon content={HELP_CONTENT.startProcessing} position="top" />
+                  </span>
                 </button>
                 <button
                   onClick={() => startProcessing(true)}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-warning text-black px-4 py-3 font-semibold shadow-soft hover:bg-warning-hover/90 transition-all hover:shadow-md hover:scale-[1.01]"
                 >
                   <i className="fa-solid fa-bolt"></i>
-                  Test Run (100 tags)
+                  <span className="flex items-center gap-1.5">
+                    Test Run (100 tags)
+                    <HelpIcon content={HELP_CONTENT.testRun} position="top" />
+                  </span>
                 </button>
                 <button
                   onClick={handleClearSession}

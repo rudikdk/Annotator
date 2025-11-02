@@ -41,7 +41,7 @@ FROM --platform=linux/arm64 python:3.11-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
-ENV PORT=8080
+ENV PORT=5001
 ENV MALLOC_ARENA_MAX=2
 ENV PYTHONHASHSEED=random
 ENV PYTHONOPTIMIZE=1
@@ -86,11 +86,11 @@ RUN mkdir -p uploads output .cache && \
 # to fix mounted volume permissions, then it will switch to appuser using gosu
 
 # Expose port
-EXPOSE 8080
+EXPOSE 5001
 
 # Optimized health check using wget (already installed)
 HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
-    CMD wget -q --spider http://localhost:${PORT:-8080}/ || exit 1
+    CMD wget -q --spider http://localhost:${PORT:-5001}/ || exit 1
 
 # Set entrypoint and start command
 # Using gunicorn with eventlet for WebSocket support
