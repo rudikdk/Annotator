@@ -65,7 +65,7 @@ cd pid-annotator
 docker-compose up -d
 
 # 3. Open your browser
-# Go to: http://localhost:8080
+# Go to: http://localhost:5001
 ```
 
 That's it! The application is now running and ready to use.
@@ -104,7 +104,7 @@ That's it! The application is now running and ready to use.
 
 4. **Access the Application**
    - Open your web browser
-   - Go to: `http://localhost:8080`
+   - Go to: `http://localhost:5001`
 
 5. **Stop the Application** (when done)
    ```bash
@@ -156,7 +156,7 @@ See [RASPBERRY_PI_QUICKSTART.md](RASPBERRY_PI_QUICKSTART.md) for detailed Raspbe
 
 #### 2. Upload Your Files
 
-1. Open the application in your browser (`http://localhost:8080`)
+1. Open the application in your browser (`http://localhost:5001`)
 2. **Upload PDF(s):**
    - Click "Select PDF files" or drag-and-drop your PDF(s)
    - You can upload one or multiple PDF files at once
@@ -272,6 +272,12 @@ Excel File (components.xlsx)
 - Verify the PDF has searchable text (not just images)
 - Review the processing report for details
 
+**Q: Can I run this on my own machine?**
+- Yes! The source code is available on GitHub for free: [github.com/rudikdk/Annotator](https://github.com/rudikdk/Annotator)
+- You can clone the repository and run it locally with Docker or Python
+- Perfect for local deployments, private use, or customization
+- Full setup instructions available in the [Local Installation](#local-installation) section
+
 ---
 
 ## 🔧 Requirements
@@ -359,7 +365,7 @@ Excel File (components.xlsx)
 
 ```yaml
 Container: pid-annotator-web
-Port: 8080
+Port: 5001
 Memory: 2GB (adjustable)
 CPU: 2 cores (adjustable)
 Storage: Persistent volumes for uploads/output
@@ -367,12 +373,12 @@ Storage: Persistent volumes for uploads/output
 
 ### Custom Port Configuration
 
-Change the external port while keeping internal port at 8080:
+Change the external port while keeping internal port at 5001:
 
 ```yaml
 # In docker-compose.yml
 ports:
-  - "9000:8080"  # Use external port 9000
+  - "9000:5001"  # Use external port 9000
 ```
 
 Then access at: `http://localhost:9000`
@@ -498,3 +504,5 @@ Please report it on GitHub Issues with as much detail as possible.
 [⭐ Star on GitHub](https://github.com/rudikdk/pid-annotator) | [📖 Documentation](CLAUDE.md) | [🐛 Report Bug](https://github.com/rudikdk/pid-annotator/issues)
 
 </div>
+
+
