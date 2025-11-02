@@ -37,7 +37,8 @@
       "Bash(echo \"\n=== FILE LISTING ===\")",
       "Bash(echo \"\n=== SYNTAX CHECKS ===\")",
       "Bash(echo \"\n=== WORKING TREE STATUS ===\")",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(docker compose logs:*)"
     ],
     "deny": [],
     "ask": []

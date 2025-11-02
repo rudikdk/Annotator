@@ -98,7 +98,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["sh", "-c", "gunicorn --worker-class eventlet \
      -w ${GUNICORN_WORKERS:-1} \
-     --bind 0.0.0.0:${PORT:-8080} \
+     --bind 0.0.0.0:${PORT:-5001} \
      --timeout 300 \
      --graceful-timeout 30 \
      --keep-alive 5 \

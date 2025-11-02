@@ -91,7 +91,7 @@ fi
 # Port Validation
 # ============================================
 echo "Validating configuration..."
-PORT="${PORT:-8080}"
+PORT="${PORT:-5001}"
 if ! echo "$PORT" | grep -qE '^[0-9]+$'; then
     echo "ERROR: PORT must be numeric (got: $PORT)"
     exit 1

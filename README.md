@@ -272,6 +272,12 @@ Excel File (components.xlsx)
 - Verify the PDF has searchable text (not just images)
 - Review the processing report for details
 
+**Q: Can I run this on my own machine?**
+- Yes! The source code is available on GitHub for free: [github.com/rudikdk/Annotator](https://github.com/rudikdk/Annotator)
+- You can clone the repository and run it locally with Docker or Python
+- Perfect for local deployments, private use, or customization
+- Full setup instructions available in the [Local Installation](#local-installation) section
+
 ---
 
 ## 🔧 Requirements
