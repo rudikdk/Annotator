@@ -744,7 +744,8 @@ def process_files():
                     'duplicates': {},
                     'validation_warnings': [],
                     'color_conflicts': [],
-                    'page_stats': {}
+                    'page_stats': {},
+                    'unmatched_pdf_tags': []
                 }
 
                 # Process each PDF file
@@ -861,6 +862,22 @@ def process_files():
                                 }
                         aggregated_report['validation_warnings'].extend(report_data.get('validation_warnings', []))
                         aggregated_report['color_conflicts'].extend(report_data.get('color_conflicts', []))
+
+                        # Aggregate unmatched PDF tags (merge from multiple PDFs)
+                        for unmatched_tag in report_data.get('unmatched_pdf_tags', []):
+                            # Check if tag already exists in aggregated list
+                            existing = next(
+                                (t for t in aggregated_report['unmatched_pdf_tags']
+                                 if t['tag'].upper() == unmatched_tag['tag'].upper()),
+                                None
+                            )
+                            if existing:
+                                # Merge pages and update count
+                                existing['pages'] = sorted(set(existing['pages'] + unmatched_tag['pages']))
+                                existing['occurrence_count'] += unmatched_tag['occurrence_count']
+                            else:
+                                aggregated_report['unmatched_pdf_tags'].append(unmatched_tag.copy())
+
                         # Capture per-PDF page statistics for reporting
                         page_stats = report_data.get('page_stats') or {}
                         if page_stats:

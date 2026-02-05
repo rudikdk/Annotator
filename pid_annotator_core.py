@@ -1768,6 +1768,62 @@ def process_annotations_from_index(
     for page_num, count in report_data['annotated_tags_by_page'].items():
         print(f"[ANNOTATION STATS] Page {page_num}: {count} tags received annotations (highlights/comments/watermarks)")
 
+    # Compute unmatched PDF tags (tags in PDF but not in Excel)
+    # Build set of all normalized Excel tags with delimiter variants
+    excel_tags_normalized = set()
+    for excel_tag in df[tag_col].dropna().astype(str).str.strip():
+        if excel_tag and excel_tag.lower() != 'nan':
+            normalized = excel_tag.upper()
+            excel_tags_normalized.add(normalized)
+            # Add delimiter variants
+            if '-' in normalized:
+                excel_tags_normalized.add(convert_tag_format(normalized, from_delimiter="-", to_delimiter="."))
+            if '.' in normalized:
+                excel_tags_normalized.add(convert_tag_format(normalized, from_delimiter=".", to_delimiter="-"))
+
+    # Find tags in tag_index that are NOT in Excel
+    unmatched_pdf_tags = []
+    seen_tags = set()  # To avoid duplicate entries from tag variants
+
+    for tag_text, locations in tag_index.items():
+        # Skip if already processed (variant handling)
+        if tag_text in seen_tags:
+            continue
+
+        # Check if tag is NOT in Excel
+        if tag_text not in excel_tags_normalized:
+            # Mark all variants as seen to avoid duplicates
+            seen_tags.add(tag_text)
+            dash_variant = convert_tag_format(tag_text, from_delimiter=".", to_delimiter="-")
+            dot_variant = convert_tag_format(tag_text, from_delimiter="-", to_delimiter=".")
+            seen_tags.add(dash_variant)
+            seen_tags.add(dot_variant)
+
+            # Also check if variants are in Excel (if so, skip - it was matched)
+            if dash_variant in excel_tags_normalized or dot_variant in excel_tags_normalized:
+                continue
+
+            # Extract page numbers (0-indexed in locations)
+            pages = sorted(set(page_num for page_num, _, _ in locations))
+            occurrence_count = len(locations)
+
+            # Get original tag format from first location
+            original_tag = locations[0][2] if locations else tag_text
+
+            unmatched_pdf_tags.append({
+                'tag': original_tag,
+                'pages': pages,  # 0-indexed, will be displayed as 1-indexed in report
+                'occurrence_count': occurrence_count
+            })
+
+    # Sort by tag name for consistent display
+    unmatched_pdf_tags.sort(key=lambda x: x['tag'].upper())
+
+    # Add to report_data
+    report_data['unmatched_pdf_tags'] = unmatched_pdf_tags
+
+    print(f"Report: {len(report_data['unmatched_pdf_tags'])} unmatched PDF tags (in PDF but not in Excel)")
+
     return found_tags, skipped_tags, processed_tags, report_data
 
 

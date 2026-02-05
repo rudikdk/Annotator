@@ -214,12 +214,14 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     duplicates = report_data.get('duplicates', {})
     validation_warnings = report_data.get('validation_warnings', [])
     page_stats = report_data.get('page_stats', {})
+    unmatched_pdf_tags = report_data.get('unmatched_pdf_tags', [])
 
     total_tags = len(found) + len(not_found)
     found_count = len(found)
     not_found_count = len(not_found)
     duplicate_count = len(duplicates)
     warning_count = len(validation_warnings)
+    unmatched_count = len(unmatched_pdf_tags)
 
     found_percent = (found_count / total_tags * 100) if total_tags > 0 else 0
     not_found_percent = (not_found_count / total_tags * 100) if total_tags > 0 else 0
@@ -604,6 +606,26 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
     warnings_rows_html = '\n'.join(warnings_rows)
 
+    # Build unmatched PDF tags rows (tags in PDF but not in Excel)
+    unmatched_rows = []
+    for idx, item in enumerate(unmatched_pdf_tags):
+        tag = item["tag"]
+        # Convert 0-indexed pages to 1-indexed for display
+        pages = [p + 1 for p in item["pages"]]
+        occurrence_count = item["occurrence_count"]
+
+        pages_str = ", ".join(map(str, pages))
+
+        row_html = f'''                    <tr>
+                        <td class="tag-name">{tag}</td>
+                        <td class="page-list">{pages_str}</td>
+                        <td class="occurrence-count">{occurrence_count}</td>
+                    </tr>'''
+
+        unmatched_rows.append(row_html)
+
+    unmatched_rows_html = '\n'.join(unmatched_rows)
+
     # Process page statistics
     def _flatten_page_stats_map(stats_map, source_label=None):
         entries = []
@@ -943,6 +965,30 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         </div>
         '''
 
+    # Build unmatched PDF tags section (tags in PDF but not in Excel)
+    unmatched_section = ''
+    if unmatched_count > 0:
+        unmatched_section = f'''
+        <div class="section">
+            <h2><span style="color: #8b5cf6;">&#128203;</span> Tags Found in PDF (Not in Excel) <span class="badge" style="background: #8b5cf6;">{unmatched_count}</span></h2>
+            <p style="color: #6b7280; margin-bottom: 12px; font-size: 14px;">
+                These tags were detected in the PDF document but do not appear in the Excel component list.
+            </p>
+            <table id="unmatchedTable">
+                <thead>
+                    <tr>
+                        <th onclick="sortTable('unmatchedTable', 0)">Tag <span class="sort-icon">↕</span></th>
+                        <th onclick="sortTable('unmatchedTable', 1)">Pages <span class="sort-icon">↕</span></th>
+                        <th onclick="sortTable('unmatchedTable', 2)">Occurrences <span class="sort-icon">↕</span></th>
+                    </tr>
+                </thead>
+                <tbody>
+{unmatched_rows_html}
+                </tbody>
+            </table>
+        </div>
+        '''
+
     # Build page statistics section for dedicated page view
     page_stats_section_html = ''
     if page_stats_count > 0:
@@ -1039,7 +1085,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         'not_found': not_found,
         'duplicates': duplicates_list,
         'validation_warnings': validation_warnings,
-        'page_stats': page_stats_list
+        'page_stats': page_stats_list,
+        'unmatched_pdf_tags': unmatched_pdf_tags
     })
 
     html = f'''<!DOCTYPE html>
@@ -2225,6 +2272,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         </div>
 
 {warnings_section}
+
+{unmatched_section}
 
         <footer>
             <h3>Processing Settings</h3>
