@@ -969,23 +969,57 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
     unmatched_section = ''
     if unmatched_count > 0:
         unmatched_section = f'''
-        <div class="section">
-            <h2><span style="color: #8b5cf6;">&#128203;</span> Tags Found in PDF (Not in Excel) <span class="badge" style="background: #8b5cf6;">{unmatched_count}</span></h2>
-            <p style="color: #6b7280; margin-bottom: 12px; font-size: 14px;">
-                These tags were detected in the PDF document but do not appear in the Excel component list.
-            </p>
-            <table id="unmatchedTable">
-                <thead>
-                    <tr>
-                        <th onclick="sortTable('unmatchedTable', 0)">Tag <span class="sort-icon">↕</span></th>
-                        <th onclick="sortTable('unmatchedTable', 1)">Pages <span class="sort-icon">↕</span></th>
-                        <th onclick="sortTable('unmatchedTable', 2)">Occurrences <span class="sort-icon">↕</span></th>
-                    </tr>
-                </thead>
-                <tbody>
+        <div class="section collapsible collapsed" id="unmatchedSection">
+            <h2 onclick="toggleSection('unmatchedSection')">
+                <span>
+                    <span style="color: #8b5cf6;">&#128203;</span> Tags Found in PDF (Not in Excel) <span class="badge" style="background: #8b5cf6;" id="unmatchedBadge">{unmatched_count}</span>
+                </span>
+                <span class="toggle-icon">▼</span>
+            </h2>
+            <div class="section-content">
+                <p style="color: #6b7280; margin-bottom: 12px; font-size: 14px;">
+                    These tags were detected in the PDF document but do not appear in the Excel component list.
+                </p>
+                <div class="unmatched-filter-controls">
+                    <div class="filter-group">
+                        <label>Exclude by Tag Part</label>
+                        <select id="unmatchedPartSelect">
+                            <option value="1">Part 1 (e.g. 101)</option>
+                            <option value="2" selected>Part 2 (e.g. RB)</option>
+                            <option value="3">Part 3 (e.g. 07)</option>
+                            <option value="4">Part 4</option>
+                            <option value="5">Part 5</option>
+                        </select>
+                    </div>
+                    <div class="filter-group">
+                        <label>Values to Exclude (comma-separated)</label>
+                        <input type="text" id="unmatchedExcludeInput" placeholder="e.g. RB,PB,XV">
+                    </div>
+                    <div class="filter-group">
+                        <button class="btn purple" onclick="applyUnmatchedFilter()">Apply Filter</button>
+                    </div>
+                    <div class="filter-group">
+                        <button class="btn secondary" onclick="clearUnmatchedFilter()">Clear Filter</button>
+                    </div>
+                    <span class="excluded-count" id="unmatchedFilterStatus"></span>
+                </div>
+                <table id="unmatchedTable">
+                    <thead>
+                        <tr>
+                            <th onclick="sortTable('unmatchedTable', 0)">Tag <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('unmatchedTable', 1)">Pages <span class="sort-icon">↕</span></th>
+                            <th onclick="sortTable('unmatchedTable', 2)">Occurrences <span class="sort-icon">↕</span></th>
+                        </tr>
+                    </thead>
+                    <tbody>
 {unmatched_rows_html}
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+                <div class="unmatched-export-bar">
+                    <button class="btn purple" onclick="exportUnmatchedToExcel()">Export Unmatched Tags (Excel)</button>
+                    <span class="excluded-count" id="unmatchedExportInfo"></span>
+                </div>
+            </div>
         </div>
         '''
 
@@ -1086,7 +1120,8 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         'duplicates': duplicates_list,
         'validation_warnings': validation_warnings,
         'page_stats': page_stats_list,
-        'unmatched_pdf_tags': unmatched_pdf_tags
+        'unmatched_pdf_tags': unmatched_pdf_tags,
+        'pdf_filenames': pdf_filenames if isinstance(pdf_filenames, list) else [str(pdf_filenames)]
     })
 
     html = f'''<!DOCTYPE html>
@@ -1255,6 +1290,70 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
         .btn:hover {{ background: #1d4ed8; }}
         .btn.secondary {{ background: #6b7280; }}
         .btn.secondary:hover {{ background: #4b5563; }}
+        .btn.purple {{ background: #8b5cf6; }}
+        .btn.purple:hover {{ background: #7c3aed; }}
+
+        .unmatched-filter-controls {{
+            background: #f5f3ff;
+            border: 1px solid #e0d5f5;
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin-bottom: 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: flex-end;
+        }}
+
+        .filter-group {{
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }}
+
+        .filter-group label {{
+            font-size: 12px;
+            font-weight: 600;
+            color: #6b7280;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+
+        .filter-group select,
+        .filter-group input {{
+            padding: 8px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }}
+
+        .filter-group select:focus,
+        .filter-group input:focus {{
+            outline: none;
+            border-color: #8b5cf6;
+            box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+        }}
+
+        .filter-group input {{
+            min-width: 220px;
+        }}
+
+        .excluded-count {{
+            font-size: 13px;
+            color: #8b5cf6;
+            font-weight: 500;
+            padding: 8px 0;
+        }}
+
+        .unmatched-export-bar {{
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid #e0d5f5;
+        }}
 
         .section {{
             padding: 30px;
@@ -2223,7 +2322,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
 
 {duplicates_section}
 
-        <div class="section collapsible" id="notFoundSection">
+        <div class="section collapsible collapsed" id="notFoundSection">
             <h2 onclick="toggleSection('notFoundSection')">
                 <span>
                     <span style="color: #f59e0b;">⊘</span> Not Found Tags <span class="badge">{not_found_count}</span>
@@ -2246,7 +2345,7 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             </div>
         </div>
 
-        <div class="section collapsible" id="foundSection">
+        <div class="section collapsible collapsed" id="foundSection">
             <h2 onclick="toggleSection('foundSection')">
                 <span>
                     <span style="color: #16a34a;">✓</span> Found Tags <span class="badge">{found_count}</span>
@@ -2271,9 +2370,9 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             </div>
         </div>
 
-{warnings_section}
-
 {unmatched_section}
+
+{warnings_section}
 
         <footer>
             <h3>Processing Settings</h3>
@@ -2744,6 +2843,192 @@ def generate_html_report(report_data, pdf_filenames, excel_filename, settings=No
             const filename = `pid_annotator_filtered_${{timestamp}}.xlsx`;
             XLSX.writeFile(wb, filename);
         }}
+
+        // --- Unmatched Tags Filter & Export ---
+
+        function getTagPart(tag, partIndex) {{
+            // Split tag by - or . delimiters
+            const parts = tag.split(/[-.]/);
+            if (partIndex >= 0 && partIndex < parts.length) {{
+                return parts[partIndex].toUpperCase();
+            }}
+            return null;
+        }}
+
+        function applyUnmatchedFilter() {{
+            const partSelect = document.getElementById('unmatchedPartSelect');
+            const excludeInput = document.getElementById('unmatchedExcludeInput');
+            if (!partSelect || !excludeInput) return;
+
+            const partIndex = parseInt(partSelect.value) - 1; // Convert 1-based to 0-based
+            const rawValues = excludeInput.value.trim();
+
+            if (!rawValues) {{
+                clearUnmatchedFilter();
+                return;
+            }}
+
+            const excludeValues = rawValues.split(',')
+                .map(v => v.trim().toUpperCase())
+                .filter(v => v.length > 0);
+
+            if (excludeValues.length === 0) {{
+                clearUnmatchedFilter();
+                return;
+            }}
+
+            const table = document.getElementById('unmatchedTable');
+            if (!table) return;
+
+            const rows = table.querySelectorAll('tbody tr');
+            let hiddenCount = 0;
+            let visibleCount = 0;
+
+            rows.forEach(row => {{
+                const tagCell = row.querySelector('.tag-name');
+                if (!tagCell) return;
+
+                const tag = tagCell.textContent.trim();
+                const partValue = getTagPart(tag, partIndex);
+
+                if (partValue && excludeValues.includes(partValue)) {{
+                    row.style.display = 'none';
+                    row.dataset.unmatchedExcluded = 'true';
+                    hiddenCount++;
+                }} else {{
+                    // Only show if not hidden by search filter
+                    if (row.dataset.unmatchedExcluded === 'true') {{
+                        row.style.display = '';
+                        delete row.dataset.unmatchedExcluded;
+                    }}
+                    visibleCount++;
+                }}
+            }});
+
+            // Update status
+            const status = document.getElementById('unmatchedFilterStatus');
+            if (status) {{
+                status.textContent = `Excluded ${{hiddenCount}} tags | Showing ${{visibleCount}} tags`;
+            }}
+
+            // Update badge
+            const badge = document.getElementById('unmatchedBadge');
+            if (badge) {{
+                badge.textContent = visibleCount;
+            }}
+
+            // Update export info
+            updateUnmatchedExportInfo(visibleCount);
+        }}
+
+        function clearUnmatchedFilter() {{
+            const table = document.getElementById('unmatchedTable');
+            if (!table) return;
+
+            const excludeInput = document.getElementById('unmatchedExcludeInput');
+            if (excludeInput) excludeInput.value = '';
+
+            const rows = table.querySelectorAll('tbody tr');
+            let totalCount = 0;
+
+            rows.forEach(row => {{
+                row.style.display = '';
+                delete row.dataset.unmatchedExcluded;
+                totalCount++;
+            }});
+
+            const status = document.getElementById('unmatchedFilterStatus');
+            if (status) status.textContent = '';
+
+            const badge = document.getElementById('unmatchedBadge');
+            if (badge) badge.textContent = totalCount;
+
+            updateUnmatchedExportInfo(totalCount);
+        }}
+
+        function updateUnmatchedExportInfo(count) {{
+            const info = document.getElementById('unmatchedExportInfo');
+            if (info) {{
+                info.textContent = count > 0 ? `${{count}} tags will be exported` : '';
+            }}
+        }}
+
+        function exportUnmatchedToExcel() {{
+            if (typeof XLSX === 'undefined') {{
+                alert('Excel export library not loaded. Please check your internet connection.');
+                return;
+            }}
+
+            const table = document.getElementById('unmatchedTable');
+            if (!table) {{
+                alert('No unmatched tags table found.');
+                return;
+            }}
+
+            const tbody = table.querySelector('tbody');
+            const rows = Array.from(tbody.querySelectorAll('tr'));
+            const visibleRows = rows.filter(row => row.style.display !== 'none');
+
+            if (visibleRows.length === 0) {{
+                alert('No visible unmatched tags to export. All tags have been excluded.');
+                return;
+            }}
+
+            const wb = XLSX.utils.book_new();
+
+            // Build data array with headers
+            const headers = ['Tag', 'Pages', 'Occurrences'];
+            const data = visibleRows.map(row => {{
+                return Array.from(row.cells).map(cell => cell.textContent.trim());
+            }});
+
+            // Metadata rows
+            const metadataRows = [
+                ['PID Annotator - Unmatched Tags (In PDF, Not in Excel)'],
+                [`Exported: ${{new Date().toLocaleString()}}`],
+                []
+            ];
+
+            const wsData = [...metadataRows, headers, ...data];
+            const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+            // Set column widths
+            const colWidths = headers.map((header, idx) => {{
+                let maxWidth = header.length;
+                data.forEach(row => {{
+                    const cellValue = String(row[idx] || '');
+                    maxWidth = Math.max(maxWidth, cellValue.length);
+                }});
+                return {{ wch: Math.min(maxWidth + 2, 50) }};
+            }});
+            ws['!cols'] = colWidths;
+
+            // Merge title rows
+            ws['!merges'] = [
+                {{ s: {{ r: 0, c: 0 }}, e: {{ r: 0, c: headers.length - 1 }} }},
+                {{ s: {{ r: 1, c: 0 }}, e: {{ r: 1, c: headers.length - 1 }} }}
+            ];
+
+            XLSX.utils.book_append_sheet(wb, ws, 'Unmatched Tags');
+
+            // Build filename from PDF name(s)
+            const pdfNames = reportData.pdf_filenames || ['unknown'];
+            const pdfBaseName = pdfNames.map(name => {{
+                return name.replace(new RegExp('[.]pdf$', 'i'), '');
+            }}).join('_');
+            const filename = `${{pdfBaseName}}_Unmatched_Tags.xlsx`;
+
+            XLSX.writeFile(wb, filename);
+        }}
+
+        // Initialize export info on load
+        (function() {{
+            const table = document.getElementById('unmatchedTable');
+            if (table) {{
+                const rowCount = table.querySelectorAll('tbody tr').length;
+                updateUnmatchedExportInfo(rowCount);
+            }}
+        }})();
     </script>
 </body>
 </html>

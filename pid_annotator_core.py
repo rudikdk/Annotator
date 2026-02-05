@@ -1084,10 +1084,12 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         if tag_filters:
             passes_filters = apply_tag_filters(tag_text, tag_filters, filter_logic)
 
-        # Determine color for this tag (always pass default color, decide whether to use it later)
+        # Determine color for this tag
+        # Pass None as default_color so unmatched tags don't automatically get a color;
+        # the enable_default_color logic below decides if a default color should be applied
         if color_rules:
             highlight_color, matched_rule_id, conflicts = apply_color_rules(
-                tag_text, None, color_rules, default_highlight_color
+                tag_text, None, color_rules, None
             )
         else:
             # No color rules defined - use default color if enabled
@@ -1393,7 +1395,8 @@ def process_annotations_from_index(
     tag_filters=None,
     filter_logic="AND",
     page_bookmark_map=None,
-    color_rules=None
+    color_rules=None,
+    enable_default_color=True
 ):
     """
     Process annotations using the pre-built tag index for optimal performance.
@@ -1585,7 +1588,7 @@ def process_annotations_from_index(
                 # Use new color_rules system if provided
                 if color_rules:
                     highlight_color, matched_rule_id, conflicts = apply_color_rules(
-                        tag, row, color_rules, default_highlight_color
+                        tag, row, color_rules, default_highlight_color if enable_default_color else None
                     )
 
                     # Track conflicts for reporting
@@ -1620,13 +1623,17 @@ def process_annotations_from_index(
                             hl.set_colors(stroke=(r, g, b))
                         except Exception:
                             hl.set_colors(stroke=(1, 1, 0))  # Fallback to yellow
-                    elif note_text:
-                        # No color rule matched, but we have comments - use default
+                    elif note_text and enable_default_color:
+                        # No color rule matched, but we have comments and default color is enabled
                         try:
                             r, g, b = _hex_to_rgb01(default_highlight_color or "#FFFF00")
                             hl.set_colors(stroke=(r, g, b))
                         except Exception:
                             hl.set_colors(stroke=(1, 1, 0))  # Fallback to yellow
+                    elif note_text:
+                        # Comments exist but default color disabled - make highlight transparent
+                        hl.set_colors(stroke=(1, 1, 1))  # White/invisible highlight
+                        hl.set_opacity(0.0)
 
                     # Add comment to highlight
                     if annotation_type == "highlight_only" and note_text:
@@ -2141,7 +2148,8 @@ def _annotate_pdf_standard(
         tag_filters=tag_filters,
         filter_logic=filter_logic,
         page_bookmark_map=page_bookmark_map,
-        color_rules=color_rules
+        color_rules=color_rules,
+        enable_default_color=enable_default_color
     )
 
     # Add page statistics to report data
@@ -2434,7 +2442,8 @@ def _annotate_pdf_streaming(
         tag_filters=tag_filters,
         filter_logic=filter_logic,
         page_bookmark_map=page_bookmark_map,
-        color_rules=color_rules
+        color_rules=color_rules,
+        enable_default_color=enable_default_color
     )
 
     update_progress(85, "Saving annotated PDF (streaming mode)...")
@@ -3157,27 +3166,47 @@ def annotate_pdf_page_for_preview(
 
         # PHASE 1: Apply color rules to ALL matching text on this page
         color_stats = {'total_tags': total_tag_occurrences, 'colored_tags': 0}
-        if color_rules:
-            print(f"[PREVIEW] Applying color rules...")
+        if color_rules or enable_default_color:
+            print(f"[PREVIEW] Applying color rules (enable_default_color={enable_default_color})...")
             for tag_text, locations in tag_index.items():
 
                 # Check if tag is in Excel list
                 in_excel = tag_text in excel_tags_set
 
                 # Determine color for this tag
-                highlight_color, matched_rule_id, conflicts = apply_color_rules(
-                    tag_text, None, color_rules, default_highlight_color if enable_default_color else None
-                )
+                if color_rules:
+                    highlight_color, matched_rule_id, conflicts = apply_color_rules(
+                        tag_text, None, color_rules, None
+                    )
+                else:
+                    highlight_color = default_highlight_color if enable_default_color else None
+                    matched_rule_id = None
 
                 # Determine if this tag should be colored based on constraint mode
                 should_color = False
                 if not excel_constraint_mode:
-                    should_color = (highlight_color is not None)
+                    if highlight_color is not None:
+                        should_color = True
+                    elif enable_default_color:
+                        should_color = True
+                        highlight_color = default_highlight_color
                 elif excel_constraint_logic == 'AND':
-                    should_color = in_excel and (matched_rule_id is not None)
+                    if in_excel:
+                        if matched_rule_id is not None:
+                            should_color = True
+                        elif enable_default_color:
+                            should_color = True
+                            if not highlight_color:
+                                highlight_color = default_highlight_color
                 elif excel_constraint_logic == 'OR':
-                    should_color = (highlight_color is not None) or in_excel
-                    if in_excel and not highlight_color and enable_default_color:
+                    if highlight_color is not None:
+                        should_color = True
+                    elif in_excel:
+                        should_color = True
+                        if not highlight_color and enable_default_color:
+                            highlight_color = default_highlight_color
+                    elif enable_default_color:
+                        should_color = True
                         highlight_color = default_highlight_color
 
                 if not should_color or not highlight_color:

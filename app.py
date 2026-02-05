@@ -731,7 +731,8 @@ def process_files():
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
                           watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
-                          tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color):
+                          tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color,
+                          enable_default_color, excel_constraint_mode, excel_constraint_logic):
             try:
                 output_files = []
                 output_display_names = []  # Clean names for user display/download
@@ -1065,7 +1066,8 @@ def process_files():
                           column_color_pairs, max_tags, tag_column, header_row,
                           selected_comment_columns, watermark_enabled, watermark_attributes,
                           watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
-                          tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color)
+                          tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color,
+                          enable_default_color, excel_constraint_mode, excel_constraint_logic)
 
         return jsonify({
             'success': True,
