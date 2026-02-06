@@ -20,7 +20,7 @@ Web app that annotates P&ID PDF documents with metadata from Excel component lis
 
 ```bash
 # Clone this branch
-git clone -b docker-raspberrypi-casaos https://github.com/rudikdk/Annotator.git
+git clone -b claude/docker-raspberrypi-casaos-H7s0a https://github.com/rudikdk/Annotator.git
 cd Annotator
 
 # Create storage directories
