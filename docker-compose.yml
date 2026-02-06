@@ -1,89 +1,194 @@
+# CasaOS Optimized Docker Compose Configuration
+# PID Annotator for Raspberry Pi 5 (64-bit ARM64)
+#
+# Installation instructions for CasaOS:
+# 1. Copy this file to your CasaOS Apps directory or import via Custom Install
+# 2. Create persistent directories: mkdir -p persistent_uploads persistent_output
+# 3. Adjust memory limits based on your Pi 5 model (see comments below)
+# 4. Run: docker-compose -f docker-compose.casaos.yml up -d
+#
+# CasaOS App Store metadata included for easy deployment
+
+
+name: pid-annotator
+
 services:
   pid-annotator:
+    image: pid-annotator-web:latest
     build:
       context: .
       dockerfile: Dockerfile
       platforms:
-        - linux/arm64  # Raspberry Pi 5 specific
+        - linux/arm64
+      args:
+        - BUILDKIT_INLINE_CACHE=1
     container_name: pid-annotator-web
+    hostname: pid-annotator
     platform: linux/arm64
+
+    # Network configuration
     ports:
-      - "5001:5001"  # Port 5001 for both internal and external
+      - "5001:8080"  # Web interface - accessible at http://your-pi-ip:5001
+
+    # Environment variables
     environment:
-      - PORT=5001
-      - GUNICORN_WORKERS=1  # Explicit for 4GB RAM model (use 2 for 8GB model)
-      - FLASK_ENV=production
-      - TZ=Europe/Copenhagen  # Adjust to your timezone
-      - PYTHONUNBUFFERED=1
-      # FOR RASPBERRY PI 5 8GB MODEL - Use these settings:
-      # - GUNICORN_WORKERS=2
-      # - mem_limit: 2560m
-      # - mem_reservation: 768m
-      # - cpus: 3.0
-      # - tmpfs: /tmp:size=512M, /app/.cache:size=256M
+      PORT: "8080"
+      GUNICORN_WORKERS: "1"  # Explicit for 4GB RAM model (use 2 for 8GB model)
+      FLASK_ENV: "production"
+      PYTHONUNBUFFERED: "1"
+      TZ: "Europe/Copenhagen"  # Change to your timezone
+
+    # Volume mounts - CasaOS friendly paths
     volumes:
-      # Named volumes for better CasaOS integration
-      - pid_uploads:/app/uploads:rw
-      - pid_output:/app/output:rw
-      # tmpfs for temporary files to reduce SD card wear
+      - type: bind
+        source: ./persistent_uploads
+        target: /app/uploads
+        read_only: false
+      - type: bind
+        source: ./persistent_output
+        target: /app/output
+        read_only: false
+
+    # tmpfs mounts to reduce SD card wear (important for Pi!)
     tmpfs:
       - /tmp:size=384M,mode=1777
       - /app/.cache:size=192M,mode=755
+
+    # Restart policy
     restart: unless-stopped
+
+    # Health check
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-5001}/ || exit 1"]
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-8080}/ || exit 1"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 45s
-    # Optimized resource limits for Raspberry Pi 5 (4GB RAM)
-    # For 4GB model: use mem_limit: 1792m, cpus: 2.5
-    # For 8GB model: use mem_limit: 2560m, cpus: 3.0
-    mem_limit: 1792m  # 1.75GB for 4GB Pi 5 (256MB headroom added)
-    mem_reservation: 512m  # Minimum guaranteed memory
-    cpus: 2.5  # Use 2.5 of 4 cores (leave 1.5 for system)
-    # Logging configuration - prevent disk fill
+
+    # Resource limits - IMPORTANT: Adjust based on your Raspberry Pi 5 model
+    #
+    # For Raspberry Pi 5 with 4GB RAM:
+    #   mem_limit: 1792m (1.75GB with headroom)
+    #   mem_reservation: 512m
+    #   cpus: 2.5
+    #   GUNICORN_WORKERS: 1
+    #
+    # For Raspberry Pi 5 with 8GB RAM (recommended):
+    #   mem_limit: 2560m (2.5GB)
+    #   mem_reservation: 768m
+    #   cpus: 3.0
+    #   GUNICORN_WORKERS: 2
+    #
+    # Current configuration is for 4GB model:
+    mem_limit: 1792m
+    mem_reservation: 512m
+    cpus: 2.5
+    pids_limit: 1024  # Support parallel processing
+
+    # Logging - prevent disk fill on SD card
     logging:
       driver: "json-file"
       options:
         max-size: "5m"
         max-file: "3"
         compress: "true"
+
+    # Network
     networks:
       - pid_network
-    # CasaOS specific labels
+
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    read_only: false  # Must be false for write operations
+
+    # CasaOS AppStore Labels - enables one-click install from CasaOS UI
     labels:
-      # App metadata
+      ########################################
+      # CasaOS App Store Metadata
+      ########################################
+      net.casaos.app: "true"
       net.casaos.app.name: "PID Annotator"
-      net.casaos.app.version: "1.0"
+      net.casaos.app.title.en_us: "PID Annotator - P&ID PDF Annotation Tool"
+      net.casaos.app.version: "1.0.0"
       net.casaos.app.author: "Rudi S. Kærgaard"
-      net.casaos.app.description: "Annotate P&ID PDF documents with Excel metadata"
+      net.casaos.app.developer: "rudikdk@gmail.com"
       net.casaos.app.category: "Utilities"
+      net.casaos.app.tagline.en_us: "Automatically annotate P&ID PDF documents with Excel metadata"
+      net.casaos.app.description.en_us: |
+        PID Annotator is a web-based tool that automatically annotates P&ID (Piping & Instrumentation Diagram)
+        PDF documents with metadata from Excel component lists. Optimized for Raspberry Pi 5 deployment.
+
+        Features:
+        - Upload P&ID PDF files and Excel component lists
+        - Automatic tag matching and annotation
+        - Highlight components with color-coded annotations
+        - Add notes and metadata to PDF pages
+        - Optional watermark overlay
+        - Excel annotation with highlighting
+        - Real-time progress updates via WebSocket
+        - Session-based processing with automatic cleanup
+        - Optimized for large files (>1000 pages supported)
+
+        Perfect for engineers working with P&ID diagrams who need to quickly annotate and document equipment.
+
+      # Icon URL (using public CDN)
       net.casaos.app.icon: "https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/pdf.png"
+      net.casaos.app.thumbnail: "https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/pdf.png"
+
       # Port configuration
+      net.casaos.app.index: "/"
       net.casaos.app.web-port: "5001"
       net.casaos.app.protocol: "http"
-      # Health check
-      net.casaos.app.healthcheck: "http://localhost:5001/"
+      net.casaos.app.web-ui: "http://localhost:5001"
 
-# Named volumes for CasaOS volume management
-volumes:
-  pid_uploads:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./persistent_uploads
-  pid_output:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./persistent_output
+      # System requirements
+      net.casaos.app.architectures: "arm64"
+      net.casaos.app.min-memory: "768"  # 768MB minimum
+      net.casaos.app.min-disk: "2048"   # 2GB minimum
 
-# Custom bridge network
+      # Health monitoring
+      net.casaos.app.healthcheck: "http://localhost:8080/"
+
+      # Store metadata
+      net.casaos.app.store: "custom"
+      net.casaos.app.store-app-id: "pid-annotator"
+
+      # Tips for users
+      net.casaos.app.tips.before_install.en_us: |
+        Ensure you have at least 2GB free disk space and 768MB available RAM.
+        For best performance, use Raspberry Pi 5 with 8GB RAM.
+
+      net.casaos.app.tips.after_install.en_us: |
+        Access the web interface at http://your-pi-ip:5001
+        Upload a P&ID PDF and corresponding Excel file to begin annotation.
+        Files are automatically cleaned up after 24 hours.
+
+        For 8GB Pi 5: Set GUNICORN_WORKERS=2 and mem_limit: 2560m for better performance.
+
+      # Changelog
+      net.casaos.app.changelog.en_us: |
+        Version 1.0.0 (2025-01-23):
+        - Initial release optimized for Raspberry Pi 5
+        - Multi-file PDF processing support
+        - Parallel indexing for large documents
+        - Streaming mode for files >50MB
+        - Session-based file management
+        - Real-time WebSocket progress updates
+        - CasaOS integration with proper labels
+        - tmpfs mounts to reduce SD card wear
+        - Standardized port 8080
+        - BuildKit optimization for faster builds
+        - Memory tuning for ARM64 architecture
+
+# Networks
 networks:
   pid_network:
     driver: bridge
     driver_opts:
       com.docker.network.bridge.name: br-pidannotator
+    labels:
+      net.casaos.network: "true"
+
+# Note: Volumes are bind mounts, no need to declare them here
+# CasaOS will manage the persistent_uploads and persistent_output directories
