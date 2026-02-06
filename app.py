@@ -1971,95 +1971,6 @@ def clear_session():
 PROFILES_FOLDER = str(APP_ROOT / 'data' / 'profiles')
 os.makedirs(PROFILES_FOLDER, exist_ok=True)
 
-def get_builtin_templates():
-    """Return built-in configuration templates"""
-    return [
-        {
-            "name": "Minimal Setup",
-            "description": "Fast & simple: Yellow PDF highlights only. No Excel annotation, no watermarks. Best for quick reviews of small PDFs.",
-            "version": "1.0",
-            "builtin": True,
-            "settings": {
-                "header_row": 6,
-                "tag_column": None,
-                "comment_columns": [],
-                "highlight_column": "",
-                "highlight_color": "#FFFF00",
-                "annotate_excel": False,
-                "watermark_enabled": False,
-                "watermark_attributes": [],
-                "watermark_text_color": "#000000"
-            }
-        },
-        {
-            "name": "Standard Documentation",
-            "description": "Balanced approach: Yellow highlights with optional comments. Good for most documentation tasks. Add comment columns as needed.",
-            "version": "1.0",
-            "builtin": True,
-            "settings": {
-                "header_row": 6,
-                "tag_column": None,
-                "comment_columns": [],
-                "highlight_column": "",
-                "highlight_color": "#FFFF00",
-                "annotate_excel": False,
-                "watermark_enabled": False,
-                "watermark_attributes": [],
-                "watermark_text_color": "#000000"
-            }
-        },
-        {
-            "name": "Production Ready",
-            "description": "Full featured: Red highlights + Excel annotation + watermarks. Comprehensive documentation for final deliverables.",
-            "version": "1.0",
-            "builtin": True,
-            "settings": {
-                "header_row": 6,
-                "tag_column": None,
-                "comment_columns": [],
-                "highlight_column": "",
-                "highlight_color": "#FF0000",
-                "annotate_excel": True,
-                "watermark_enabled": True,
-                "watermark_attributes": [],
-                "watermark_text_color": "#000000"
-            }
-        },
-        {
-            "name": "Quick Review",
-            "description": "Testing mode: Green highlights, minimal processing. Perfect for validating configurations before production runs.",
-            "version": "1.0",
-            "builtin": True,
-            "settings": {
-                "header_row": 6,
-                "tag_column": None,
-                "comment_columns": [],
-                "highlight_column": "",
-                "highlight_color": "#00FF00",
-                "annotate_excel": False,
-                "watermark_enabled": False,
-                "watermark_attributes": [],
-                "watermark_text_color": "#000000"
-            }
-        },
-        {
-            "name": "Excel Focus",
-            "description": "Excel-centric: Light green highlights + Excel annotation enabled. Perfect when Excel output is your primary deliverable.",
-            "version": "1.0",
-            "builtin": True,
-            "settings": {
-                "header_row": 6,
-                "tag_column": None,
-                "comment_columns": [],
-                "highlight_column": "",
-                "highlight_color": "#90EE90",
-                "annotate_excel": True,
-                "watermark_enabled": False,
-                "watermark_attributes": [],
-                "watermark_text_color": "#000000"
-            }
-        }
-    ]
 
 def generate_profile_preview(profile):
     """Generate a detailed human-readable preview of a profile"""
@@ -2151,6 +2062,41 @@ def generate_profile_preview(profile):
             'label': 'Custom Regex',
             'description': 'Custom regular expression pattern for advanced tag matching',
             'value_formatter': lambda v: v if v else 'Not set (using preset)'
+        },
+        'color_rules': {
+            'label': 'Color Rules',
+            'description': 'Conditional coloring rules based on tag parts or Excel column values',
+            'value_formatter': lambda v: f'{len(v)} rule(s)' if v and isinstance(v, list) else 'None'
+        },
+        'default_highlight_color': {
+            'label': 'Default Highlight Color',
+            'description': 'Color used for tags that do not match any color rule',
+            'value_formatter': lambda v: v if v else '#FFFF00'
+        },
+        'enable_default_color': {
+            'label': 'Enable Default Color',
+            'description': 'Whether to apply default highlight color to unmatched tags',
+            'value_formatter': lambda v: 'Yes' if v else 'No'
+        },
+        'excel_constraint_mode': {
+            'label': 'Excel Constraint Mode',
+            'description': 'Only apply color rules to tags found in Excel',
+            'value_formatter': lambda v: 'Yes' if v else 'No'
+        },
+        'excel_constraint_logic': {
+            'label': 'Excel Constraint Logic',
+            'description': 'Logic for combining Excel constraint conditions',
+            'value_formatter': lambda v: v if v else 'AND'
+        },
+        'tag_filters': {
+            'label': 'Tag Filters',
+            'description': 'Include/exclude filters for tag processing',
+            'value_formatter': lambda v: f'{len(v)} filter(s)' if v and isinstance(v, list) else 'None'
+        },
+        'filter_logic': {
+            'label': 'Filter Logic',
+            'description': 'Logic for combining tag filter conditions (AND/OR)',
+            'value_formatter': lambda v: v if v else 'AND'
         }
     }
 
@@ -2212,7 +2158,7 @@ def validate_profile_data(data):
         if field not in data:
             return False, f"Missing required field: {field}"
 
-    # Check settings fields
+    # Check settings fields (only validate core fields, optional fields are allowed)
     settings = data.get('settings', {})
     for field in settings_fields:
         if field not in settings:
@@ -2234,22 +2180,15 @@ def validate_profile_data(data):
     if not isinstance(settings['watermark_attributes'], list):
         return False, "watermark_attributes must be a list"
 
+    # Validate optional color rules and tag filter fields if present
+    if 'color_rules' in settings and not isinstance(settings['color_rules'], list):
+        return False, "color_rules must be a list"
+
+    if 'tag_filters' in settings and not isinstance(settings['tag_filters'], list):
+        return False, "tag_filters must be a list"
+
     return True, "Valid"
 
-@app.route('/get_builtin_templates', methods=['GET'])
-def get_templates():
-    """Get built-in configuration templates"""
-    try:
-        templates = get_builtin_templates()
-        return jsonify({
-            'success': True,
-            'templates': templates
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'Error loading templates: {str(e)}'
-        })
 
 # New read-only API endpoints for server-side template profiles
 @app.route('/api/profiles', methods=['GET'])

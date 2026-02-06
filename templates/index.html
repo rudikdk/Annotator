@@ -157,7 +157,7 @@
       excelAnnotation: "When enabled, the application highlights Excel rows (with green fill) where tags were successfully found in the PDF. Only works with .xlsx files. Helps you identify which components were located.",
       watermark: "Add text labels near tags in the PDF using values from your Excel file. Choose which attribute columns to display, customize text color, and optionally add a white background for better readability.",
       conditionalHighlighting: "Highlight only tags where a specific Excel column has a value. For example, select 'Critical' column to highlight only critical components. Combine with color rules for advanced filtering.",
-      configurationProfiles: "Save and reuse your settings across sessions. Load built-in templates for common workflows, or create custom profiles by importing/exporting JSON configuration files. Your settings auto-save to your browser.",
+      configurationProfiles: "Save and reuse all your settings across sessions, including color rules and tag filters. Export profiles as JSON files to share or back up, and import them on any device. Your settings auto-save to your browser.",
       tagFilters: "Control which tags get processed by creating include/exclude rules based on tag structure or Excel column values. Combine multiple filters with AND/OR logic to precisely target the tags you need.",
       customTagMatching: "Customize how tags are identified in PDFs. Choose from presets (Default for standard tags, Match All for any text) or create custom patterns with configurable separators, part counts, and lengths.",
       colorRules: "Apply different highlight colors based on tag structure or Excel column values. Create rules to match specific tag parts or column criteria, set priority order, and use default colors for unmatched tags.",
@@ -1434,76 +1434,6 @@
       );
     }
 
-    function SaveColorPresetModal({ open, onClose, onSave, presetName, setPresetName }) {
-      if (!open) return null;
-
-      function handleSave() {
-        if (!presetName.trim()) {
-          alert("Preset name is required");
-          return;
-        }
-        onSave();
-      }
-
-      function handleKeyDown(e) {
-        if (e.key === 'Enter') {
-          handleSave();
-        }
-      }
-
-      return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose}/>
-          <div className="relative w-full max-w-md rounded-2xl border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-950/90 shadow-soft">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-200/60 dark:border-zinc-800">
-              <h3 className="font-semibold">Save Color Rules Preset</h3>
-              <button
-                onClick={onClose}
-                className="rounded-lg p-2 hover:bg-zinc-200/60 dark:hover:bg-zinc-800"
-                aria-label="Close"
-              >
-                <i className="fa-solid fa-xmark"></i>
-              </button>
-            </div>
-            <div className="px-5 py-4 space-y-4">
-              <div>
-                <label htmlFor="preset-name" className="block text-sm font-medium mb-1">
-                  Preset Name <span className="text-red-600">*</span>
-                </label>
-                <input
-                  id="preset-name"
-                  type="text"
-                  value={presetName}
-                  onChange={(e) => setPresetName(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="e.g., Instrument Types, Process Areas"
-                  className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60"
-                  autoFocus
-                />
-                <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                  Save your current color rules and default color for reuse
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={handleSave}
-                  className="flex-1 rounded-lg bg-brand text-white px-4 py-2 font-semibold hover:bg-brand-hover transition-colors"
-                >
-                  <i className="fa-solid fa-save mr-1"></i>
-                  Save Preset
-                </button>
-                <button
-                  onClick={onClose}
-                  className="flex-1 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      );
-    }
 
 
     function FAQModal({ open, onClose }) {
@@ -1553,7 +1483,7 @@
           questions: [
             {
               q: 'What are Configuration Profiles?',
-              a: 'Profiles let you save and reuse your settings. The app includes 5 built-in templates (Minimal, Standard, Production Ready, Quick Review, Excel Focus). You can also create custom profiles, export them as JSON for backup, or import profiles from team members.'
+              a: 'Profiles save all your settings including color rules and tag filters. Your settings auto-save to your browser. You can export them as JSON files to back up or share with team members, and import profiles on any device. For local setups, profiles can also be stored as JSON files in the server profiles folder.'
             },
             {
               q: 'What is the difference between "Start" and "Test Run"?',
@@ -1815,10 +1745,6 @@
       const [ruleAvailableHeaderValues, setRuleAvailableHeaderValues] = useState([]); // For header column unique values
       const [ruleLoadingHeaderValues, setRuleLoadingHeaderValues] = useState(false);
       const [showAllRuleValues, setShowAllRuleValues] = useState(false); // Toggle for showing all available values
-      const [colorPresets, setColorPresets] = useState({});
-      const [showSaveColorPresetModal, setShowSaveColorPresetModal] = useState(false);
-      const [colorPresetName, setColorPresetName] = useState('');
-      const [selectedColorPreset, setSelectedColorPreset] = useState('');
 
       // Floating Preview Modal state
       const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -2310,60 +2236,6 @@
         setColorRules(newRules);
       }
 
-      function handleSaveColorPreset() {
-        if (!colorPresetName.trim()) {
-          setToast({ type: "error", text: "Please enter a preset name" });
-          return;
-        }
-
-        const preset = {
-          name: colorPresetName.trim(),
-          rules: colorRules,
-          defaultColor: defaultHighlightColor,
-          enableDefaultColor: enableDefaultColor,
-          excelConstraintMode: excelConstraintMode,
-          excelConstraintLogic: excelConstraintLogic,
-          savedAt: new Date().toISOString()
-        };
-
-        const updatedPresets = {
-          ...colorPresets,
-          [colorPresetName.trim()]: preset
-        };
-
-        setColorPresets(updatedPresets);
-        localStorage.setItem('colorPresets', JSON.stringify(updatedPresets));
-        setShowSaveColorPresetModal(false);
-        setColorPresetName('');
-        setToast({ type: "success", text: `Preset "${preset.name}" saved successfully` });
-      }
-
-      function handleLoadColorPreset(presetName) {
-        const preset = colorPresets[presetName];
-        if (!preset) {
-          setToast({ type: "error", text: "Preset not found" });
-          return;
-        }
-
-        setColorRules(preset.rules || []);
-        setDefaultHighlightColor(preset.defaultColor || '#FFFF00');
-        setEnableDefaultColor(preset.enableDefaultColor !== undefined ? preset.enableDefaultColor : true);
-        setExcelConstraintMode(preset.excelConstraintMode || false);
-        setExcelConstraintLogic(preset.excelConstraintLogic || 'AND');
-        setSelectedColorPreset(presetName);
-        setToast({ type: "success", text: `Preset "${presetName}" loaded` });
-      }
-
-      function handleDeleteColorPreset(presetName) {
-        const updatedPresets = { ...colorPresets };
-        delete updatedPresets[presetName];
-        setColorPresets(updatedPresets);
-        localStorage.setItem('colorPresets', JSON.stringify(updatedPresets));
-        if (selectedColorPreset === presetName) {
-          setSelectedColorPreset('');
-        }
-        setToast({ type: "success", text: `Preset "${presetName}" deleted` });
-      }
 
       // Floating Preview Modal functions
       function openPreviewModal() {
@@ -2647,17 +2519,6 @@
         };
       }, [pdfDocument, previewModalZoom]);
 
-      // Load color presets from localStorage on mount
-      React.useEffect(() => {
-        const savedPresets = localStorage.getItem('colorPresets');
-        if (savedPresets) {
-          try {
-            setColorPresets(JSON.parse(savedPresets));
-          } catch (e) {
-            console.error('Failed to load color presets:', e);
-          }
-        }
-      }, []);
 
       function startProcessing(isTest) {
         // Validate that files are selected
@@ -2814,7 +2675,9 @@
             annotateExcel: settings.annotate_excel ? 'Enabled' : 'Disabled',
             watermark: settings.watermark_enabled ? 'Enabled' : 'Disabled',
             tagMatchingPreset: settings.tag_matching_preset || 'Standard',
-            headerRow: settings.header_row || 6
+            headerRow: settings.header_row || 6,
+            colorRules: settings.color_rules && settings.color_rules.length > 0 ? `${settings.color_rules.length} rule(s)` : 'None',
+            tagFilters: settings.tag_filters && settings.tag_filters.length > 0 ? `${settings.tag_filters.length} filter(s)` : 'None'
           }
         });
       }
@@ -2824,6 +2687,8 @@
         if (settings.annotate_excel) score += 2;
         if (settings.watermark_enabled) score += 3;
         if (settings.comment_columns && settings.comment_columns.length > 0) score += 1;
+        if (settings.color_rules && settings.color_rules.length > 0) score += 2;
+        if (settings.tag_filters && settings.tag_filters.length > 0) score += 1;
 
         if (score >= 5) return 'Comprehensive';
         if (score >= 2) return 'Moderate';
@@ -2847,7 +2712,9 @@
             annotateExcel: settings.annotate_excel ? 'Enabled' : 'Disabled',
             watermark: settings.watermark_enabled ? 'Enabled' : 'Disabled',
             tagMatchingPreset: settings.tag_matching_preset || 'Standard',
-            headerRow: settings.header_row || 6
+            headerRow: settings.header_row || 6,
+            colorRules: settings.color_rules && settings.color_rules.length > 0 ? `${settings.color_rules.length} rule(s)` : 'None',
+            tagFilters: settings.tag_filters && settings.tag_filters.length > 0 ? `${settings.tag_filters.length} filter(s)` : 'None'
           }
         });
       }
@@ -2874,6 +2741,17 @@
         if (settings.tag_matching_max_part_length !== undefined) setTagMatchingMaxPartLength(settings.tag_matching_max_part_length);
         if (settings.tag_matching_allow_partial !== undefined) setTagMatchingAllowPartial(settings.tag_matching_allow_partial);
         if (settings.tag_matching_custom_regex !== undefined) setTagMatchingCustomRegex(settings.tag_matching_custom_regex);
+
+        // Apply color rules
+        if (settings.color_rules !== undefined) setColorRules(settings.color_rules);
+        if (settings.default_highlight_color !== undefined) setDefaultHighlightColor(settings.default_highlight_color);
+        if (settings.enable_default_color !== undefined) setEnableDefaultColor(settings.enable_default_color);
+        if (settings.excel_constraint_mode !== undefined) setExcelConstraintMode(settings.excel_constraint_mode);
+        if (settings.excel_constraint_logic !== undefined) setExcelConstraintLogic(settings.excel_constraint_logic);
+
+        // Apply tag filters
+        if (settings.tag_filters !== undefined) setTagFilters(settings.tag_filters);
+        if (settings.filter_logic !== undefined) setFilterLogic(settings.filter_logic);
       }
 
       // Get current settings as object
@@ -2896,7 +2774,16 @@
           tag_matching_min_part_length: tagMatchingMinPartLength,
           tag_matching_max_part_length: tagMatchingMaxPartLength,
           tag_matching_allow_partial: tagMatchingAllowPartial,
-          tag_matching_custom_regex: tagMatchingCustomRegex
+          tag_matching_custom_regex: tagMatchingCustomRegex,
+          // Color rules
+          color_rules: colorRules,
+          default_highlight_color: defaultHighlightColor,
+          enable_default_color: enableDefaultColor,
+          excel_constraint_mode: excelConstraintMode,
+          excel_constraint_logic: excelConstraintLogic,
+          // Tag filters
+          tag_filters: tagFilters,
+          filter_logic: filterLogic
         };
       }
 
@@ -2960,9 +2847,9 @@
       // Export current settings as JSON file (download to user's computer)
       function exportCurrentProfile() {
         const profileData = {
-          name: 'exported_profile',
+          name: activeProfileName || 'exported_profile',
           description: 'Exported profile from PID Annotator',
-          version: '1.0',
+          version: '1.1',
           exported_at: new Date().toISOString(),
           settings: getCurrentSettings()
         };
@@ -3125,7 +3012,10 @@
         annotateExcel, watermarkEnabled, watermarkAttributes, watermarkTextColor,
         watermarkBackgroundEnabled, tagMatchingPreset, tagMatchingMinParts,
         tagMatchingMaxParts, tagMatchingSeparators, tagMatchingMinPartLength,
-        tagMatchingMaxPartLength, tagMatchingAllowPartial, tagMatchingCustomRegex
+        tagMatchingMaxPartLength, tagMatchingAllowPartial, tagMatchingCustomRegex,
+        colorRules, defaultHighlightColor, enableDefaultColor,
+        excelConstraintMode, excelConstraintLogic,
+        tagFilters, filterLogic
       ]);
 
       // Monitor selected Excel file and disable annotation for .xls files
@@ -3799,55 +3689,53 @@
                         <div className="overflow-hidden">
                           <div className="px-4 pb-3 space-y-3">
                             {/* Profile Selector - Load from Server */}
-                            <div>
-                              <label className="block text-sm font-medium mb-1.5">Load Template from Server</label>
-                              <select
-                                value={selectedProfile}
-                                onChange={(e) => {
-                                  setSelectedProfile(e.target.value);
-                                  // Generate preview for selected profile
-                                  if (e.target.value) {
-                                    if (e.target.value.startsWith('server:')) {
-                                      const profileData = serverProfiles.find(p => `server:${p.filename}` === e.target.value);
-                                      if (profileData) generateProfilePreview(profileData);
-                                    }
-                                  } else {
-                                    setProfilePreview(null);
-                                  }
-                                }}
-                                className="w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-                              >
-                                <option value="">-- Choose a template --</option>
-                                {serverProfiles.length > 0 && (
-                                  <optgroup label="Server Templates">
+                            {serverProfiles.length > 0 && (
+                              <div>
+                                <label className="block text-sm font-medium mb-1.5">Load Profile from Server</label>
+                                <div className="flex gap-2">
+                                  <select
+                                    value={selectedProfile}
+                                    onChange={(e) => {
+                                      setSelectedProfile(e.target.value);
+                                      if (e.target.value) {
+                                        if (e.target.value.startsWith('server:')) {
+                                          const profileData = serverProfiles.find(p => `server:${p.filename}` === e.target.value);
+                                          if (profileData) generateProfilePreview(profileData);
+                                        }
+                                      } else {
+                                        setProfilePreview(null);
+                                      }
+                                    }}
+                                    className="flex-1 rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+                                  >
+                                    <option value="">-- Choose a profile --</option>
                                     {serverProfiles.map(p => (
                                       <option key={`server:${p.filename}`} value={`server:${p.filename}`}>
                                         {p.name}
                                       </option>
                                     ))}
-                                  </optgroup>
-                                )}
-                              </select>
-                            </div>
+                                  </select>
+                                  <button
+                                    onClick={loadSelectedProfile}
+                                    disabled={!selectedProfile}
+                                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand text-white px-3 py-2 text-sm font-medium shadow-soft hover:bg-brand-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                  >
+                                    <i className="fa-solid fa-arrow-down-to-bracket"></i>
+                                    Load
+                                  </button>
+                                </div>
+                              </div>
+                            )}
 
                             {/* Action Buttons */}
-                            <div className="grid grid-cols-3 gap-2">
-                              <button
-                                onClick={loadSelectedProfile}
-                                disabled={!selectedProfile}
-                                className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand text-white px-3 py-2 text-sm font-medium shadow-soft hover:bg-brand-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:enabled:shadow-md"
-                              >
-                                <i className="fa-solid fa-arrow-down-to-bracket"></i>
-                                Load
-                              </button>
-
+                            <div className="grid grid-cols-2 gap-2">
                               <button
                                 onClick={exportCurrentProfile}
                                 className="inline-flex items-center justify-center gap-2 rounded-lg bg-success/10 text-success hover:bg-success/20 px-3 py-2 text-sm font-medium transition-all"
                                 title="Download current settings as JSON file"
                               >
                                 <i className="fa-solid fa-download"></i>
-                                Export
+                                Export Profile
                               </button>
 
                               <button
@@ -3856,14 +3744,14 @@
                                 title="Import settings from JSON file"
                               >
                                 <i className="fa-solid fa-upload"></i>
-                                Import
+                                Import Profile
                               </button>
                             </div>
 
                             {/* Info Text */}
                             <div className="text-xs text-zinc-500 dark:text-zinc-400 bg-zinc-100/50 dark:bg-zinc-900/50 rounded px-3 py-2 border border-zinc-200/40 dark:border-zinc-800/60">
                               <i className="fa-solid fa-circle-info mr-1.5"></i>
-                              Your settings auto-save to your browser. Load templates from server, or import/export JSON files to share configurations.
+                              All settings auto-save to your browser, including color rules and tag filters. Export profiles as JSON to share or back up your configuration.
                             </div>
 
                             {/* Current Settings Preview (always visible) */}
@@ -3927,9 +3815,17 @@
                                         {currentSettingsPreview.settings.annotateExcel}
                                       </span>
                                     </div>
-                                    <div className="col-span-2 flex items-start gap-2">
+                                    <div className="flex items-start gap-2">
                                       <span className="text-zinc-600 dark:text-zinc-400 min-w-fit">Tag Matching:</span>
                                       <span className="font-medium">{currentSettingsPreview.settings.tagMatchingPreset}</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-zinc-600 dark:text-zinc-400 min-w-fit">Color Rules:</span>
+                                      <span className="font-medium">{currentSettingsPreview.settings.colorRules}</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-zinc-600 dark:text-zinc-400 min-w-fit">Tag Filters:</span>
+                                      <span className="font-medium">{currentSettingsPreview.settings.tagFilters}</span>
                                     </div>
                                   </div>
                                 )}
@@ -3997,9 +3893,17 @@
                                         {profilePreview.settings.annotateExcel}
                                       </span>
                                     </div>
-                                    <div className="col-span-2 flex items-start gap-2">
+                                    <div className="flex items-start gap-2">
                                       <span className="text-zinc-600 dark:text-zinc-400 min-w-fit">Tag Matching:</span>
                                       <span className="font-medium">{profilePreview.settings.tagMatchingPreset}</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-zinc-600 dark:text-zinc-400 min-w-fit">Color Rules:</span>
+                                      <span className="font-medium">{profilePreview.settings.colorRules || 'None'}</span>
+                                    </div>
+                                    <div className="flex items-start gap-2">
+                                      <span className="text-zinc-600 dark:text-zinc-400 min-w-fit">Tag Filters:</span>
+                                      <span className="font-medium">{profilePreview.settings.tagFilters || 'None'}</span>
                                     </div>
                                   </div>
                                 )}
@@ -4933,7 +4837,6 @@
                 {/* Color Rules Sub-Card */}
                 {(() => {
                   const [colorRulesExpanded, setColorRulesExpanded] = useState(false);
-                  const [presetsExpanded, setPresetsExpanded] = useState(false);
 
                   // Helper to get part label
                   const getPartLabel = (partNum) => {
@@ -5392,91 +5295,6 @@
                               </div>
                             )}
 
-                            {/* Color Presets Sub-Section */}
-                            <div className="pt-2 border-t border-zinc-200/60 dark:border-zinc-800">
-                              <button
-                                type="button"
-                                onClick={() => setPresetsExpanded(!presetsExpanded)}
-                                className="w-full flex items-center gap-2 text-left mb-2"
-                              >
-                                <i className={cx(
-                                  "fa-solid text-xs text-zinc-500",
-                                  presetsExpanded ? "fa-chevron-down" : "fa-chevron-right",
-                                  "transition-transform duration-200"
-                                )}></i>
-                                <h4 className="text-sm font-semibold">Color Presets</h4>
-                              </button>
-
-                              <div className={cx(
-                                "grid transition-all duration-300",
-                                presetsExpanded ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
-                              )}>
-                                <div className="overflow-hidden">
-                                  <div className="space-y-3">
-                                    {/* Preset Selector */}
-                                    <div>
-                                      <label className="block text-sm font-medium mb-1.5">Select Preset</label>
-                                      <select
-                                        value={selectedColorPreset}
-                                        onChange={(e) => setSelectedColorPreset(e.target.value)}
-                                        className="w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-                                      >
-                                        <option value="">-- Choose a preset --</option>
-                                        {Object.keys(colorPresets).map(presetName => (
-                                          <option key={presetName} value={presetName}>
-                                            {presetName}
-                                          </option>
-                                        ))}
-                                      </select>
-                                    </div>
-
-                                    {/* Preset Action Buttons */}
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <button
-                                        onClick={() => selectedColorPreset && handleLoadColorPreset(selectedColorPreset)}
-                                        disabled={!selectedColorPreset}
-                                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-brand text-white px-3 py-2 text-sm font-medium shadow-soft hover:bg-brand-hover transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        <i className="fa-solid fa-arrow-down-to-bracket"></i>
-                                        Load
-                                      </button>
-
-                                      <button
-                                        onClick={() => setShowSaveColorPresetModal(true)}
-                                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-success/10 text-success hover:bg-success/20 px-3 py-2 text-sm font-medium transition-all"
-                                      >
-                                        <i className="fa-solid fa-save"></i>
-                                        Save
-                                      </button>
-
-                                      <button
-                                        onClick={() => selectedColorPreset && handleDeleteColorPreset(selectedColorPreset)}
-                                        disabled={!selectedColorPreset}
-                                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-danger/10 text-danger hover:bg-danger/20 px-3 py-2 text-sm font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        <i className="fa-solid fa-trash-can"></i>
-                                        Delete
-                                      </button>
-
-                                      <button
-                                        onClick={handleClearAllColorRules}
-                                        disabled={colorRules.length === 0}
-                                        className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-2 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                      >
-                                        <i className="fa-solid fa-broom"></i>
-                                        Clear All
-                                      </button>
-                                    </div>
-
-                                    {/* Info Text */}
-                                    <div className="text-xs text-zinc-500 dark:text-zinc-400 bg-zinc-100/50 dark:bg-zinc-900/50 rounded px-3 py-2 border border-zinc-200/40 dark:border-zinc-800/60">
-                                      <i className="fa-solid fa-circle-info mr-1.5"></i>
-                                      Presets save all color rules and settings. Load a preset to quickly apply saved color configurations.
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
 
                           </div>
                         </div>
@@ -5581,13 +5399,6 @@
             open={showImportProfileModal}
             onClose={() => setShowImportProfileModal(false)}
             onImport={importProfileFile}
-          />
-          <SaveColorPresetModal
-            open={showSaveColorPresetModal}
-            onClose={() => setShowSaveColorPresetModal(false)}
-            onSave={handleSaveColorPreset}
-            presetName={colorPresetName}
-            setPresetName={setColorPresetName}
           />
           <FAQModal open={showFAQ} onClose={() => setShowFAQ(false)} />
 
