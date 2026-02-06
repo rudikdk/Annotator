@@ -23,8 +23,8 @@ Web app that annotates P&ID PDF documents with metadata from Excel component lis
 git clone -b docker-raspberrypi-casaos https://github.com/rudikdk/Annotator.git
 cd Annotator
 
-# Create persistent storage directories
-mkdir -p persistent_uploads persistent_output
+# Create storage directories
+mkdir -p uploads output
 
 # Build and start
 docker-compose up -d --build

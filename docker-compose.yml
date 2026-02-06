@@ -3,7 +3,7 @@
 #
 # Installation instructions for CasaOS:
 # 1. Copy this file to your CasaOS Apps directory or import via Custom Install
-# 2. Create persistent directories: mkdir -p persistent_uploads persistent_output
+# 2. Create directories: mkdir -p uploads output
 # 3. Adjust memory limits based on your Pi 5 model (see comments below)
 # 4. Run: docker-compose -f docker-compose.casaos.yml up -d
 #
@@ -41,11 +41,11 @@ services:
     # Volume mounts - CasaOS friendly paths
     volumes:
       - type: bind
-        source: ./persistent_uploads
+        source: ./uploads
         target: /app/uploads
         read_only: false
       - type: bind
-        source: ./persistent_output
+        source: ./output
         target: /app/output
         read_only: false
 
@@ -191,4 +191,4 @@ networks:
       net.casaos.network: "true"
 
 # Note: Volumes are bind mounts, no need to declare them here
-# CasaOS will manage the persistent_uploads and persistent_output directories
+# CasaOS will manage the uploads and output directories
