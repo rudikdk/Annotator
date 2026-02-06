@@ -59,9 +59,9 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
 
 def cleanup_old_files():
-    """Clean up old files (24+ hours) to prevent disk accumulation while preserving active sessions."""
+    """Clean up old files (1+ hours) to prevent accumulation while preserving active sessions."""
     try:
-        cutoff_time = datetime.now().timestamp() - (24 * 60 * 60)  # 24 hours ago
+        cutoff_time = datetime.now().timestamp() - (1 * 60 * 60)  # 1 hour ago
         cleaned_count = 0
 
         # Clean uploads directory
@@ -90,6 +90,32 @@ def cleanup_old_files():
 
 # Run cleanup on startup
 cleanup_old_files()
+
+# Periodic cleanup state - avoids running cleanup on every single request
+_last_periodic_cleanup = time.time()
+_PERIODIC_CLEANUP_INTERVAL = 300  # Run at most every 5 minutes
+
+@app.before_request
+def periodic_file_cleanup():
+    """Periodically clean up stale files from abandoned sessions.
+    Runs at most once every 5 minutes to avoid performance impact."""
+    global _last_periodic_cleanup
+    now = time.time()
+    if now - _last_periodic_cleanup < _PERIODIC_CLEANUP_INTERVAL:
+        return
+    _last_periodic_cleanup = now
+    try:
+        cutoff_time = now - (1 * 60 * 60)  # 1 hour retention
+        cleaned = 0
+        for folder in [app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER']]:
+            for file_path in Path(folder).glob('*'):
+                if file_path.is_file() and file_path.stat().st_mtime < cutoff_time:
+                    file_path.unlink()
+                    cleaned += 1
+        if cleaned > 0:
+            print(f"[PERIODIC CLEANUP] Removed {cleaned} stale file(s) older than 1 hour")
+    except Exception as e:
+        print(f"[PERIODIC CLEANUP ERROR] {e}")
 
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {
@@ -1264,7 +1290,7 @@ def cleanup_test_output():
 
 @app.route('/cleanup_after_download', methods=['POST'])
 def cleanup_after_download():
-    """Delete Excel output files after download (PDFs stay in workspace)"""
+    """Delete ALL session files after download to avoid server-side file storage"""
     try:
         session_id = session.get('session_id', 'default')
         current_task = session.get('current_task')
@@ -1279,23 +1305,33 @@ def cleanup_after_download():
             print(f"[CLEANUP] Test run detected - preserving uploads")
             return cleanup_test_output()
 
-        # For full runs, only delete Excel output files (PDFs are already in workspace)
-        print(f"[CLEANUP] Starting post-download cleanup for session {session_id}")
+        print(f"[CLEANUP] Starting full post-download cleanup for session {session_id}")
 
-        # Delete only Excel files from output directory (PDFs already moved to workspace)
+        # Delete ALL session files from output directory
         output_dir = Path(app.config['OUTPUT_FOLDER'])
         deleted_outputs = 0
-        for file_path in output_dir.glob(f'{session_id}_*.xlsx'):
+        for file_path in output_dir.glob(f'{session_id}_*'):
             if file_path.is_file():
                 try:
                     file_path.unlink()
                     deleted_outputs += 1
-                    print(f"[CLEANUP] Deleted Excel output file: {file_path.name}")
+                    print(f"[CLEANUP] Deleted output file: {file_path.name}")
                 except Exception as e:
                     print(f"[CLEANUP ERROR] Failed to delete output file {file_path.name}: {e}")
 
-        # Don't clear session data - files remain in workspace for reprocessing
-        # Only clear task-specific data
+        # Delete ALL session files from uploads directory
+        uploads_dir = Path(app.config['UPLOAD_FOLDER'])
+        deleted_uploads = 0
+        for file_path in uploads_dir.glob(f'{session_id}_*'):
+            if file_path.is_file():
+                try:
+                    file_path.unlink()
+                    deleted_uploads += 1
+                    print(f"[CLEANUP] Deleted upload file: {file_path.name}")
+                except Exception as e:
+                    print(f"[CLEANUP ERROR] Failed to delete upload file {file_path.name}: {e}")
+
+        # Clear task-specific data from memory
         if current_task and current_task in output_files_data:
             del output_files_data[current_task]
             print(f"[CLEANUP] Cleared output_files_data for task {current_task}")
@@ -1304,12 +1340,13 @@ def cleanup_after_download():
             del progress_data[current_task]
             print(f"[CLEANUP] Cleared progress_data for task {current_task}")
 
-        print(f"[CLEANUP] Cleanup complete. Deleted {deleted_outputs} Excel output file(s). PDFs remain in workspace.")
+        print(f"[CLEANUP] Full cleanup complete. Deleted {deleted_outputs} output + {deleted_uploads} upload file(s).")
 
         return jsonify({
             'success': True,
-            'message': f'Excel outputs cleaned up. PDFs remain in workspace.',
-            'deleted_outputs': deleted_outputs
+            'message': f'All session files cleaned up after download.',
+            'deleted_outputs': deleted_outputs,
+            'deleted_uploads': deleted_uploads
         })
 
     except Exception as e:

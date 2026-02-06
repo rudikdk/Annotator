@@ -21,14 +21,12 @@ services:
       # - mem_reservation: 768m
       # - cpus: 3.0
       # - tmpfs: /tmp:size=512M, /app/.cache:size=256M
-    volumes:
-      # Named volumes for better CasaOS integration
-      - pid_uploads:/app/uploads:rw
-      - pid_output:/app/output:rw
-      # tmpfs for temporary files to reduce SD card wear
+    # All temporary storage in RAM (tmpfs) - no files written to disk
     tmpfs:
       - /tmp:size=384M,mode=1777
       - /app/.cache:size=192M,mode=755
+      - /app/uploads:size=256M,mode=755,uid=1000,gid=1000
+      - /app/output:size=256M,mode=755,uid=1000,gid=1000
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:${PORT:-5001}/ || exit 1"]
@@ -65,21 +63,6 @@ services:
       net.casaos.app.protocol: "http"
       # Health check
       net.casaos.app.healthcheck: "http://localhost:5001/"
-
-# Named volumes for CasaOS volume management
-volumes:
-  pid_uploads:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./persistent_uploads
-  pid_output:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./persistent_output
 
 # Custom bridge network
 networks:
