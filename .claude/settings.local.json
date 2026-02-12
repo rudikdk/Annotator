@@ -38,7 +38,15 @@
       "Bash(echo \"\n=== SYNTAX CHECKS ===\")",
       "Bash(echo \"\n=== WORKING TREE STATUS ===\")",
       "Bash(echo:*)",
-      "Bash(docker compose logs:*)"
+      "Bash(docker compose logs:*)",
+      "Bash(wc:*)",
+      "Bash(/mnt/c/Users/Rudi/Documents/GitHub/Annotator/pid_annotator/reports/html_generator.py << 'HEADER_EOF'\n\"\"\"\nHTML Report Generation Module for PID Annotator\nGenerates interactive HTML reports with search, sort, filter, and CSV/Excel export functionality\n\nUsage Example:\n    from pid_annotator.reports.html_generator import generate_html_report\n\n    html_content = generate_html_report\\(\n        report_data={\n            'found': [...],\n            'not_found': [...],\n            'duplicates': {...},\n            'validation_warnings': [...]\n        },\n        pdf_filenames=['drawing1.pdf', 'drawing2.pdf'],\n        excel_filename='component_list.xlsx',\n        settings={'tag_column': 'A', 'header_row': 6}\n    \\)\n\"\"\"\n\nimport json\nfrom datetime import datetime\n\n\nHEADER_EOF)",
+      "Bash(/mnt/c/Users/Rudi/Documents/GitHub/Annotator/pid_annotator/reports/__init__.py << 'EOF'\n\"\"\"\nReports Module for PID Annotator\nHandles HTML report generation and Excel exports\n\"\"\"\n\nfrom pid_annotator.reports.excel_exporter import export_filtered_list_to_excel\nfrom pid_annotator.reports.html_generator import generate_html_report\n\n__all__ = [\n    'export_filtered_list_to_excel',\n    'generate_html_report'\n]\nEOF)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(pip3:*)",
+      "Bash(/tmp/test_import_order.py << 'EOTEST'\n#!/usr/bin/env python3\n\"\"\"\nTest that imports work in correct order without circular dependencies.\n\"\"\"\n\nimport sys\nfrom pathlib import Path\n\nproject_root = Path\\('/mnt/c/Users/Rudi/Documents/GitHub/Annotator'\\)\nsys.path.insert\\(0, str\\(project_root\\)\\)\n\nEXPECTED_DEPS = ['fitz', 'flask', 'reportlab', 'pandas', 'openpyxl',\n                 'flask_socketio', 'PyPDF2', 'xlrd', 'werkzeug']\n\ndef is_expected\\(e\\):\n    return any\\(dep in str\\(e\\) for dep in EXPECTED_DEPS\\)\n\nprint\\(\"=\" * 80\\)\nprint\\(\"Import Order Verification\"\\)\nprint\\(\"=\" * 80\\)\n\ntests = [\n    \\('config.tag_matching_config', 'from pid_annotator.config import tag_matching_config'\\),\n    \\('analysis.tag_parts', 'from pid_annotator.analysis import tag_parts'\\),\n    \\('tag_engine.parser', 'from pid_annotator.tag_engine import parser'\\),\n    \\('utils.progress_callback', 'from pid_annotator.utils import progress_callback'\\),\n    \\('session.cleanup', 'from pid_annotator.session import cleanup'\\),\n]\n\nfor name, cmd in tests:\n    print\\(f\"\\\\nTesting {name}...\"\\)\n    try:\n        exec\\(cmd\\)\n        print\\(f\"   ✓ {name} imported\"\\)\n    except ImportError as e:\n        if is_expected\\(e\\):\n            print\\(f\"   ⊘ requires external deps \\(expected\\): {e.name}\"\\)\n        else:\n            print\\(f\"   ✗ Unexpected: {e}\"\\)\n            sys.exit\\(1\\)\n\nprint\\(\"\\\\n\" + \"=\" * 80\\)\nprint\\(\"PASSED - No circular dependencies detected\"\\)\nprint\\(\"=\" * 80\\)\nEOTEST)",
+      "Bash(docker:*)"
     ],
     "deny": [],
     "ask": []

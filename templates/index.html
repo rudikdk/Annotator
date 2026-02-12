@@ -3068,7 +3068,7 @@
                 setFileCount(count);
                 logToConsole("Processing complete! Download is now available!");
 
-                // Get output files from server and add PDFs to workspace
+                // Get output files from server (for report tracking only, outputs stay separate)
                 fetch("/download")
                   .then((r) => r.json())
                   .then((data) => {
@@ -3084,10 +3084,8 @@
                         logToConsole(`Report available: ${reportFile}`);
                       }
 
-                      // Add PDF outputs to workspace (Excel outputs are download-only)
-                      if (outputFiles.length > 0) {
-                        addOutputsToWorkspace(outputFiles);
-                      }
+                      // Output files stay in OUTPUT_FOLDER and are only accessible via download popup
+                      // They will NOT be added to the workspace/upload area
                     }
                   })
                   .catch((err) => {

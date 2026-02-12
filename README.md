@@ -308,10 +308,9 @@ Excel File (components.xlsx)
 
 ### Supported Platforms
 
-- ✅ Windows 10/11
 - ✅ macOS 11+
 - ✅ Linux (Ubuntu 20.04+, Debian 11+)
-- ✅ Raspberry Pi 5 (4GB or 8GB model)
+- ✅ Raspberry Pi 5 (4GB or 8GB model) - Primary deployment target
 
 ---
 
@@ -356,6 +355,33 @@ Excel File (components.xlsx)
 - **Excel Processing:** openpyxl
 - **Real-Time Updates:** Flask-SocketIO
 - **Deployment:** Docker, Gunicorn
+
+### Modular Architecture
+
+The application has been refactored into a clean, modular structure:
+
+**Before:** 3 monolithic files (5,339+ lines)
+- `pid_annotator_core.py` - 2,211 lines
+- `report_template.py` - 3,037 lines
+- `app.py` - massive routes file
+
+**After:** 8 focused packages with 25+ specialized modules
+- `pid_annotator/core/` - PDF and Excel processing
+- `pid_annotator/config/` - Centralized configuration with AnnotationConfig
+- `pid_annotator/tag_engine/` - Tag parsing and filtering
+- `pid_annotator/reports/` - Report generation
+- `pid_annotator/web/` - Flask blueprints for routes
+- `pid_annotator/analysis/` - Excel analysis tools
+- `pid_annotator/session/` - Session and file management
+- `pid_annotator/utils/` - Shared utilities
+
+**Key Benefits:**
+- 96% reduction in app.py (91 lines vs thousands)
+- Single-responsibility modules for easier maintenance
+- AnnotationConfig dataclass eliminates parameter passing chaos
+- Backward-compatible wrappers maintain existing functionality
+
+See [REFACTORING.md](REFACTORING.md) for complete refactoring details.
 
 ---
 
@@ -460,9 +486,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📚 Additional Documentation
 
-- [Optimization Guide](OPTIMIZATION_GUIDE.md) - Performance tuning and configuration
 - [Raspberry Pi Quick Start](RASPBERRY_PI_QUICKSTART.md) - Raspberry Pi 5 deployment guide
 - [Developer Guide](CLAUDE.md) - Technical documentation for developers
+- [Refactoring Details](REFACTORING.md) - Architecture transformation documentation
 
 ---
 

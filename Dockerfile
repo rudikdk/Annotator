@@ -1,5 +1,5 @@
 # Multi-stage build optimized for Raspberry Pi 5 (ARM64)
-FROM --platform=linux/arm64 python:3.11-slim-bookworm as builder
+FROM python:3.11-slim-bookworm as builder
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -35,7 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/pip,sharing=locked \
     pip install --prefer-binary -r requirements.txt
 
 # Production stage - Bookworm for better ARM64 support
-FROM --platform=linux/arm64 python:3.11-slim-bookworm
+FROM python:3.11-slim-bookworm
 
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -70,8 +70,7 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application files
 COPY app.py .
-COPY pid_annotator_core.py .
-COPY report_template.py .
+COPY pid_annotator/ pid_annotator/
 COPY templates/ templates/
 COPY static/ static/
 COPY entrypoint.sh .
@@ -97,6 +96,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=45s --retries=3 \
 # Optimized for Raspberry Pi 5: dynamic worker count, memory leak prevention
 ENTRYPOINT ["./entrypoint.sh"]
 CMD ["sh", "-c", "gunicorn --worker-class eventlet \
+     --pythonpath /app \
      -w ${GUNICORN_WORKERS:-1} \
      --bind 0.0.0.0:${PORT:-5001} \
      --timeout 300 \
@@ -104,7 +104,7 @@ CMD ["sh", "-c", "gunicorn --worker-class eventlet \
      --keep-alive 5 \
      --max-requests 1000 \
      --max-requests-jitter 50 \
-     --log-level warning \
+     --log-level debug \
      --access-logfile - \
      --error-logfile - \
      app:app"]

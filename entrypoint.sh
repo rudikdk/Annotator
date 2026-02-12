@@ -17,19 +17,6 @@ echo "================================================"
 echo ""
 
 # ============================================
-# Architecture Verification
-# ============================================
-ARCH=$(uname -m)
-echo "Verifying architecture..."
-if [ "$ARCH" != "aarch64" ] && [ "$ARCH" != "arm64" ]; then
-    echo "ERROR: Expected ARM64 architecture, got: $ARCH"
-    echo "This container is optimized for Raspberry Pi 5 (ARM64)"
-    exit 1
-fi
-echo "✓ Architecture: $ARCH (ARM64 compatible)"
-echo ""
-
-# ============================================
 # Memory Validation
 # ============================================
 echo "Checking memory availability..."
@@ -146,11 +133,11 @@ if [ ! -f "/app/app.py" ]; then
 fi
 echo "✓ app.py found"
 
-if [ ! -f "/app/pid_annotator_core.py" ]; then
-    echo "ERROR: pid_annotator_core.py not found!"
+if [ ! -d "/app/pid_annotator" ]; then
+    echo "ERROR: pid_annotator/ directory not found!"
     exit 1
 fi
-echo "✓ pid_annotator_core.py found"
+echo "✓ pid_annotator/ directory found"
 
 if [ ! -d "/app/templates" ]; then
     echo "WARNING: templates/ directory not found"

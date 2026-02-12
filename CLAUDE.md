@@ -34,15 +34,59 @@ docker buildx build --platform linux/arm64 -t pid-annotator-web:arm64 .
 
 ## Architecture
 
-### Core Files
+### Entry Point
 
 | File | Purpose |
 |------|---------|
-| `app.py` | Flask routes, session management, WebSocket handlers |
-| `pid_annotator_core.py` | PDF/Excel processing engine, tag extraction |
-| `report_template.py` | HTML report generation |
+| `app.py` | Minimal Flask entry point (91 lines) - blueprint registration only |
 | `templates/index.html` | React 18 SPA with TailwindCSS |
 | `entrypoint.sh` | Docker startup with safety checks |
+
+### Module Structure
+
+The application is organized into focused modules under `pid_annotator/`:
+
+**Core Processing**
+- `core/pdf_annotator.py` - PDF annotation engine with highlight and note creation
+- `core/pdf_indexer.py` - Tag extraction and indexing (parallel/streaming modes)
+- `core/excel_processor.py` - Excel file reading and data extraction
+- `core/watermark.py` - Watermark generation and overlay
+- `core/preview_generator.py` - PDF preview image generation
+
+**Configuration**
+- `config/annotation_config.py` - **AnnotationConfig dataclass** (centralized settings)
+- `config/processing_config.py` - Processing thresholds and performance tuning
+- `config/app_config.py` - Flask app configuration
+- `config/tag_matching_config.py` - Tag pattern matching rules
+
+**Tag Processing**
+- `tag_engine/parser.py` - Tag pattern extraction and validation
+- `tag_engine/filters.py` - Tag filtering and deduplication
+- `tag_engine/color_rules.py` - Color assignment based on rules
+
+**Analysis**
+- `analysis/column_analysis.py` - Excel column type detection
+- `analysis/excel_helpers.py` - Excel data validation and helpers
+- `analysis/tag_parts.py` - Tag component parsing and analysis
+
+**Reporting**
+- `reports/html_generator.py` - HTML report generation
+- `reports/excel_exporter.py` - Excel annotation and export
+
+**Web Layer**
+- `web/upload_routes.py` - File upload endpoints
+- `web/process_routes.py` - PDF processing endpoints
+- `web/download_routes.py` - File download endpoints
+- `web/excel_routes.py` - Excel analysis endpoints
+- `web/socketio_handlers.py` - WebSocket event handlers
+
+**Session Management**
+- `session/manager.py` - Session state and file tracking
+- `session/cleanup.py` - Automatic file cleanup (24h retention)
+
+**Utilities**
+- `utils/file_helpers.py` - File operations and validation
+- `utils/progress_callback.py` - Progress tracking helpers
 
 ### Processing Flow
 
@@ -70,7 +114,7 @@ Upload PDF + Excel → Session storage → Build tag index (parallel if >20 page
 
 ### Tag Extraction
 
-Pattern in `pid_annotator_core.py:160`:
+Pattern in `pid_annotator/tag_engine/parser.py`:
 ```python
 r'\b[A-Za-z0-9]{1,5}[-\.][A-Za-z0-9]{1,5}[-\.][A-Za-z0-9]{1,5}(?:[-\.][A-Za-z0-9]{1,5}){0,2}\b'
 ```
@@ -84,7 +128,26 @@ Two-library approach:
 
 ## Configuration
 
-**Processing parameters** (`pid_annotator_core.py`):
+### AnnotationConfig Pattern
+
+The application uses a centralized `AnnotationConfig` dataclass for all processing settings:
+
+```python
+from pid_annotator.config.annotation_config import AnnotationConfig
+
+# Create configuration with sensible defaults
+config = AnnotationConfig(
+    tag_column="Tag ID",
+    comment_columns=["Description", "Notes"],
+    highlight_color=(1, 1, 0),  # RGB yellow
+    header_row=6
+)
+
+# Pass to processing functions
+annotate_pdf_with_progress(pdf_path, output_path, config, progress_callback)
+```
+
+**Processing parameters** (`pid_annotator/config/processing_config.py`):
 ```python
 PARALLEL_INDEXING_ENABLED = True
 MAX_WORKERS = os.cpu_count() - 1
@@ -100,8 +163,16 @@ MEMORY_CLEANUP_BATCH_SIZE = 100
 ## Key Implementation Notes
 
 ### Adding a Route
+
+Create a new blueprint in `pid_annotator/web/`:
+
 ```python
-@app.route('/new_route', methods=['POST'])
+# pid_annotator/web/new_routes.py
+from flask import Blueprint, jsonify, session
+
+bp = Blueprint('new_routes', __name__)
+
+@bp.route('/new_route', methods=['POST'])
 def new_route():
     session_id = session.get('session_id')
     if not session_id:
@@ -110,16 +181,50 @@ def new_route():
     return jsonify({'success': True})
 ```
 
+Register in `pid_annotator/web/__init__.py`:
+
+```python
+from .new_routes import bp as new_bp
+app.register_blueprint(new_bp)
+```
+
+### Working with AnnotationConfig
+
+```python
+from pid_annotator.config.annotation_config import AnnotationConfig
+from pid_annotator.core.pdf_annotator import annotate_pdf_with_progress
+
+# Create configuration
+config = AnnotationConfig(
+    tag_column="Tag ID",
+    comment_columns=["Description", "Location"],
+    highlight_color=(1, 0.8, 0),  # Orange
+    header_row=1,
+    watermark_text="REVIEWED"
+)
+
+# Use in processing
+annotate_pdf_with_progress(
+    pdf_path="/path/to/input.pdf",
+    output_path="/path/to/output.pdf",
+    config=config,
+    progress_callback=lambda p, m: print(f"{p}% - {m}")
+)
+```
+
 ### Modifying Core Processing
+
 - Always call `progress_callback()` with percentage 0-100
 - Use `fitz.TOOLS.store_shrink(100)` after heavy operations
 - Set `page = None` explicitly after processing
 - Test with both small (<50MB) and large (>50MB) files
+- Processing logic is now in focused modules (see Module Structure above)
 
 ### Session Data
+
 Stored in Flask session: `pdf_files`, `excel_file`, `session_id`, `columns`, `header_row`
 
-File cleanup runs on every request via `@app.before_request` (24-hour retention).
+File cleanup runs on every request via `@app.before_request` (1-hour retention, throttled to every 5 minutes).
 
 ## Docker/Deployment
 

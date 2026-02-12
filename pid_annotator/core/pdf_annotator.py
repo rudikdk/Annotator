@@ -1,50 +1,33 @@
-#!/usr/bin/env python3
 """
-Core PID annotation functionality without GUI dependencies
-- Replaced "stamp" feature with "watermark" implemented via ReportLab + PyPDF2
-- Removed background options for the former stamp feature
-- Optimized with parallel indexing, memory management, and streaming for large files
+PDF annotation engine - main processing logic.
+
+This module contains the core annotation functions that process PDF files with
+metadata from Excel files, applying highlights, comments, and watermarks.
 """
 
 import os
+import gc
+import time
 import fitz  # PyMuPDF
 import pandas as pd
-import re
-import time
-import gc
 from collections import defaultdict
 from io import BytesIO
-from openpyxl import load_workbook, Workbook
-from openpyxl.styles import PatternFill, Font, Alignment, Border, Side, Protection
-from openpyxl.utils import get_column_letter
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from threading import Lock
-import xlrd
-from xlrd import open_workbook
 
 # Watermark overlay libs
 from reportlab.pdfgen import canvas
 from PyPDF2 import PdfReader, PdfWriter
 
-# Report generation
-from pid_annotator.reports import generate_html_report
-
 # Configuration
 from pid_annotator.config import (
+    AnnotationConfig,
     TagMatchingConfig,
-    PARALLEL_INDEXING_ENABLED,
-    MAX_WORKERS,
     STREAMING_THRESHOLD_MB,
-    MEMORY_CLEANUP_BATCH_SIZE,
-    PROGRESS_UPDATE_INTERVAL
 )
 
 # Tag engine functions
 from pid_annotator.tag_engine import (
-    generate_regex_pattern,
     convert_tag_format,
     parse_tag_format,
-    parse_tag_parts,
     apply_tag_filters,
     apply_color_rules,
     _hex_to_rgb01,
@@ -52,486 +35,20 @@ from pid_annotator.tag_engine import (
 )
 
 # Core processing functions
-from pid_annotator.core import (
-    annotate_excel_with_found_tags,
-    convert_xls_to_xlsx_preserving_format,
-    annotate_pdf_page_for_preview,
-)
-
-# Core indexer and watermark functions
 from pid_annotator.core.pdf_indexer import (
     build_tag_index,
     build_page_statistics,
     build_page_bookmark_map,
 )
-from pid_annotator.core.watermark import (
-    create_overlay_page as _create_overlay_page,
-    apply_watermarks,
-)
 
 
-# Tag format and parsing functions are now imported from pid_annotator.tag_engine
-
-
-# Tag filtering and color rule functions are now imported from pid_annotator.tag_engine
-
-def analyze_tag_parts(excel_path, tag_column, header_row=6, top_n=20):
-    """
-    Analyze an Excel file and extract the most common values for each tag part.
-
-    Args:
-        excel_path: Path to the Excel file
-        tag_column: Column name containing the tags
-        header_row: Row number containing headers (1-based)
-        top_n: Number of top values to return per part
-
-    Returns:
-        dict: Contains 'success', 'parts' (dict with part statistics), and 'message'
-    """
+def _get_file_size_mb(filepath):
+    """Get file size in megabytes."""
     try:
-        # Support both .xlsx and .xls files
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        return os.path.getsize(filepath) / (1024 * 1024)
+    except:
+        return 0
 
-        if is_xls:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
-        df = df.dropna(axis=1, how="all")
-
-        # Strip whitespace from column names for consistent matching
-        df.columns = [str(col).strip() for col in df.columns]
-
-        # Validate tag column
-        if tag_column not in df.columns:
-            return {
-                'success': False,
-                'parts': {},
-                'message': f"Tag column '{tag_column}' not found in Excel file"
-            }
-
-        # Extract all tags
-        tags = df[tag_column].dropna().astype(str).str.strip()
-
-        # Track values for each part position
-        part_values = defaultdict(lambda: defaultdict(int))  # {part_num: {value: count}}
-        max_parts = 0
-
-        for tag in tags:
-            if tag and tag.lower() != 'nan':
-                parts = parse_tag_parts(tag)
-                max_parts = max(max_parts, len(parts))
-
-                for i, part in enumerate(parts):
-                    part_num = i + 1  # 1-based
-                    part_values[part_num][part.upper()] += 1
-
-        # Build result with top N values for each part
-        result_parts = {}
-        for part_num in range(1, max_parts + 1):
-            if part_num in part_values:
-                # Sort by count (descending) and get top N
-                sorted_values = sorted(
-                    part_values[part_num].items(),
-                    key=lambda x: x[1],
-                    reverse=True
-                )[:top_n]
-
-                result_parts[f"part{part_num}"] = [
-                    {"value": value, "count": count}
-                    for value, count in sorted_values
-                ]
-            else:
-                result_parts[f"part{part_num}"] = []
-
-        return {
-            'success': True,
-            'parts': result_parts,
-            'message': f"Analyzed {len(tags)} tags with up to {max_parts} parts"
-        }
-
-    except Exception as e:
-        return {
-            'success': False,
-            'parts': {},
-            'message': f"Error analyzing tag parts: {str(e)}"
-        }
-
-
-def analyze_header_unique_values(excel_path, column_name, header_row=6, top_n=100):
-    """
-    Analyze an Excel file and extract unique values from a specific column.
-    This function is used to populate filter and color rule dropdowns for header-based matching.
-
-    Args:
-        excel_path: Path to the Excel file
-        column_name: Name of the column to analyze
-        header_row: Row number containing headers (1-based, default: 6)
-        top_n: Maximum number of unique values to return (default: 100)
-
-    Returns:
-        list: List of dictionaries with 'value' and 'count' keys, sorted by count descending
-              Example: [{"value": "Valve", "count": 45}, {"value": "Pump", "count": 23}]
-              Returns empty list on error
-    """
-    try:
-        # Support both .xlsx and .xls files
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-
-        if is_xls:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
-        # Remove completely empty columns
-        df = df.dropna(axis=1, how="all")
-
-        # Strip whitespace from column names for consistent matching
-        df.columns = [str(col).strip() for col in df.columns]
-
-        # Validate column exists
-        if column_name not in df.columns:
-            print(f"[WARNING] Column '{column_name}' not found in Excel file")
-            return []
-
-        # Extract column values, remove NaN/empty values
-        column_values = df[column_name].dropna().astype(str).str.strip()
-
-        # Filter out empty strings and 'nan' strings
-        column_values = column_values[
-            (column_values != '') &
-            (column_values.str.lower() != 'nan')
-        ]
-
-        # Count occurrences of each unique value
-        value_counts = column_values.value_counts()
-
-        # Build result list with top N values
-        result = [
-            {"value": str(value), "count": int(count)}
-            for value, count in value_counts.head(top_n).items()
-        ]
-
-        return result
-
-    except Exception as e:
-        print(f"[ERROR] Error analyzing header column '{column_name}': {str(e)}")
-        return []
-
-
-def is_valid_tag(tag, config=None):
-    """
-    Check if a tag has the correct format with delimiters.
-
-    Args:
-        tag: Tag string to validate
-        config: Optional TagMatchingConfig instance (uses default if not provided)
-
-    Returns:
-        bool: True if tag is valid according to config
-    """
-    if tag.lower() == "nan" or tag == "":
-        return False
-
-    # Use default config if not provided
-    if config is None:
-        config = TagMatchingConfig.get_default_preset()
-
-    # Use the new parse_tag_format function with config separators
-    tag_info = parse_tag_format(tag, allowed_delimiters=config.separators)
-
-    # Check if tag meets the configured requirements
-    return tag_info['valid'] and config.min_parts <= tag_info['count'] <= config.max_parts
-
-
-def _index_page_range(doc_path, page_start, page_end, tag_pattern, config=None):
-    """
-    Index a range of pages from a PDF document (worker function for parallel processing).
-
-    Args:
-        doc_path: Path to the PDF file
-        page_start: Starting page number (inclusive)
-        page_end: Ending page number (exclusive)
-        tag_pattern: Compiled regex pattern for tag matching
-        config: TagMatchingConfig instance
-
-    Returns:
-        dict: Partial tag index for this page range
-    """
-    local_index = defaultdict(list)
-
-    # Use default config if not provided
-    if config is None:
-        config = TagMatchingConfig.get_default_preset()
-
-    # Open document in worker thread
-    doc = fitz.open(doc_path)
-
-    try:
-        for page_num in range(page_start, page_end):
-            if page_num >= len(doc):
-                break
-
-            page = doc[page_num]
-            text = page.get_text()
-
-            # Find all potential tags on this page
-            matches = tag_pattern.finditer(text)
-
-            for match in matches:
-                original_tag = match.group()
-
-                # Skip if not a valid tag format
-                if not is_valid_tag(original_tag, config):
-                    continue
-                
-                # Get exact coordinates for this tag occurrence
-                rects = page.search_for(original_tag, flags=1)
-                
-                if rects:  # Only add if we can find the coordinates
-                    # Normalize tag for lookup
-                    normalized_tag = original_tag.upper()
-                    
-                    # Store both original format and converted formats
-                    tag_variants = [
-                        normalized_tag,
-                        convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."),
-                        convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-")
-                    ]
-                    
-                    # Add all variants to index
-                    for variant in set(tag_variants):
-                        local_index[variant].append((page_num, rects, original_tag))
-            
-            # Memory cleanup after each page
-            page = None
-        
-    finally:
-        doc.close()
-        # Force garbage collection
-        gc.collect()
-    
-    return dict(local_index)
-
-
-def build_page_bookmark_map(doc):
-    """
-    Build a mapping of page numbers to their corresponding bookmark titles.
-
-    Args:
-        doc: PyMuPDF document object
-
-    Returns:
-        dict: Mapping of page numbers (0-based) to bookmark titles
-              Format: {page_num: bookmark_title}
-    """
-    page_bookmark_map = {}
-
-    try:
-        # Get table of contents (bookmarks/outline)
-        # Returns list of [level, title, page] where page is 1-based
-        toc = doc.get_toc()
-
-        if not toc:
-            print("No bookmarks found in PDF")
-            return page_bookmark_map
-
-        print(f"Found {len(toc)} bookmarks in PDF")
-
-        # Build map: assign each bookmark to its page and all following pages
-        # until the next bookmark of same or higher level
-        for i, (level, title, page_1based) in enumerate(toc):
-            # Convert to 0-based page number
-            page_num = page_1based - 1
-
-            # Find the end page for this bookmark
-            # (page before next bookmark of same or higher level)
-            end_page = len(doc) - 1  # Default to last page
-
-            for j in range(i + 1, len(toc)):
-                next_level, _, next_page_1based = toc[j]
-                if next_level <= level:
-                    end_page = next_page_1based - 2  # Page before next bookmark (0-based)
-                    break
-
-            # Assign this bookmark title to all pages in its range
-            # But prefer deeper level bookmarks (child over parent)
-            for p in range(page_num, min(end_page + 1, len(doc))):
-                # Only update if no bookmark assigned yet, or current is deeper level
-                if p not in page_bookmark_map:
-                    page_bookmark_map[p] = title
-                else:
-                    # Keep the most specific (deepest) bookmark
-                    # We process in order, so later deeper bookmarks will override
-                    current_bookmark_idx = next(
-                        (idx for idx, (_, ttl, _) in enumerate(toc)
-                         if ttl == page_bookmark_map[p]),
-                        -1
-                    )
-                    if current_bookmark_idx >= 0:
-                        current_level = toc[current_bookmark_idx][0]
-                        if level > current_level:
-                            page_bookmark_map[p] = title
-
-        print(f"Mapped bookmarks to {len(page_bookmark_map)} pages")
-
-    except Exception as e:
-        print(f"Error building page-bookmark map: {e}")
-
-    return page_bookmark_map
-
-
-def build_tag_index(doc, update_progress=None, use_parallel=None, pdf_path=None, config=None):
-    """
-    Build a comprehensive index of all potential tags found in the PDF.
-    Supports both sequential and parallel processing modes.
-
-    Args:
-        doc: PyMuPDF document object
-        update_progress: Optional progress callback function
-        use_parallel: Override parallel processing (True/False/None=auto)
-        pdf_path: Path to PDF file (required for parallel processing)
-        config: TagMatchingConfig instance (uses default if not provided)
-
-    Returns:
-        dict: Index mapping normalized tag strings to their locations
-              Format: {tag_normalized: [(page_num, rects, original_tag), ...]}
-    """
-    print("Building comprehensive tag index...")
-    start_time = time.time()
-
-    # Use default config if not provided
-    if config is None:
-        config = TagMatchingConfig.get_default_preset()
-
-    total_pages = len(doc)
-
-    # Determine if we should use parallel processing
-    if use_parallel is None:
-        use_parallel = PARALLEL_INDEXING_ENABLED and total_pages > 20
-
-    # Generate tag pattern from config
-    tag_pattern = generate_regex_pattern(config)
-    print(f"Using tag matching pattern: {tag_pattern.pattern}")
-
-    if use_parallel and pdf_path and total_pages > 20:
-        print(f"Using parallel indexing with {MAX_WORKERS} workers for {total_pages} pages")
-        return _build_tag_index_parallel(pdf_path, total_pages, tag_pattern, update_progress, config)
-    else:
-        print(f"Using sequential indexing for {total_pages} pages")
-        return _build_tag_index_sequential(doc, total_pages, tag_pattern, update_progress, config)
-
-
-def _build_tag_index_sequential(doc, total_pages, tag_pattern, update_progress=None, config=None):
-    """Sequential tag indexing (original implementation)."""
-    tag_index = defaultdict(list)
-    last_reported_progress = -1
-
-    # Use default config if not provided
-    if config is None:
-        config = TagMatchingConfig.get_default_preset()
-
-    for page_num in range(total_pages):
-        # Update progress with throttling
-        if update_progress:
-            progress = int((page_num / total_pages) * 100) if total_pages else 100
-            if progress - last_reported_progress >= PROGRESS_UPDATE_INTERVAL:
-                update_progress(progress, f"Indexing page {page_num + 1}/{total_pages}...")
-                last_reported_progress = progress
-
-        page = doc[page_num]
-        text = page.get_text()
-
-        # Find all potential tags on this page
-        matches = tag_pattern.finditer(text)
-
-        for match in matches:
-            original_tag = match.group()
-
-            if not is_valid_tag(original_tag, config):
-                continue
-            
-            rects = page.search_for(original_tag, flags=1)
-            
-            if rects:
-                normalized_tag = original_tag.upper()
-                tag_variants = [
-                    normalized_tag,
-                    convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."),
-                    convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-")
-                ]
-                
-                for variant in set(tag_variants):
-                    tag_index[variant].append((page_num, rects, original_tag))
-        
-        # Memory cleanup every MEMORY_CLEANUP_BATCH_SIZE pages
-        if (page_num + 1) % MEMORY_CLEANUP_BATCH_SIZE == 0:
-            page = None
-            gc.collect()
-            if hasattr(fitz, 'TOOLS'):
-                try:
-                    fitz.TOOLS.store_shrink(100)
-                except:
-                    pass
-    
-    total_tags = sum(len(locations) for locations in tag_index.values())
-    print(f"Sequential indexing complete. Found {total_tags} tag instances across {len(tag_index)} unique tags.")
-    return dict(tag_index)
-
-
-def _build_tag_index_parallel(pdf_path, total_pages, tag_pattern, update_progress=None, config=None):
-    """Parallel tag indexing using ThreadPoolExecutor."""
-    tag_index = defaultdict(list)
-    index_lock = Lock()
-    completed_pages = [0]
-    last_reported_progress = [-1]
-
-    # Use default config if not provided
-    if config is None:
-        config = TagMatchingConfig.get_default_preset()
-
-    # Calculate chunk size (distribute pages across workers)
-    chunk_size = max(10, total_pages // (MAX_WORKERS * 2))
-    chunks = [(i, min(i + chunk_size, total_pages)) for i in range(0, total_pages, chunk_size)]
-
-    def process_chunk(chunk_info):
-        """Process a chunk and update progress."""
-        start_page, end_page = chunk_info
-        local_result = _index_page_range(pdf_path, start_page, end_page, tag_pattern, config)
-        
-        # Update global progress
-        with index_lock:
-            completed_pages[0] += (end_page - start_page)
-            if update_progress:
-                progress = int((completed_pages[0] / total_pages) * 100)
-                if progress - last_reported_progress[0] >= PROGRESS_UPDATE_INTERVAL:
-                    update_progress(progress, f"Indexed {completed_pages[0]}/{total_pages} pages (parallel)...")
-                    last_reported_progress[0] = progress
-        
-        return local_result
-    
-    # Execute parallel processing
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(process_chunk, chunk) for chunk in chunks]
-        
-        for future in as_completed(futures):
-            try:
-                local_index = future.result()
-                
-                # Merge local results into global index
-                with index_lock:
-                    for tag_variant, locations in local_index.items():
-                        tag_index[tag_variant].extend(locations)
-                        
-            except Exception as e:
-                print(f"Error in parallel indexing chunk: {e}")
-    
-    total_tags = sum(len(locations) for locations in tag_index.values())
-    print(f"Parallel indexing complete. Found {total_tags} tag instances across {len(tag_index)} unique tags.")
-    return dict(tag_index)
-
-
-# _hex_to_rgb01 is now imported from pid_annotator.tag_engine
 
 def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight_color="#FFFF00",
                                   enable_default_color=True, excel_tags_set=None,
@@ -591,7 +108,6 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
     # Build mapping from tag to Excel row data if df is provided
     tag_to_row_data = {}
     if df is not None and tag_col is not None:
-        import pandas as pd
         for idx, row in df.iterrows():
             tag = str(row[tag_col]).strip()
             if not tag or tag.lower() == 'nan':
@@ -800,127 +316,6 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
     }
 
 
-def build_page_statistics(tag_index, page_bookmark_map=None, excel_tags_set=None, df=None, tag_col=None, header_row=6):
-    """
-    Build page-level statistics for all tags in the tag index.
-    This shows how many tags were found per page, regardless of coloring.
-
-    Args:
-        tag_index: Pre-built tag index from build_tag_index()
-        page_bookmark_map: dict mapping page numbers to bookmark titles (optional)
-        excel_tags_set: Set of tags from Excel to mark as "colored" (optional)
-        df: DataFrame with Excel data (optional, for including row_data)
-        tag_col: Column name containing tags in Excel (optional)
-        header_row: Excel header row number (1-based) for row number tracking (default: 6)
-
-    Returns:
-        dict: Page statistics {page_num: {'colored_count': X, 'total_count': Y, 'bookmark': 'Title'}}
-    """
-    page_stats = {}
-    seen_occurrences = set()
-
-    def _make_occurrence_key(page_num, rects, original_tag):
-        if rects:
-            coords = tuple(
-                (
-                    round(rect.x0, 3),
-                    round(rect.y0, 3),
-                    round(rect.x1, 3),
-                    round(rect.y1, 3),
-                )
-                for rect in rects
-            )
-        else:
-            coords = tuple()
-        return (page_num, original_tag.upper(), coords)
-
-    # Build mapping from tag to Excel row data if df is provided
-    tag_to_row_data = {}
-    if df is not None and tag_col is not None:
-        import pandas as pd
-        for idx, row in df.iterrows():
-            tag = str(row[tag_col]).strip()
-            if not tag or tag.lower() == 'nan':
-                continue
-
-            # Normalize tag for matching
-            normalized_tag = tag.upper()
-
-            # Build row data dict with all Excel columns
-            excel_row_num = header_row + 1 + idx
-            row_dict = {'excel_row': excel_row_num}
-            for col in df.columns:
-                row_dict[col] = row[col] if pd.notna(row[col]) else ''
-
-            # Store with ALL variants of the tag as keys to handle both dash and dot delimiters
-            tag_variants = set()
-            tag_variants.add(normalized_tag)  # Original format
-
-            # Generate dash and dot variants
-            if '-' in normalized_tag:
-                tag_variants.add(convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."))
-            elif '.' in normalized_tag:
-                tag_variants.add(convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-"))
-
-            # Store row data for each variant
-            for variant in tag_variants:
-                tag_to_row_data[variant] = row_dict
-
-    # Process all tags found in the PDF
-    for tag_text, locations in tag_index.items():
-        # Check if tag is in Excel list (for "colored" count)
-        in_excel = bool(excel_tags_set) and tag_text in excel_tags_set
-
-        # Track page-level statistics for all tags
-        for page_num, rects, original_tag in locations:
-            # Initialize page stats if not exists
-            if page_num not in page_stats:
-                # Get bookmark title for this page
-                bookmark_title = page_bookmark_map.get(page_num, 'N/A') if page_bookmark_map else 'N/A'
-                page_stats[page_num] = {
-                    'colored_count': 0,
-                    'total_count': 0,
-                    'bookmark': bookmark_title,
-                    'tag_details': []
-                }
-
-            occurrence_key = _make_occurrence_key(page_num, rects, original_tag)
-            if occurrence_key in seen_occurrences:
-                continue
-
-            seen_occurrences.add(occurrence_key)
-
-            # Increment total count for this page
-            page_stats[page_num]['total_count'] += 1
-
-            # Increment colored count if tag is in Excel
-            if in_excel:
-                page_stats[page_num]['colored_count'] += 1
-
-            # Determine coloring reason
-            if in_excel:
-                coloring_reason = "Tag found in Excel list"
-            else:
-                coloring_reason = "Tag not in Excel list"
-
-            # Create tag detail entry
-            tag_detail = {
-                'tag': tag_text,
-                'found_text': original_tag,
-                'in_excel': bool(in_excel),
-                'colored': bool(in_excel),
-                'coloring_reason': coloring_reason
-            }
-
-            # Add row_data if tag is in Excel and we have the data
-            if in_excel and tag_text in tag_to_row_data:
-                tag_detail['row_data'] = tag_to_row_data[tag_text]
-
-            page_stats[page_num]['tag_details'].append(tag_detail)
-
-    return page_stats
-
-
 def process_annotations_from_index(
     doc,
     df,
@@ -1108,7 +503,7 @@ def process_annotations_from_index(
                 'row_data': row_dict
             })
             continue  # Tag not found in PDF
-        
+
         # Create note text
         if selected_comment_columns is not None:
             columns_to_include = [col for col in selected_comment_columns if col in df.columns and col != tag_col]
@@ -1120,11 +515,11 @@ def process_annotations_from_index(
                 note_text = ""
         else:
             note_text = ""
-        
+
         # Process all occurrences of this tag
         for page_num, rects, original_tag in tag_locations:
             page = doc[page_num]
-            
+
             try:
                 # Determine highlight color using new color rules system
                 highlight_color = None
@@ -1200,7 +595,7 @@ def process_annotations_from_index(
                 if watermark_enabled and watermark_attribute:
                     # Handle multiple attributes (passed as list or single string)
                     attributes = watermark_attribute if isinstance(watermark_attribute, list) else [watermark_attribute]
-                    
+
                     # Build watermark text from multiple attributes (values only, no attribute names)
                     watermark_parts = []
                     for attr in attributes:
@@ -1208,7 +603,7 @@ def process_annotations_from_index(
                             attr_value = str(row[attr]).strip()
                             if attr_value and attr_value.lower() != "nan" and attr_value != "":
                                 watermark_parts.append(attr_value)  # Only the value, not "attr: value"
-                    
+
                     if watermark_parts:
                         try:
                             r0 = rects[0]
@@ -1262,11 +657,11 @@ def process_annotations_from_index(
                         for r in rects
                     )
                     annotated_tags_by_page[page_num].add((tag.upper(), rect_key))
-                            
+
             except Exception as e:
                 print(f"Error processing tag '{tag}' on page {page_num}: {e}")
                 continue
-        
+
         if tag_locations:
             found_tags += 1
             processed_tags.add(tag)
@@ -1380,120 +775,26 @@ def process_annotations_from_index(
     return found_tags, skipped_tags, processed_tags, report_data
 
 
-def reload_excel_columns(excel_path, header_row):
-    """
-    Reload Excel columns with a new header row
-
-    Args:
-        excel_path: Path to the Excel file
-        header_row: Row number containing headers (1-based)
-
-    Returns:
-        dict: Contains 'success', 'columns', 'message', 'default_tag_column'
-    """
-    try:
-        if header_row < 1:
-            return {
-                'success': False,
-                'columns': [],
-                'message': 'Header row must be 1 or greater',
-                'default_tag_column': None
-            }
-
-        # Support both .xlsx and .xls files
-        # .xls files can be read for processing but cannot be annotated (Excel annotation disabled for .xls)
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-
-        if is_xls:
-            # Use xlrd engine for .xls files
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            # Use openpyxl engine for .xlsx files
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
-        df = df.dropna(axis=1, how="all")  # Remove empty columns
-
-        # Strip whitespace from column names to prevent matching issues
-        columns = [str(col).strip() for col in df.columns]
-
-        # Default tag column to None - user must select manually
-        default_tag_column = None
-
-        # Build message
-        message = f"Successfully loaded {len(columns)} columns from header row {header_row}"
-
-        return {
-            'success': True,
-            'columns': columns,
-            'message': message,
-            'default_tag_column': default_tag_column
-        }
-
-    except Exception as e:
-        return {
-            'success': False,
-            'columns': [],
-            'message': f'Error loading Excel columns: {str(e)}',
-            'default_tag_column': None
-        }
-
-
-def _get_file_size_mb(filepath):
-    """Get file size in megabytes."""
-    try:
-        return os.path.getsize(filepath) / (1024 * 1024)
-    except:
-        return 0
-
-
-def annotate_pdf_with_progress(
-    pdf_path,
-    excel_path,
-    out_path,
-    column_color_pairs=None,
-    max_tags=None,
-    tag_column=None,
-    header_row=6,
-    selected_comment_columns=None,
-    task_id=None,
-    progress_callback=None,
-    annotation_type="highlight_only",
-    watermark_enabled=False,
-    watermark_attribute="",
-    watermark_text_color="#000000",
-    watermark_background_enabled=False,
-    default_highlight_color="#FFFF00",
-    use_streaming=None,
-    tag_matching_config=None,
-    tag_filters=None,
-    filter_logic="AND",
-    color_rules=None,
-    enable_default_color=True,
-    excel_constraint_mode=False,
-    excel_constraint_logic="AND"
-):
+def annotate_pdf_with_progress(config: AnnotationConfig) -> tuple:
     """
     Annotate PDF with tags from Excel file with progress tracking.
     Automatically uses streaming mode for large files (>50MB by default).
 
     Args:
-        pdf_path: Path to the PDF file
-        excel_path: Path to the Excel file
-        out_path: Path for the output annotated PDF
-        column_color_pairs: List of (column, color) tuples for conditional highlighting
-        max_tags: Maximum number of tags to process (for testing)
-        tag_column: Column name containing the tags
-        header_row: Row number containing headers (1-based, default is 6)
-        selected_comment_columns: List of column names to include in comments (None = all columns)
-        task_id: Task ID for progress tracking
-        progress_callback: Function to call for progress updates
-        annotation_type: Type of annotation to use ("highlight_only" or "note_only")
-        watermark_enabled: Whether to enable watermark feature
-        watermark_attribute: Column name to use for watermark text
-        watermark_text_color: Text color for watermark (hex format)
-        use_streaming: Override streaming mode (True/False/None=auto)
+        config: AnnotationConfig instance containing all annotation parameters
+
+    Returns:
+        tuple: (processed_tags_set, report_data)
     """
+    # Validate that we have at least one PDF path
+    if not config.pdf_paths or not config.pdf_paths[0]:
+        raise ValueError("No PDF path provided in configuration")
+
+    # For now, use the first PDF path (multi-PDF support can be added later)
+    pdf_path = config.pdf_paths[0]
+
     # Determine if we should use streaming mode
+    use_streaming = config.use_streaming
     if use_streaming is None:
         file_size_mb = _get_file_size_mb(pdf_path)
         use_streaming = file_size_mb > STREAMING_THRESHOLD_MB
@@ -1501,39 +802,44 @@ def annotate_pdf_with_progress(
             print(f"[OPTIMIZATION] Large file detected ({file_size_mb:.1f}MB). Using streaming mode.")
 
     if use_streaming:
-        return _annotate_pdf_streaming(
-            pdf_path, excel_path, out_path, column_color_pairs, max_tags,
-            tag_column, header_row, selected_comment_columns, task_id,
-            progress_callback, annotation_type, watermark_enabled,
-            watermark_attribute, watermark_text_color, watermark_background_enabled,
-            default_highlight_color, tag_matching_config, tag_filters, filter_logic,
-            color_rules, enable_default_color, excel_constraint_mode, excel_constraint_logic
-        )
+        return _annotate_pdf_streaming(config)
     else:
-        return _annotate_pdf_standard(
-            pdf_path, excel_path, out_path, column_color_pairs, max_tags,
-            tag_column, header_row, selected_comment_columns, task_id,
-            progress_callback, annotation_type, watermark_enabled,
-            watermark_attribute, watermark_text_color, watermark_background_enabled,
-            default_highlight_color, tag_matching_config, tag_filters, filter_logic,
-            color_rules, enable_default_color, excel_constraint_mode, excel_constraint_logic
-        )
+        return _annotate_pdf_standard(config)
 
 
-def _annotate_pdf_standard(
-    pdf_path, excel_path, out_path, column_color_pairs, max_tags,
-    tag_column, header_row, selected_comment_columns, task_id,
-    progress_callback, annotation_type, watermark_enabled,
-    watermark_attribute, watermark_text_color, watermark_background_enabled,
-    default_highlight_color, tag_matching_config=None, tag_filters=None, filter_logic="AND",
-    color_rules=None, enable_default_color=True, excel_constraint_mode=False, excel_constraint_logic="AND"
-):
+def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
     """Standard annotation mode - loads entire PDF into memory."""
-    # Use default config if not provided
-    if tag_matching_config is None:
-        config = TagMatchingConfig.get_default_preset()
-    else:
-        config = TagMatchingConfig.from_dict(tag_matching_config) if isinstance(tag_matching_config, dict) else tag_matching_config
+    # Extract values from config
+    pdf_path = config.pdf_paths[0]
+    excel_path = config.excel_path
+    out_path = config.output_path
+    tag_column = config.tag_column
+    header_row = config.header_row
+    selected_comment_columns = config.comment_columns
+    annotation_type = config.annotation_type
+    default_highlight_color = config.highlight_color
+
+    # Watermark configuration
+    watermark_enabled = config.watermark and config.watermark.enabled
+    watermark_attribute = config.watermark.attributes if config.watermark else ""
+    watermark_text_color = config.watermark.text_color if config.watermark else "#000000"
+    watermark_background_enabled = False  # Not yet in WatermarkConfig
+
+    # Tag matching and filtering
+    tag_matching_config = config.tag_matching or TagMatchingConfig.get_default_preset()
+    tag_filters = config.filters
+    filter_logic = config.filter_logic
+    color_rules = config.color_rules
+    enable_default_color = config.enable_default_color
+    excel_constraint_mode = config.excel_constraint_mode
+    excel_constraint_logic = config.excel_constraint_logic
+
+    # Progress tracking
+    task_id = config.task_id
+    progress_callback = config.progress_callback
+    max_tags = config.max_tags
+    column_color_pairs = config.column_color_pairs
+
     def update_progress(progress, status):
         print(f"[CORE DEBUG] update_progress called: progress={progress}%, status='{status}'")
         if progress_callback:
@@ -1544,7 +850,7 @@ def _annotate_pdf_standard(
                 print(f"[CORE ERROR] progress_callback failed: {e}")
         else:
             print(f"[CORE WARNING] No progress_callback provided")
-    
+
     print(f"\n--- Starting annotation process ---")
     print(f"PDF: {pdf_path}")
     print(f"Excel: {excel_path}")
@@ -1553,7 +859,7 @@ def _annotate_pdf_standard(
     if watermark_enabled:
         print(f"Watermark attribute: {watermark_attribute}")
         print(f"Watermark text color: {watermark_text_color}")
-    
+
     # Read Excel with configurable header row
     update_progress(2, "Starting Excel file validation...")
     print(f"Loading Excel file...")
@@ -1583,7 +889,7 @@ def _annotate_pdf_standard(
         tag_col = tag_column
     else:
         tag_col = df.columns[6]  # Default to column G
-    
+
     tags = df[tag_col].dropna().astype(str).str.strip()
     print(f"Found {len(tags)} tags in column '{tag_col}'.")
 
@@ -1612,7 +918,7 @@ def _annotate_pdf_standard(
         update_progress(overall_progress, status)
 
     update_progress(30, "Building comprehensive tag index...")
-    tag_index = build_tag_index(doc, index_progress_callback, pdf_path=pdf_path, config=config)
+    tag_index = build_tag_index(doc, index_progress_callback, pdf_path=pdf_path, config=tag_matching_config)
 
     # Build page-to-bookmark mapping for report
     update_progress(60, "Extracting PDF bookmarks...")
@@ -1690,7 +996,7 @@ def _annotate_pdf_standard(
         watermark_items_by_page=watermark_items_by_page,
         default_highlight_color=default_highlight_color,
         header_row=header_row,
-        config=config,
+        config=tag_matching_config,
         tag_filters=tag_filters,
         filter_logic=filter_logic,
         page_bookmark_map=page_bookmark_map,
@@ -1885,20 +1191,38 @@ def _annotate_pdf_standard(
     return processed_tags, report_data
 
 
-def _annotate_pdf_streaming(
-    pdf_path, excel_path, out_path, column_color_pairs, max_tags,
-    tag_column, header_row, selected_comment_columns, task_id,
-    progress_callback, annotation_type, watermark_enabled,
-    watermark_attribute, watermark_text_color, watermark_background_enabled,
-    default_highlight_color, tag_matching_config=None, tag_filters=None, filter_logic="AND",
-    color_rules=None, enable_default_color=True, excel_constraint_mode=False, excel_constraint_logic="AND"
-):
+def _annotate_pdf_streaming(config: AnnotationConfig) -> tuple:
     """Streaming annotation mode - for large PDFs, processes in chunks with memory management."""
-    # Use default config if not provided
-    if tag_matching_config is None:
-        config = TagMatchingConfig.get_default_preset()
-    else:
-        config = TagMatchingConfig.from_dict(tag_matching_config) if isinstance(tag_matching_config, dict) else tag_matching_config
+    # Extract values from config
+    pdf_path = config.pdf_paths[0]
+    excel_path = config.excel_path
+    out_path = config.output_path
+    tag_column = config.tag_column
+    header_row = config.header_row
+    selected_comment_columns = config.comment_columns
+    annotation_type = config.annotation_type
+    default_highlight_color = config.highlight_color
+
+    # Watermark configuration
+    watermark_enabled = config.watermark and config.watermark.enabled
+    watermark_attribute = config.watermark.attributes if config.watermark else ""
+    watermark_text_color = config.watermark.text_color if config.watermark else "#000000"
+    watermark_background_enabled = False  # Not yet in WatermarkConfig
+
+    # Tag matching and filtering
+    tag_matching_config = config.tag_matching or TagMatchingConfig.get_default_preset()
+    tag_filters = config.filters
+    filter_logic = config.filter_logic
+    color_rules = config.color_rules
+    enable_default_color = config.enable_default_color
+    excel_constraint_mode = config.excel_constraint_mode
+    excel_constraint_logic = config.excel_constraint_logic
+
+    # Progress tracking
+    task_id = config.task_id
+    progress_callback = config.progress_callback
+    max_tags = config.max_tags
+    column_color_pairs = config.column_color_pairs
 
     def update_progress(progress, status):
         print(f"[CORE DEBUG STREAMING] update_progress called: progress={progress}%, status='{status}'")
@@ -1911,7 +1235,7 @@ def _annotate_pdf_streaming(
     print(f"\n--- Starting STREAMING annotation process ---")
     print(f"PDF: {pdf_path}")
     print(f"Using streaming mode for large file optimization")
-    
+
     # Read Excel data
     update_progress(2, "Loading Excel file...")
     # Support both .xlsx and .xls files for reading
@@ -1932,18 +1256,18 @@ def _annotate_pdf_streaming(
         tag_col = tag_column
     else:
         tag_col = df.columns[6]
-    
+
     update_progress(10, "Excel loaded. Building tag index with streaming...")
-    
+
     # Build tag index using parallel processing (efficient for large files)
     doc = fitz.open(pdf_path)
     total_pages = len(doc)
-    
+
     def index_progress_callback(progress, status):
         overall_progress = 10 + int(progress * 0.4)
         update_progress(overall_progress, f"Streaming index: {status}")
 
-    tag_index = build_tag_index(doc, index_progress_callback, pdf_path=pdf_path, config=config)
+    tag_index = build_tag_index(doc, index_progress_callback, pdf_path=pdf_path, config=tag_matching_config)
 
     # Build page-to-bookmark mapping for report
     update_progress(50, "Extracting PDF bookmarks...")
@@ -1984,7 +1308,7 @@ def _annotate_pdf_streaming(
         watermark_items_by_page=watermark_items_by_page,
         default_highlight_color=default_highlight_color,
         header_row=header_row,
-        config=config,
+        config=tag_matching_config,
         tag_filters=tag_filters,
         filter_logic=filter_logic,
         page_bookmark_map=page_bookmark_map,
@@ -1993,12 +1317,12 @@ def _annotate_pdf_streaming(
     )
 
     update_progress(85, "Saving annotated PDF (streaming mode)...")
-    
+
     # Save with compression
     tmp_out_path = f"{out_path}.prewatermark.pdf"
     doc.save(tmp_out_path, incremental=False, deflate=True, garbage=4, clean=True)
     doc.close()
-    
+
     # Clear memory before watermark phase
     gc.collect()
     if hasattr(fitz, 'TOOLS'):
@@ -2006,7 +1330,7 @@ def _annotate_pdf_streaming(
             fitz.TOOLS.store_shrink(100)
         except:
             pass
-    
+
     # Apply watermarks if needed (same as standard mode)
     def _create_overlay_page(width, height, items, color_hex, page_rotation=0, background_enabled=False):
         """Create overlay page with optional background (streaming mode version)."""
@@ -2064,44 +1388,44 @@ def _annotate_pdf_streaming(
         c.save()
         packet.seek(0)
         return packet.getvalue()
-    
+
     if watermark_enabled and any(len(v) > 0 for v in watermark_items_by_page.values()):
         update_progress(90, "Applying watermarks (streaming mode)...")
         reader = PdfReader(tmp_out_path)
         writer = PdfWriter()
-        
+
         num_pages = len(reader.pages)
         for p in range(num_pages):
             base_page = reader.pages[p]
-            
+
             try:
                 width = float(base_page.mediabox.right) - float(base_page.mediabox.left)
                 height = float(base_page.mediabox.top) - float(base_page.mediabox.bottom)
             except Exception:
                 width = 595.0
                 height = 842.0
-            
+
             items = watermark_items_by_page.get(p, [])
             if items:
                 try:
                     page_rotation = int(base_page.get('/Rotate', 0)) % 360
                 except Exception:
                     page_rotation = 0
-                
+
                 overlay_bytes = _create_overlay_page(width, height, items, watermark_text_color, page_rotation, watermark_background_enabled)
                 overlay_reader = PdfReader(BytesIO(overlay_bytes))
                 overlay_page = overlay_reader.pages[0]
                 base_page.merge_page(overlay_page)
-            
+
             writer.add_page(base_page)
-            
+
             # Memory cleanup every 50 pages in streaming mode
             if (p + 1) % 50 == 0:
                 gc.collect()
-        
+
         with open(out_path, "wb") as f_out:
             writer.write(f_out)
-        
+
         try:
             os.remove(tmp_out_path)
         except Exception:
@@ -2116,7 +1440,7 @@ def _annotate_pdf_streaming(
                 os.remove(tmp_out_path)
             except Exception:
                 pass
-    
+
     # Build page statistics if not already included in report_data
     if 'page_stats' not in report_data or not report_data['page_stats']:
         update_progress(96, "Building page statistics...")
@@ -2127,7 +1451,7 @@ def _annotate_pdf_streaming(
             for tag in tags:
                 tag_str = str(tag).strip()
                 normalized_tag = tag_str.upper()
-                if _apply_tag_filters(tag_str, tag_filters, filter_logic):
+                if apply_tag_filters(tag_str, tag_filters, filter_logic):
                     # Add all variants of the tag (normalized and with different delimiters)
                     excel_tags_set.add(normalized_tag)
                     if '-' in normalized_tag:
@@ -2168,44 +1492,3 @@ def _annotate_pdf_streaming(
     print(f"Found {found_tags} tags, skipped {skipped_tags}")
 
     return processed_tags, report_data
-
-
-
-
-def annotate_pdf(
-    pdf_path,
-    excel_path,
-    out_path,
-    column_color_pairs=None,
-    max_tags=None,
-    tag_column=None,
-    header_row=6,
-    selected_comment_columns=None,
-    annotation_type="highlight_only",
-    watermark_enabled=False,
-    watermark_attribute="",
-    watermark_text_color="#000000",
-    default_highlight_color="#FFFF00"
-):
-    """
-    Annotate PDF with tags from Excel file (original function for backward compatibility)
-    """
-    return annotate_pdf_with_progress(
-        pdf_path,
-        excel_path,
-        out_path,
-        column_color_pairs,
-        max_tags,
-        tag_column,
-        header_row,
-        selected_comment_columns,
-        None,
-        None,
-        annotation_type,
-        watermark_enabled,
-        watermark_attribute,
-        watermark_text_color,
-        default_highlight_color
-    )
-
-

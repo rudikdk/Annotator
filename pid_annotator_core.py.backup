@@ -2170,6 +2170,360 @@ def _annotate_pdf_streaming(
     return processed_tags, report_data
 
 
+def convert_xls_to_xlsx_preserving_format(xls_path, xlsx_path):
+    """
+    Convert .xls file to .xlsx format while preserving all formatting, formulas, and data.
+
+    Args:
+        xls_path: Path to the input .xls file
+        xlsx_path: Path for the output .xlsx file
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        print(f"[XLS CONVERSION] Converting {xls_path} to {xlsx_path}")
+
+        # Open the .xls file with xlrd
+        xls_book = open_workbook(xls_path, formatting_info=True)
+
+        # Create new .xlsx workbook
+        xlsx_book = Workbook()
+        # Remove the default sheet
+        if 'Sheet' in xlsx_book.sheetnames:
+            del xlsx_book['Sheet']
+
+        # Process each sheet
+        for sheet_idx in range(xls_book.nsheets):
+            xls_sheet = xls_book.sheet_by_index(sheet_idx)
+            xlsx_sheet = xlsx_book.create_sheet(title=xls_sheet.name)
+
+            print(f"[XLS CONVERSION] Processing sheet '{xls_sheet.name}' ({xls_sheet.nrows} rows x {xls_sheet.ncols} cols)")
+
+            # Copy all cells with their values and formatting
+            for row_idx in range(xls_sheet.nrows):
+                for col_idx in range(xls_sheet.ncols):
+                    xls_cell = xls_sheet.cell(row_idx, col_idx)
+                    xlsx_cell = xlsx_sheet.cell(row=row_idx + 1, column=col_idx + 1)
+
+                    # Copy cell value based on type
+                    if xls_cell.ctype == xlrd.XL_CELL_EMPTY:
+                        xlsx_cell.value = None
+                    elif xls_cell.ctype == xlrd.XL_CELL_TEXT:
+                        xlsx_cell.value = xls_cell.value
+                    elif xls_cell.ctype == xlrd.XL_CELL_NUMBER:
+                        xlsx_cell.value = xls_cell.value
+                    elif xls_cell.ctype == xlrd.XL_CELL_DATE:
+                        # Convert Excel date to datetime
+                        try:
+                            date_tuple = xlrd.xldate_as_tuple(xls_cell.value, xls_book.datemode)
+                            from datetime import datetime
+                            xlsx_cell.value = datetime(*date_tuple)
+                        except:
+                            xlsx_cell.value = xls_cell.value
+                    elif xls_cell.ctype == xlrd.XL_CELL_BOOLEAN:
+                        xlsx_cell.value = bool(xls_cell.value)
+                    elif xls_cell.ctype == xlrd.XL_CELL_ERROR:
+                        xlsx_cell.value = xls_cell.value
+                    else:
+                        xlsx_cell.value = xls_cell.value
+
+                    # Copy cell formatting
+                    try:
+                        xls_format = xls_book.format_map.get(xls_cell.xf_index)
+                        if xls_format:
+                            # Get the XF (extended format) record
+                            xf = xls_book.format_map[xls_cell.xf_index]
+
+                            # Copy font formatting
+                            try:
+                                font_idx = xf.font_index
+                                xls_font = xls_book.font_list[font_idx]
+
+                                xlsx_cell.font = Font(
+                                    name=xls_font.name,
+                                    size=xls_font.height / 20.0,  # Convert to points
+                                    bold=xls_font.bold,
+                                    italic=xls_font.italic,
+                                    underline='single' if xls_font.underline_type else 'none',
+                                    color=None  # Color mapping is complex, skip for now
+                                )
+                            except:
+                                pass
+
+                            # Copy alignment
+                            try:
+                                xlsx_cell.alignment = Alignment(
+                                    horizontal=['general', 'left', 'center', 'right', 'fill', 'justify', 'centerContinuous', 'distributed'][xf.alignment.hor_align] if xf.alignment.hor_align < 8 else 'general',
+                                    vertical=['top', 'center', 'bottom', 'justify', 'distributed'][xf.alignment.vert_align] if xf.alignment.vert_align < 5 else 'bottom',
+                                    wrap_text=bool(xf.alignment.text_wrapped)
+                                )
+                            except:
+                                pass
+                    except:
+                        pass  # Skip formatting if not available
+
+            # Copy column widths
+            try:
+                for col_idx in range(xls_sheet.ncols):
+                    try:
+                        # Get column width from .xls (in 1/256th of character width)
+                        if hasattr(xls_sheet, 'colinfo_map') and col_idx in xls_sheet.colinfo_map:
+                            col_info = xls_sheet.colinfo_map[col_idx]
+                            width_in_chars = col_info.width / 256.0
+                            xlsx_sheet.column_dimensions[get_column_letter(col_idx + 1)].width = width_in_chars
+                    except:
+                        pass
+            except:
+                pass
+
+            # Copy row heights
+            try:
+                for row_idx in range(xls_sheet.nrows):
+                    try:
+                        if hasattr(xls_sheet, 'rowinfo_map') and row_idx in xls_sheet.rowinfo_map:
+                            row_info = xls_sheet.rowinfo_map[row_idx]
+                            if row_info.height:
+                                xlsx_sheet.row_dimensions[row_idx + 1].height = row_info.height / 20.0  # Convert to points
+                    except:
+                        pass
+            except:
+                pass
+
+            # Copy merged cells
+            try:
+                for merged_range in xls_sheet.merged_cells:
+                    # merged_range is (rlo, rhi, clo, chi) - row_low, row_high, col_low, col_high
+                    rlo, rhi, clo, chi = merged_range
+                    # Convert to openpyxl format (1-based)
+                    start_cell = f"{get_column_letter(clo + 1)}{rlo + 1}"
+                    end_cell = f"{get_column_letter(chi)}{rhi}"
+                    xlsx_sheet.merge_cells(f"{start_cell}:{end_cell}")
+            except:
+                pass
+
+        # Save the .xlsx file
+        xlsx_book.save(xlsx_path)
+        print(f"[XLS CONVERSION] Successfully converted to {xlsx_path}")
+
+        # Verify the file was created
+        if os.path.exists(xlsx_path):
+            file_size = os.path.getsize(xlsx_path)
+            print(f"[XLS CONVERSION] Output file size: {file_size} bytes")
+            return True
+        else:
+            print(f"[XLS CONVERSION ERROR] Output file was not created")
+            return False
+
+    except Exception as e:
+        print(f"[XLS CONVERSION ERROR] Failed to convert .xls to .xlsx: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+
+def annotate_excel_with_found_tags(excel_path, out_path, found_tags_set, tag_column, header_row=6, report_data=None):
+    """
+    Annotate Excel file by highlighting rows based on tag status (duplicates, not found, found)
+
+    Args:
+        excel_path: Path to the original Excel file
+        out_path: Path for the output annotated Excel file
+        found_tags_set: Set of tag strings that were found in the PDF
+        tag_column: Column name containing the tags
+        header_row: Row number containing headers (1-based, default is 6)
+        report_data: Optional dict with 'duplicates', 'not_found', 'found' lists for advanced colorization
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        print(f"\n[EXCEL ANNOTATION] Starting Excel file annotation...")
+        print(f"[EXCEL ANNOTATION] Input path: {excel_path}")
+        print(f"[EXCEL ANNOTATION] Output path: {out_path}")
+        print(f"[EXCEL ANNOTATION] Tag column: {tag_column}")
+        print(f"[EXCEL ANNOTATION] Header row: {header_row}")
+        print(f"[EXCEL ANNOTATION] Found tags count: {len(found_tags_set)}")
+        print(f"[EXCEL ANNOTATION] Report data provided: {report_data is not None}")
+
+        # Verify input file exists
+        if not os.path.exists(excel_path):
+            print(f"[EXCEL ANNOTATION ERROR] Input file does not exist: {excel_path}")
+            return False
+
+        # Handle .xls files by converting to .xlsx first (preserving all formats and data)
+        working_path = excel_path
+        is_xls_format = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+
+        if is_xls_format:
+            print(f"[EXCEL ANNOTATION] Detected .xls format - converting to .xlsx with format preservation...")
+            try:
+                # Create temporary .xlsx file
+                temp_xlsx_path = excel_path + '.temp.xlsx'
+
+                # Use the new conversion function that preserves all formatting
+                if not convert_xls_to_xlsx_preserving_format(excel_path, temp_xlsx_path):
+                    print(f"[EXCEL ANNOTATION ERROR] Failed to convert .xls to .xlsx")
+                    return False
+
+                working_path = temp_xlsx_path
+                print(f"[EXCEL ANNOTATION] Successfully converted .xls to temporary .xlsx file: {working_path}")
+            except Exception as conv_error:
+                print(f"[EXCEL ANNOTATION ERROR] Failed to convert .xls to .xlsx: {str(conv_error)}")
+                import traceback
+                traceback.print_exc()
+                return False
+
+        print(f"[EXCEL ANNOTATION] Loading Excel workbook with openpyxl...")
+        # Load Excel file with openpyxl
+        workbook = load_workbook(working_path)
+        worksheet = workbook.active
+        print(f"[EXCEL ANNOTATION] Workbook loaded successfully. Active sheet: {worksheet.title}")
+
+        # Load data with pandas to get the tag column index
+        print(f"[EXCEL ANNOTATION] Loading Excel data with pandas...")
+        # Always use openpyxl since we've converted .xls to .xlsx if needed
+        df = pd.read_excel(working_path, header=header_row-1, engine='openpyxl')
+        df = df.dropna(axis=1, how="all")  # Remove empty columns
+        # Strip whitespace from column names for consistent matching
+        df.columns = [str(col).strip() for col in df.columns]
+        print(f"[EXCEL ANNOTATION] Loaded {len(df)} rows and {len(df.columns)} columns")
+        print(f"[EXCEL ANNOTATION] Column names: {list(df.columns)}")
+
+        # Validate that tag_column exists in DataFrame
+        if tag_column not in df.columns:
+            # Try default column G (index 6)
+            if len(df.columns) > 6:
+                tag_column = df.columns[6]
+                print(f"[EXCEL ANNOTATION] Tag column not found, using default column G: {tag_column}")
+            else:
+                print(f"[EXCEL ANNOTATION ERROR] Tag column '{tag_column}' not found in Excel file")
+                print(f"[EXCEL ANNOTATION ERROR] Available columns: {list(df.columns)}")
+                return False
+
+        # Define color fills for different statuses
+        # Red for duplicates (FF6B6B - light red)
+        duplicate_fill = PatternFill(start_color="FF6B6B", end_color="FF6B6B", fill_type="solid")
+        # Orange for not found (FFB347 - light orange)
+        not_found_fill = PatternFill(start_color="FFB347", end_color="FFB347", fill_type="solid")
+        # Green for found (90EE90 - light green)
+        found_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+
+        # Build lookup sets from report_data if provided
+        duplicate_tags = set()
+        not_found_tags = set()
+
+        if report_data:
+            # Extract duplicate tags from report_data
+            if 'duplicates' in report_data:
+                duplicate_tags = set(report_data['duplicates'].keys())
+                print(f"[EXCEL ANNOTATION] Found {len(duplicate_tags)} duplicate tags in report")
+
+            # Extract not found tags from report_data
+            if 'not_found' in report_data:
+                not_found_tags = set(item['tag'] for item in report_data['not_found'])
+                print(f"[EXCEL ANNOTATION] Found {len(not_found_tags)} not-found tags in report")
+        else:
+            print(f"[EXCEL ANNOTATION] No report_data provided - using only found_tags_set for colorization")
+
+        print(f"[EXCEL ANNOTATION] Colorization sources:")
+        print(f"[EXCEL ANNOTATION]   - Duplicate tags: {len(duplicate_tags)}")
+        print(f"[EXCEL ANNOTATION]   - Not found tags: {len(not_found_tags)}")
+        print(f"[EXCEL ANNOTATION]   - Found tags: {len(found_tags_set)}")
+
+        # Track statistics
+        duplicate_count = 0
+        not_found_count = 0
+        found_count = 0
+
+        print(f"[EXCEL ANNOTATION] Starting row iteration for colorization...")
+        # Iterate through rows and highlight based on status
+        for row_idx, row in df.iterrows():
+            # Convert 0-based index to 1-based Excel row
+            excel_row = row_idx + header_row + 1  # +1 for header row, +1 because Excel is 1-based
+
+            # Use column name directly instead of index for reliable access
+            tag_value = str(row[tag_column]).strip()
+
+            # Skip invalid tags
+            if not tag_value or tag_value.lower() == 'nan':
+                continue
+
+            # Determine the fill color based on tag status
+            fill_color = None
+
+            # Priority: Duplicates > Not Found > Found
+            if tag_value in duplicate_tags:
+                fill_color = duplicate_fill
+                duplicate_count += 1
+                print(f"Highlighted row {excel_row} as DUPLICATE (tag: {tag_value})")
+            elif tag_value in not_found_tags:
+                fill_color = not_found_fill
+                not_found_count += 1
+                print(f"Highlighted row {excel_row} as NOT FOUND (tag: {tag_value})")
+            elif tag_value in found_tags_set:
+                fill_color = found_fill
+                found_count += 1
+                print(f"Highlighted row {excel_row} as FOUND (tag: {tag_value})")
+
+            # Apply the fill color to the entire row
+            if fill_color:
+                for col_idx in range(1, len(df.columns) + 1):  # Excel columns are 1-based
+                    cell = worksheet.cell(row=excel_row, column=col_idx)
+                    cell.fill = fill_color
+
+        # Save the annotated Excel file
+        print(f"[EXCEL ANNOTATION] Saving annotated Excel file to: {out_path}")
+        try:
+            workbook.save(out_path)
+            print(f"[EXCEL ANNOTATION] File saved successfully!")
+        except Exception as save_error:
+            print(f"[EXCEL ANNOTATION ERROR] Failed to save file: {str(save_error)}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+        # Verify file was created
+        if os.path.exists(out_path):
+            file_size = os.path.getsize(out_path)
+            print(f"[EXCEL ANNOTATION] File verification SUCCESS:")
+            print(f"[EXCEL ANNOTATION]   - File exists: {out_path}")
+            print(f"[EXCEL ANNOTATION]   - File size: {file_size} bytes")
+        else:
+            print(f"[EXCEL ANNOTATION ERROR] File does not exist after save operation: {out_path}")
+            return False
+
+        print(f"[EXCEL ANNOTATION] Excel annotation complete:")
+        print(f"[EXCEL ANNOTATION]   - {duplicate_count} duplicate tags (red - FF6B6B)")
+        print(f"[EXCEL ANNOTATION]   - {not_found_count} not found tags (orange - FFB347)")
+        print(f"[EXCEL ANNOTATION]   - {found_count} found tags (green - 90EE90)")
+        print(f"[EXCEL ANNOTATION]   - Total: {duplicate_count + not_found_count + found_count} rows highlighted")
+
+        # Clean up temporary .xlsx file if it was created from .xls
+        if is_xls_format and working_path != excel_path:
+            try:
+                os.remove(working_path)
+                print(f"[EXCEL ANNOTATION] Cleaned up temporary file: {working_path}")
+            except Exception as cleanup_error:
+                print(f"[EXCEL ANNOTATION WARNING] Could not remove temporary file: {cleanup_error}")
+
+        return True
+
+    except Exception as e:
+        print(f"[EXCEL ANNOTATION ERROR] Exception during Excel annotation: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+        # Clean up temporary file if it exists
+        try:
+            if 'is_xls_format' in locals() and is_xls_format and 'working_path' in locals() and working_path != excel_path:
+                if os.path.exists(working_path):
+                    os.remove(working_path)
+                    print(f"[EXCEL ANNOTATION] Cleaned up temporary file after error: {working_path}")
+        except Exception:
+            pass
+
+        return False
 
 
 def annotate_pdf(
@@ -2209,3 +2563,357 @@ def annotate_pdf(
     )
 
 
+def annotate_pdf_page_for_preview(
+    pdf_path,
+    excel_path,
+    page_num,
+    tag_column=None,
+    header_row=6,
+    selected_comment_columns=None,
+    color_rules=None,
+    default_highlight_color="#FFFF00",
+    enable_default_color=True,
+    excel_constraint_mode=False,
+    excel_constraint_logic="AND",
+    watermark_enabled=False,
+    watermark_attributes=None,
+    watermark_text_color="#000000",
+    watermark_background_enabled=False,
+    tag_matching_config=None,
+    tag_filters=None,
+    filter_logic="AND",
+    annotation_type="highlight_only"
+):
+    """
+    Process ONLY the specified page with full annotation pipeline for preview.
+    This function replicates the exact same processing logic as annotate_pdf_with_progress
+    but optimized for single-page preview.
+
+    Args:
+        pdf_path: Path to the PDF file
+        excel_path: Path to the Excel file
+        page_num: 0-indexed page number to process
+        tag_column: Column name containing the tags
+        header_row: Row number containing headers (1-based)
+        selected_comment_columns: List of column names to include in comments
+        color_rules: List of color rule dictionaries
+        default_highlight_color: Default color for unmatched tags
+        enable_default_color: Whether to use default color
+        excel_constraint_mode: Whether to constrain coloring to Excel tags
+        excel_constraint_logic: "AND" or "OR" logic
+        watermark_enabled: Whether to enable watermarks
+        watermark_attributes: List of column names for watermark text
+        watermark_text_color: Hex color for watermark text
+        watermark_background_enabled: Whether to add white background to watermarks
+        tag_matching_config: TagMatchingConfig instance or dict
+        tag_filters: List of filter rules
+        filter_logic: "AND" or "OR" for combining filters
+        annotation_type: "highlight_only" or "note_only"
+
+    Returns:
+        dict: {
+            'success': bool,
+            'page': PyMuPDF page object with annotations,
+            'stats': {
+                'total_tags': int,
+                'colored_tags': int,
+                'comments_added': int,
+                'watermarks_added': int
+            },
+            'message': str
+        }
+    """
+    try:
+        print(f"\n[PREVIEW] Starting single-page preview for page {page_num + 1}")
+
+        # Use default config if not provided
+        if tag_matching_config is None:
+            config = TagMatchingConfig.get_default_preset()
+        else:
+            config = TagMatchingConfig.from_dict(tag_matching_config) if isinstance(tag_matching_config, dict) else tag_matching_config
+
+        # Generate tag pattern
+        tag_pattern = generate_regex_pattern(config)
+
+        # Load Excel data
+        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        if is_xls:
+            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
+        else:
+            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+
+        df = df.dropna(axis=1, how="all")
+        # Strip whitespace from column names for consistent matching
+        df.columns = [str(col).strip() for col in df.columns]
+
+        # Use selected tag column or default
+        if tag_column and tag_column in df.columns:
+            tag_col = tag_column
+        else:
+            tag_col = df.columns[6] if len(df.columns) > 6 else df.columns[0]
+
+        tags = df[tag_col].dropna().astype(str).str.strip()
+
+        # Build Excel tags set with filters
+        excel_tags_set = set()
+        if tag_filters:
+            for tag in tags:
+                if apply_tag_filters(tag, tag_filters, filter_logic):
+                    excel_tags_set.add(tag)
+        else:
+            excel_tags_set = set(tags)
+
+        # Open PDF
+        doc = fitz.open(pdf_path)
+
+        # Validate page number
+        if page_num < 0 or page_num >= len(doc):
+            doc.close()
+            return {
+                'success': False,
+                'message': f'Invalid page number: {page_num + 1}. PDF has {len(doc)} pages.'
+            }
+
+        page = doc[page_num]
+
+        # Build tag index for ONLY this page
+        print(f"[PREVIEW] Building tag index for page {page_num + 1}...")
+        page_tag_index = defaultdict(list)
+
+        text = page.get_text()
+        matches = tag_pattern.finditer(text)
+
+        for match in matches:
+            original_tag = match.group()
+
+            if not is_valid_tag(original_tag, config):
+                continue
+
+            rects = page.search_for(original_tag, flags=1)
+
+            if rects:
+                normalized_tag = original_tag.upper()
+                tag_variants = [
+                    normalized_tag,
+                    convert_tag_format(normalized_tag, from_delimiter="-", to_delimiter="."),
+                    convert_tag_format(normalized_tag, from_delimiter=".", to_delimiter="-")
+                ]
+
+                for variant in set(tag_variants):
+                    page_tag_index[variant].append((page_num, rects, original_tag))
+
+        tag_index = dict(page_tag_index)
+        print(f"[PREVIEW] Found {len(tag_index)} unique tags on page {page_num + 1}")
+
+        # Calculate total tag occurrences across all unique tags
+        # This represents ALL text strings on the page that match the custom tag matching rules
+        total_tag_occurrences = sum(len(locations) for locations in tag_index.values())
+        print(f"[PREVIEW] Total tag occurrences on page: {total_tag_occurrences}")
+
+        # PHASE 1: Apply color rules to ALL matching text on this page
+        color_stats = {'total_tags': total_tag_occurrences, 'colored_tags': 0}
+        if color_rules or enable_default_color:
+            print(f"[PREVIEW] Applying color rules (enable_default_color={enable_default_color})...")
+            for tag_text, locations in tag_index.items():
+
+                # Check if tag is in Excel list
+                in_excel = tag_text in excel_tags_set
+
+                # Determine color for this tag
+                if color_rules:
+                    highlight_color, matched_rule_id, conflicts = apply_color_rules(
+                        tag_text, None, color_rules, None
+                    )
+                else:
+                    highlight_color = default_highlight_color if enable_default_color else None
+                    matched_rule_id = None
+
+                # Determine if this tag should be colored based on constraint mode
+                should_color = False
+                if not excel_constraint_mode:
+                    if highlight_color is not None:
+                        should_color = True
+                    elif enable_default_color:
+                        should_color = True
+                        highlight_color = default_highlight_color
+                elif excel_constraint_logic == 'AND':
+                    if in_excel:
+                        if matched_rule_id is not None:
+                            should_color = True
+                        elif enable_default_color:
+                            should_color = True
+                            if not highlight_color:
+                                highlight_color = default_highlight_color
+                elif excel_constraint_logic == 'OR':
+                    if highlight_color is not None:
+                        should_color = True
+                    elif in_excel:
+                        should_color = True
+                        if not highlight_color and enable_default_color:
+                            highlight_color = default_highlight_color
+                    elif enable_default_color:
+                        should_color = True
+                        highlight_color = default_highlight_color
+
+                if not should_color or not highlight_color:
+                    continue
+
+                # Apply color to all occurrences
+                for pg_num, rects, original_tag in locations:
+                    try:
+                        hl = page.add_highlight_annot(rects)
+                        r, g, b = _hex_to_rgb01(highlight_color)
+                        hl.set_colors(stroke=(r, g, b))
+                        hl.update()
+                        color_stats['colored_tags'] += 1
+                    except Exception as e:
+                        print(f"[PREVIEW] Error coloring tag {tag_text}: {e}")
+
+        # PHASE 2: Add comment annotations for Excel tags
+        comments_added = 0
+        watermarks_added = 0
+        watermark_items = []
+
+        if selected_comment_columns or watermark_enabled:
+            print(f"[PREVIEW] Processing Excel rows for annotations...")
+
+            for idx, row in df.iterrows():
+                tag = str(row[tag_col]).strip()
+                if not tag or tag.lower() == 'nan':
+                    continue
+
+                # Check filters
+                if tag_filters and not apply_tag_filters(tag, tag_filters, filter_logic, row_data=row):
+                    continue
+
+                # Find this tag in the index
+                tag_normalized = tag.upper()
+                tag_variants = [
+                    tag_normalized,
+                    convert_tag_format(tag_normalized, from_delimiter="-", to_delimiter="."),
+                    convert_tag_format(tag_normalized, from_delimiter=".", to_delimiter="-")
+                ]
+
+                locations_for_tag = []
+                for variant in tag_variants:
+                    if variant in tag_index:
+                        locations_for_tag.extend(tag_index[variant])
+
+                if not locations_for_tag:
+                    continue
+
+                # Process each location
+                for pg_num, rects, original_tag in locations_for_tag:
+                    if pg_num != page_num:
+                        continue
+
+                    # Add comment annotation
+                    if selected_comment_columns and annotation_type != "note_only":
+                        comment_parts = [f"Tag: {tag}"]
+                        for col in selected_comment_columns:
+                            if col in df.columns:
+                                val = row[col]
+                                if pd.notna(val):
+                                    comment_parts.append(f"{col}: {val}")
+
+                        comment_text = "\n".join(comment_parts)
+
+                        try:
+                            annot = page.add_text_annot(
+                                rects[0].tl,
+                                comment_text,
+                                icon="Note"
+                            )
+                            comments_added += 1
+                        except Exception as e:
+                            print(f"[PREVIEW] Error adding comment for {tag}: {e}")
+
+                    # Collect watermark data
+                    if watermark_enabled and watermark_attributes:
+                        watermark_parts = []
+                        for attr in watermark_attributes:
+                            if attr in df.columns:
+                                val = row[attr]
+                                if pd.notna(val):
+                                    watermark_parts.append(str(val))
+
+                        if watermark_parts:
+                            watermark_text = " | ".join(watermark_parts)
+                            first_rect = rects[0]
+                            watermark_items.append({
+                                'text': watermark_text,
+                                'x': first_rect.x0,
+                                'y': first_rect.y0 - 15,
+                                'font_size': 8
+                            })
+
+        # PHASE 3: Apply watermarks if enabled
+        if watermark_enabled and watermark_items:
+            print(f"[PREVIEW] Applying {len(watermark_items)} watermarks...")
+            try:
+                for item in watermark_items:
+                    # Add white background if enabled
+                    if watermark_background_enabled:
+                        text_width = len(item['text']) * item['font_size'] * 0.6
+                        bg_rect = fitz.Rect(
+                            item['x'], item['y'] - item['font_size'],
+                            item['x'] + text_width, item['y'] + 2
+                        )
+                        page.draw_rect(bg_rect, color=(1, 1, 1), fill=(1, 1, 1))
+
+                    # Add text
+                    r, g, b = _hex_to_rgb01(watermark_text_color)
+                    page.insert_text(
+                        (item['x'], item['y']),
+                        item['text'],
+                        fontsize=item['font_size'],
+                        color=(r, g, b)
+                    )
+                    watermarks_added += 1
+            except Exception as e:
+                print(f"[PREVIEW] Error applying watermarks: {e}")
+
+        print(f"[PREVIEW] Preview complete: {color_stats['colored_tags']} colored, {comments_added} comments, {watermarks_added} watermarks")
+
+        # Commit all changes by saving and reloading the page
+        # This ensures watermarks (added with insert_text) are visible in the rendered image
+        print(f"[PREVIEW] Committing changes to page...")
+        try:
+            import io
+            buffer = io.BytesIO()
+            doc.save(buffer)
+            buffer.seek(0)
+
+            # Store page number before closing
+            target_page = page_num
+            doc.close()
+
+            # Reopen from buffer
+            doc = fitz.open(stream=buffer, filetype="pdf")
+            page = doc[target_page]
+
+            print(f"[PREVIEW] Page reloaded successfully - all annotations committed")
+        except Exception as e:
+            print(f"[PREVIEW] Warning: Failed to reload page, watermarks may not be visible: {e}")
+            # Continue anyway with original page
+
+        return {
+            'success': True,
+            'page': page,
+            'doc': doc,  # Return doc so caller can close it
+            'stats': {
+                'total_tags': color_stats['total_tags'],
+                'colored_tags': color_stats['colored_tags'],
+                'comments_added': comments_added,
+                'watermarks_added': watermarks_added
+            },
+            'message': 'Preview generated successfully'
+        }
+
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return {
+            'success': False,
+            'message': f'Error generating preview: {str(e)}'
+        }
