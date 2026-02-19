@@ -51,6 +51,7 @@ PID Annotator bridges the gap between Excel component lists and PDF technical do
 - **📈 Progress Tracking** - Real-time updates on processing status
 
 ---
+Demo site : www.rudisk.com
 
 ## 🚀 Quick Start
 
@@ -530,3 +531,4 @@ Please report it on GitHub Issues with as much detail as possible.
 [⭐ Star on GitHub](https://github.com/rudikdk/pid-annotator) | [📖 Documentation](CLAUDE.md) | [🐛 Report Bug](https://github.com/rudikdk/pid-annotator/issues)
 
 </div>
+
