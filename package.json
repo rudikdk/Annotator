@@ -1,0 +1,28 @@
+{
+  "name": "annotator",
+  "version": "1.0.0",
+  "description": "> Automatically find and highlight components from Excel spreadsheets in your PDF documents",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rudikdk/Annotator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/rudikdk/Annotator/issues"
+  },
+  "homepage": "https://github.com/rudikdk/Annotator#readme",
+  "devDependencies": {
+    "@babel/cli": "^7.28.6",
+    "@babel/core": "^7.29.0",
+    "@babel/preset-react": "^7.28.5"
+  }
+}

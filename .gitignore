@@ -145,3 +145,4 @@ test_*.html
 **/*Tekstdokument*.txt
 __pycache__/pid_annotator_core.cpython-39.pyc
 __pycache__/report_template.cpython-39.pyc
+node_modules/
