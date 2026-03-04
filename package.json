@@ -7,7 +7,7 @@
     "doc": "docs"
   },
   "scripts": {
-    "build": "babel templates/index_src.jsx --presets @babel/preset-react -o static/index_built.js",
+    "build": "npx babel templates/index_src.jsx --presets @babel/preset-react -o static/index_built.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
