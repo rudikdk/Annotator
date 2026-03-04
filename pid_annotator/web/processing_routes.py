@@ -27,11 +27,6 @@ progress_data = {}
 output_files_data = {}
 
 
-def try_attach_existing_files_to_session():
-    """Attempt to auto-populate session with existing files in uploads if session is empty."""
-    _try_attach(current_app.config['UPLOAD_FOLDER'], reload_excel_columns)
-
-
 def make_progress_callback(socketio_instance):
     """
     Factory function to create a progress callback with socketio instance.
@@ -91,7 +86,7 @@ def process_files():
             # Fallback to session for backward compatibility
             excel_file = session.get('excel_file')
             if not excel_file:
-                try_attach_existing_files_to_session()
+                _try_attach(current_app.config['UPLOAD_FOLDER'], reload_excel_columns)
                 excel_file = session.get('excel_file')
 
         if not excel_file:
@@ -128,7 +123,7 @@ def process_files():
             # Fallback: use PDFs from session (backward compatibility)
             pdf_files = session.get('pdf_files', [])
             if not pdf_files:
-                try_attach_existing_files_to_session()
+                _try_attach(current_app.config['UPLOAD_FOLDER'], reload_excel_columns)
                 pdf_files = session.get('pdf_files', [])
             if not pdf_files:
                 return jsonify({'success': False, 'message': 'No PDF files selected'})
