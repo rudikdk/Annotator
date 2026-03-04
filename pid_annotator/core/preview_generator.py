@@ -82,8 +82,6 @@ def annotate_pdf_page_for_preview(
         }
     """
     try:
-        print(f"\n[PREVIEW] Starting single-page preview for page {page_num + 1}")
-
         # Use default config if not provided
         if tag_matching_config is None:
             config = TagMatchingConfig.get_default_preset()
@@ -135,7 +133,6 @@ def annotate_pdf_page_for_preview(
         page = doc[page_num]
 
         # Build tag index for ONLY this page
-        print(f"[PREVIEW] Building tag index for page {page_num + 1}...")
         page_tag_index = defaultdict(list)
 
         text = page.get_text()
@@ -161,17 +158,14 @@ def annotate_pdf_page_for_preview(
                     page_tag_index[variant].append((page_num, rects, original_tag))
 
         tag_index = dict(page_tag_index)
-        print(f"[PREVIEW] Found {len(tag_index)} unique tags on page {page_num + 1}")
 
         # Calculate total tag occurrences across all unique tags
         # This represents ALL text strings on the page that match the custom tag matching rules
         total_tag_occurrences = sum(len(locations) for locations in tag_index.values())
-        print(f"[PREVIEW] Total tag occurrences on page: {total_tag_occurrences}")
 
         # PHASE 1: Apply color rules to ALL matching text on this page
         color_stats = {'total_tags': total_tag_occurrences, 'colored_tags': 0}
         if color_rules or enable_default_color:
-            print(f"[PREVIEW] Applying color rules (enable_default_color={enable_default_color})...")
             for tag_text, locations in tag_index.items():
 
                 # Check if tag is in Excel list
@@ -233,8 +227,6 @@ def annotate_pdf_page_for_preview(
         watermark_items = []
 
         if selected_comment_columns or watermark_enabled:
-            print(f"[PREVIEW] Processing Excel rows for annotations...")
-
             for idx, row in df.iterrows():
                 tag = str(row[tag_col]).strip()
                 if not tag or tag.lower() == 'nan':
@@ -307,7 +299,6 @@ def annotate_pdf_page_for_preview(
 
         # PHASE 3: Apply watermarks if enabled
         if watermark_enabled and watermark_items:
-            print(f"[PREVIEW] Applying {len(watermark_items)} watermarks...")
             try:
                 for item in watermark_items:
                     # Add white background if enabled
@@ -335,7 +326,6 @@ def annotate_pdf_page_for_preview(
 
         # Commit all changes by saving and reloading the page
         # This ensures watermarks (added with insert_text) are visible in the rendered image
-        print(f"[PREVIEW] Committing changes to page...")
         try:
             import io
             buffer = io.BytesIO()
@@ -350,7 +340,6 @@ def annotate_pdf_page_for_preview(
             doc = fitz.open(stream=buffer, filetype="pdf")
             page = doc[target_page]
 
-            print(f"[PREVIEW] Page reloaded successfully - all annotations committed")
         except Exception as e:
             print(f"[PREVIEW] Warning: Failed to reload page, watermarks may not be visible: {e}")
             # Continue anyway with original page

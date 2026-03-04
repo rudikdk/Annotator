@@ -43,7 +43,6 @@ def build_tag_index(doc, update_progress=None, use_parallel=None, pdf_path=None,
         dict: Index mapping normalized tag strings to their locations
               Format: {tag_normalized: [(page_num, rects, original_tag), ...]}
     """
-    print("Building comprehensive tag index...")
     start_time = time.time()
 
     # Use default config if not provided
@@ -58,13 +57,10 @@ def build_tag_index(doc, update_progress=None, use_parallel=None, pdf_path=None,
 
     # Generate tag pattern from config
     tag_pattern = generate_regex_pattern(config)
-    print(f"Using tag matching pattern: {tag_pattern.pattern}")
 
     if use_parallel and pdf_path and total_pages > 20:
-        print(f"Using parallel indexing with {MAX_WORKERS} workers for {total_pages} pages")
         return _build_tag_index_parallel(pdf_path, total_pages, tag_pattern, update_progress, config)
     else:
-        print(f"Using sequential indexing for {total_pages} pages")
         return _build_tag_index_sequential(doc, total_pages, tag_pattern, update_progress, config)
 
 
@@ -387,10 +383,7 @@ def build_page_bookmark_map(doc):
         toc = doc.get_toc()
 
         if not toc:
-            print("No bookmarks found in PDF")
             return page_bookmark_map
-
-        print(f"Found {len(toc)} bookmarks in PDF")
 
         # Build map: assign each bookmark to its page and all following pages
         # until the next bookmark of same or higher level
@@ -427,9 +420,7 @@ def build_page_bookmark_map(doc):
                         if level > current_level:
                             page_bookmark_map[p] = title
 
-        print(f"Mapped bookmarks to {len(page_bookmark_map)} pages")
-
     except Exception as e:
-        print(f"Error building page-bookmark map: {e}")
+        pass  # Silently skip bookmark errors
 
     return page_bookmark_map

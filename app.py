@@ -28,23 +28,18 @@ from pid_annotator.session.cleanup import cleanup_old_files, periodic_file_clean
 
 
 # Initialize Flask app
-print("DEBUG: Initializing Flask app...")
 app = Flask(__name__)
-print("DEBUG: Flask app initialized.")
 
 # Prevent Jinja from conflicting with React's {{ }} by changing variable delimiters
 app.jinja_env.variable_start_string = '[['
 app.jinja_env.variable_end_string = ']]'
 
 # Initialize paths and configure app
-print("DEBUG: Initializing AppConfig paths...")
 APP_ROOT = Path(__file__).resolve().parent
 AppConfig.init_paths(APP_ROOT)
 app.config.from_object(AppConfig)
-print("DEBUG: AppConfig initialized.")
 
 # Initialize SocketIO for real-time updates
-print("DEBUG: Initializing SocketIO...")
 socketio = SocketIO(
     app,
     cors_allowed_origins=AppConfig.SOCKETIO_CORS_ALLOWED_ORIGINS,
@@ -52,24 +47,16 @@ socketio = SocketIO(
     ping_interval=AppConfig.SOCKETIO_PING_INTERVAL,
     ping_timeout=AppConfig.SOCKETIO_PING_TIMEOUT
 )
-print("DEBUG: SocketIO initialized.")
 
 # Ensure directories exist
-print("DEBUG: Creating directories...")
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
-print("DEBUG: Directories created.")
 
 # Register all Flask blueprints
-print("DEBUG: Registering blueprints...")
 register_blueprints(app)
-print("DEBUG: Blueprints registered.")
 
 # Register WebSocket handlers
-print("DEBUG: Registering SocketIO handlers...")
 register_socketio_handlers(socketio)
-print("DEBUG: SocketIO handlers registered.")
-print("DEBUG: app.py top-level execution complete.")
 
 
 @app.before_request

@@ -72,7 +72,6 @@ def make_progress_callback(socketio_instance):
             'status': status,
             'timestamp': datetime.now().isoformat()
         }
-        print(f"[APP DEBUG] Progress callback called: task_id={task_id}, progress={progress}, status='{status}'")
 
         # Emit progress update via SocketIO
         try:
@@ -87,7 +86,6 @@ def make_progress_callback(socketio_instance):
                     socketio_instance.sleep(0)
                 except Exception:
                     pass
-            print(f"[APP DEBUG] SocketIO emit successful for task {task_id}")
         except Exception as e:
             print(f"[APP ERROR] Failed to emit progress update: {e}")
 
@@ -117,14 +115,12 @@ def process_files():
         # Validate Excel file - use selected_excel from frontend if provided
         if selected_excel:
             excel_file = selected_excel
-            print(f"[APP DEBUG] Using selected Excel file: {excel_file}")
         else:
             # Fallback to session for backward compatibility
             excel_file = session.get('excel_file')
             if not excel_file:
                 try_attach_existing_files_to_session()
                 excel_file = session.get('excel_file')
-            print(f"[APP DEBUG] Using Excel file from session: {excel_file}")
 
         if not excel_file:
             return jsonify({'success': False, 'message': 'Please select an Excel/CSV file'})
@@ -141,7 +137,6 @@ def process_files():
         # Use selected PDFs directly from request (they come from workspace which lists actual files)
         if selected_pdfs:
             pdf_files = selected_pdfs
-            print(f"[APP DEBUG] Processing {len(pdf_files)} selected PDF(s)")
 
             # Validate that selected files actually exist on disk
             uploads_dir = Path(current_app.config['UPLOAD_FOLDER'])
@@ -157,7 +152,6 @@ def process_files():
                 return jsonify({'success': False, 'message': 'None of the selected PDF files exist on disk'})
 
             pdf_files = valid_pdf_files
-            print(f"[APP DEBUG] Validated {len(pdf_files)} PDF file(s) exist on disk")
         else:
             # Fallback: use PDFs from session (backward compatibility)
             pdf_files = session.get('pdf_files', [])
@@ -166,7 +160,6 @@ def process_files():
                 pdf_files = session.get('pdf_files', [])
             if not pdf_files:
                 return jsonify({'success': False, 'message': 'No PDF files selected'})
-            print(f"[APP DEBUG] No PDF selection provided, using all {len(pdf_files)} PDF(s) from session")
 
         # Get file paths (excel_path already set during validation above)
         pdf_paths = [os.path.join(current_app.config['UPLOAD_FOLDER'], pdf_file) for pdf_file in pdf_files]
@@ -259,7 +252,6 @@ def process_files():
                     'message': f'No tags match the selected filters. Please adjust your filter criteria.'
                 })
 
-            print(f"[APP DEBUG] Tag filters applied: {len(tag_filters)} filter(s), {matching_tags} tags match")
 
         # Store filters in session for reuse
         session['tag_filters'] = tag_filters
@@ -591,8 +583,6 @@ def process_files():
                     output_files.append(report_filename)
                     output_display_names.append(report_clean_filename)
 
-                    print(f"[APP DEBUG] Report generated successfully: {report_path}")
-                    print(f"[APP DEBUG] Report - Found: {len(aggregated_report['found'])}, Not Found: {len(aggregated_report['not_found'])}, Duplicates: {len(aggregated_report['duplicates'])}")
                     progress_callback(task_id, 98, "Report generated successfully")
 
                 except Exception as e:
