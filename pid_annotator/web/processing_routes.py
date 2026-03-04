@@ -16,6 +16,7 @@ from pid_annotator.core.pdf_annotator import annotate_pdf_with_progress
 from pid_annotator.core.excel_processor import annotate_excel_with_found_tags
 from pid_annotator.tag_engine.filters import apply_tag_filters
 from pid_annotator.config import AnnotationConfig, WatermarkConfig, TagMatchingConfig
+from pid_annotator.session.manager import try_attach_existing_files_to_session as _try_attach
 
 # Create blueprint
 processing_bp = Blueprint('processing', __name__)
@@ -25,39 +26,10 @@ progress_data = {}
 # Thread-safe storage for output files
 output_files_data = {}
 
+
 def try_attach_existing_files_to_session():
     """Attempt to auto-populate session with existing files in uploads if session is empty."""
-    try:
-        uploads_dir = Path(current_app.config['UPLOAD_FOLDER'])
-        session_id = session.get('session_id', 'default')
-
-        # Excel: pick the most recent .xlsx/.xls for current session only
-        if not session.get('excel_file'):
-            excel_candidates = list(uploads_dir.glob(f'{session_id}_*.xlsx')) + list(uploads_dir.glob(f'{session_id}_*.xls'))
-            if excel_candidates:
-                # Select most recently modified
-                excel_path = max(excel_candidates, key=lambda p: p.stat().st_mtime)
-                session['excel_file'] = excel_path.name
-                # Also try to load columns to keep UX consistent
-                try:
-                    result = reload_excel_columns(str(excel_path), 6)
-                    if result.get('success'):
-                        session['excel_columns'] = result['columns']
-                        session['default_tag_column'] = result['default_tag_column']
-                        session['header_row'] = 6
-                except Exception as e:
-                    print(f"[APP WARN] Failed to load columns from discovered Excel: {e}")
-        # PDFs: add all .pdf for current session only
-        if not session.get('pdf_files'):
-            pdf_candidates = list(uploads_dir.glob(f'{session_id}_*.pdf'))
-            if pdf_candidates:
-                stored_names = [p.name for p in pdf_candidates]
-                # Derive original names removing session prefix
-                original_names = [name[len(f"{session_id}_"):] for name in stored_names]
-                session['pdf_files'] = stored_names
-                session['original_pdf_names'] = original_names
-    except Exception as e:
-        print(f"[APP WARN] Auto-discovery of uploads failed: {e}")
+    _try_attach(current_app.config['UPLOAD_FOLDER'], reload_excel_columns)
 
 
 def make_progress_callback(socketio_instance):
@@ -263,6 +235,7 @@ def process_files():
 
         # Capture session data and config values for thread (avoid Flask context issues)
         session_id = session.get('session_id', 'default')
+        session_data = dict(session)
         current_task_id = task_id
         output_folder = current_app.config['OUTPUT_FOLDER']
         upload_folder = current_app.config['UPLOAD_FOLDER']
@@ -278,7 +251,8 @@ def process_files():
                           watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
                           tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color,
                           enable_default_color, excel_constraint_mode, excel_constraint_logic,
-                          output_folder, upload_folder, progress_callback):
+                          output_folder, upload_folder, progress_callback,
+                          data, session_data):
             try:
                 output_files = []
                 output_display_names = []  # Clean names for user display/download
@@ -368,29 +342,18 @@ def process_files():
                         else:
                             tag_matching_obj = tag_matching_config
 
-                    # Create annotation configuration
-                    config = AnnotationConfig(
-                        pdf_paths=[pdf_path],
-                        excel_path=excel_path,
-                        output_path=output_path,
-                        tag_column=tag_column,
-                        header_row=header_row,
-                        comment_columns=selected_comment_columns,
-                        highlight_color=default_highlight_color,
-                        annotation_type="highlight_only",
-                        watermark=watermark_config,
-                        tag_matching=tag_matching_obj,
-                        filters=tag_filters,
-                        filter_logic=filter_logic,
-                        color_rules=color_rules,
-                        column_color_pairs=column_color_pairs,
-                        max_tags=max_tags,
-                        enable_default_color=enable_default_color,
-                        excel_constraint_mode=excel_constraint_mode,
-                        excel_constraint_logic=excel_constraint_logic,
-                        task_id=task_id,
-                        progress_callback=per_file_progress_cb
-                    )
+                    # Create annotation configuration from request data, then override computed fields
+                    config = AnnotationConfig.from_request(data, dict(session_data))
+                    config.pdf_paths = [pdf_path]
+                    config.excel_path = excel_path
+                    config.output_path = output_path
+                    config.max_tags = max_tags
+                    config.task_id = task_id
+                    config.progress_callback = per_file_progress_cb
+                    # Override with resolved values that required pre-processing
+                    config.tag_column = tag_column
+                    config.watermark = watermark_config
+                    config.tag_matching = tag_matching_obj
 
                     # Process this PDF and get found tags and report data
                     found_tags, report_data = annotate_pdf_with_progress(config)
@@ -404,14 +367,14 @@ def process_files():
                         aggregated_report['found'].extend(report_data.get('found', []))
                         aggregated_report['not_found'].extend(report_data.get('not_found', []))
                         # Merge duplicates (dict)
-                        for tag, data in report_data.get('duplicates', {}).items():
+                        for tag, dup_data in report_data.get('duplicates', {}).items():
                             # Handle both old format (list) and new format (dict with excel_rows and row_data)
-                            if isinstance(data, dict):
-                                excel_rows = data.get('excel_rows', [])
-                                row_data = data.get('row_data', [])
+                            if isinstance(dup_data, dict):
+                                excel_rows = dup_data.get('excel_rows', [])
+                                row_data = dup_data.get('row_data', [])
                             else:
                                 # Legacy format - just a list of row numbers
-                                excel_rows = data
+                                excel_rows = dup_data
                                 row_data = []
 
                             if tag in aggregated_report['duplicates']:
@@ -623,7 +586,8 @@ def process_files():
                               watermark_text_color, watermark_background_enabled, annotate_excel, is_test,
                               tag_matching_config, tag_filters, filter_logic, color_rules, default_highlight_color,
                               enable_default_color, excel_constraint_mode, excel_constraint_logic,
-                              output_folder, upload_folder, progress_cb)
+                              output_folder, upload_folder, progress_cb,
+                              data, session_data)
 
         return jsonify({
             'success': True,

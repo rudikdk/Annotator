@@ -78,11 +78,20 @@ class AnnotationConfig:
             AnnotationConfig instance
         """
         # Extract watermark configuration
+        # Normalize watermark_attributes: support list, string, and legacy single-attribute key
         watermark = None
         if request_data.get('watermark_enabled', False):
+            watermark_attributes = request_data.get('watermark_attributes', [])
+            if not watermark_attributes and request_data.get('watermark_attribute'):
+                watermark_attributes = [request_data.get('watermark_attribute')]
+            if isinstance(watermark_attributes, list):
+                watermark_attr_str = watermark_attributes[0] if watermark_attributes else ""
+            else:
+                watermark_attr_str = watermark_attributes
+
             watermark = WatermarkConfig(
                 enabled=True,
-                attributes=request_data.get('watermark_attributes', ''),
+                attributes=watermark_attr_str,
                 text_color=request_data.get('watermark_text_color', '#000000'),
                 font_size=request_data.get('watermark_font_size', 40),
                 opacity=request_data.get('watermark_opacity', 0.3),
@@ -97,12 +106,24 @@ class AnnotationConfig:
         if tag_matching_data:
             tag_matching = TagMatchingConfig.from_dict(tag_matching_data)
 
+        # Resolve column_color_pairs: new color_rules take precedence; legacy fallback uses highlight_column/highlight_color
+        color_rules = request_data.get('color_rules', [])
+        if color_rules:
+            column_color_pairs = []
+        else:
+            highlight_column = request_data.get('highlight_column', '')
+            highlight_color = request_data.get('highlight_color', '#FFFF00')
+            column_color_pairs = [(highlight_column, highlight_color)] if highlight_column else []
+
+        # Resolve tag_column: request data takes precedence, fall back to session default
+        tag_column = request_data.get('tag_column') or session_data.get('default_tag_column')
+
         # Build configuration
         return cls(
             pdf_paths=request_data.get('selected_pdfs', []),
             excel_path=request_data.get('selected_excel', ''),
             output_path=request_data.get('output_path', ''),
-            tag_column=request_data.get('tag_column'),
+            tag_column=tag_column,
             header_row=request_data.get('header_row', 6),
             comment_columns=request_data.get('comment_columns'),
             highlight_color=request_data.get('default_highlight_color', '#FFFF00'),
@@ -112,8 +133,8 @@ class AnnotationConfig:
             tag_matching=tag_matching,
             filters=request_data.get('tag_filters'),
             filter_logic=request_data.get('filter_logic', 'AND'),
-            color_rules=request_data.get('color_rules'),
-            column_color_pairs=request_data.get('column_color_pairs'),
+            color_rules=color_rules if color_rules else None,
+            column_color_pairs=column_color_pairs if column_color_pairs else None,
             max_tags=request_data.get('max_tags'),
             use_streaming=request_data.get('use_streaming'),
             enable_default_color=request_data.get('enable_default_color', True),
