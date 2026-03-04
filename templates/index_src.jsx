@@ -379,14 +379,6 @@
           return;
         }
 
-        if (!hasExcelInCurrentUpload && !hasExcelAlreadyUploaded && pdfFiles.length > 0) {
-          setStatusMsg("error", "Please upload at least one Excel file first");
-          logToConsole(
-            "Error: No Excel file uploaded, but trying to upload PDFs"
-          );
-          return;
-        }
-
         if (!hasExcelInCurrentUpload && !hasExcelAlreadyUploaded && pdfFiles.length === 0) {
           setStatusMsg("error", "Please upload at least one Excel file");
           logToConsole("Error: No files to upload");
@@ -5161,6 +5153,13 @@
 
             {/* Actions */}
             <SectionCard title="Actions">
+              {/* Readiness hint - shown only when PDFs uploaded but no Excel */}
+              {workspaceFiles.pdfs.length > 0 && !selectedExcel && (
+                <p className="text-sm text-amber-600 dark:text-amber-400 mb-2">
+                  <i className="fa-solid fa-triangle-exclamation mr-1"></i>
+                  Excel file needed before processing
+                </p>
+              )}
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 <button
                   onClick={() => startProcessing(false)}

@@ -312,11 +312,6 @@ function UploadArea({
       logToConsole("Error: Excel file already uploaded");
       return;
     }
-    if (!hasExcelInCurrentUpload && !hasExcelAlreadyUploaded && pdfFiles.length > 0) {
-      setStatusMsg("error", "Please upload at least one Excel file first");
-      logToConsole("Error: No Excel file uploaded, but trying to upload PDFs");
-      return;
-    }
     if (!hasExcelInCurrentUpload && !hasExcelAlreadyUploaded && pdfFiles.length === 0) {
       setStatusMsg("error", "Please upload at least one Excel file");
       logToConsole("Error: No files to upload");
@@ -4432,7 +4427,11 @@ function App() {
     }), "Cancel")))))));
   })())), /*#__PURE__*/React.createElement(SectionCard, {
     title: "Actions"
-  }, /*#__PURE__*/React.createElement("div", {
+  }, workspaceFiles.pdfs.length > 0 && !selectedExcel && /*#__PURE__*/React.createElement("p", {
+    className: "text-sm text-amber-600 dark:text-amber-400 mb-2"
+  }, /*#__PURE__*/React.createElement("i", {
+    className: "fa-solid fa-triangle-exclamation mr-1"
+  }), "Excel file needed before processing"), /*#__PURE__*/React.createElement("div", {
     className: "grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => startProcessing(false),
