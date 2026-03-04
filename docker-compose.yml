@@ -4,10 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
       platforms:
-        - linux/amd64
         - linux/arm64
     container_name: pid-annotator-web
-    platform: linux/amd64
+    platform: linux/arm64
     ports:
       - "5001:5001"  # Port 5001 for both internal and external
     environment:

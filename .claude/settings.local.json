@@ -46,7 +46,11 @@
       "Bash(find:*)",
       "Bash(pip3:*)",
       "Bash(/tmp/test_import_order.py << 'EOTEST'\n#!/usr/bin/env python3\n\"\"\"\nTest that imports work in correct order without circular dependencies.\n\"\"\"\n\nimport sys\nfrom pathlib import Path\n\nproject_root = Path\\('/mnt/c/Users/Rudi/Documents/GitHub/Annotator'\\)\nsys.path.insert\\(0, str\\(project_root\\)\\)\n\nEXPECTED_DEPS = ['fitz', 'flask', 'reportlab', 'pandas', 'openpyxl',\n                 'flask_socketio', 'PyPDF2', 'xlrd', 'werkzeug']\n\ndef is_expected\\(e\\):\n    return any\\(dep in str\\(e\\) for dep in EXPECTED_DEPS\\)\n\nprint\\(\"=\" * 80\\)\nprint\\(\"Import Order Verification\"\\)\nprint\\(\"=\" * 80\\)\n\ntests = [\n    \\('config.tag_matching_config', 'from pid_annotator.config import tag_matching_config'\\),\n    \\('analysis.tag_parts', 'from pid_annotator.analysis import tag_parts'\\),\n    \\('tag_engine.parser', 'from pid_annotator.tag_engine import parser'\\),\n    \\('utils.progress_callback', 'from pid_annotator.utils import progress_callback'\\),\n    \\('session.cleanup', 'from pid_annotator.session import cleanup'\\),\n]\n\nfor name, cmd in tests:\n    print\\(f\"\\\\nTesting {name}...\"\\)\n    try:\n        exec\\(cmd\\)\n        print\\(f\"   ✓ {name} imported\"\\)\n    except ImportError as e:\n        if is_expected\\(e\\):\n            print\\(f\"   ⊘ requires external deps \\(expected\\): {e.name}\"\\)\n        else:\n            print\\(f\"   ✗ Unexpected: {e}\"\\)\n            sys.exit\\(1\\)\n\nprint\\(\"\\\\n\" + \"=\" * 80\\)\nprint\\(\"PASSED - No circular dependencies detected\"\\)\nprint\\(\"=\" * 80\\)\nEOTEST)",
-      "Bash(docker:*)"
+      "Bash(docker:*)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(chmod +x:*)",
+      "Bash(node:*)"
     ],
     "deny": [],
     "ask": []
