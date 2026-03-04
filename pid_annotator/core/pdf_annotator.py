@@ -841,29 +841,16 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
     column_color_pairs = config.column_color_pairs
 
     def update_progress(progress, status):
-        print(f"[CORE DEBUG] update_progress called: progress={progress}%, status='{status}'")
         if progress_callback:
             try:
                 progress_callback(task_id, progress, status)
-                print(f"[CORE DEBUG] progress_callback executed successfully for task {task_id}")
             except Exception as e:
                 print(f"[CORE ERROR] progress_callback failed: {e}")
         else:
             print(f"[CORE WARNING] No progress_callback provided")
 
-    print(f"\n--- Starting annotation process ---")
-    print(f"PDF: {pdf_path}")
-    print(f"Excel: {excel_path}")
-    print(f"Output: {out_path}")
-    print(f"Watermark enabled: {watermark_enabled}")
-    if watermark_enabled:
-        print(f"Watermark attribute: {watermark_attribute}")
-        print(f"Watermark text color: {watermark_text_color}")
-
     # Read Excel with configurable header row
     update_progress(2, "Starting Excel file validation...")
-    print(f"Loading Excel file...")
-    print(f"Using header row: {header_row}")
 
     # Support both .xlsx and .xls files for reading
     is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
@@ -880,8 +867,6 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
     df = df.dropna(axis=1, how="all")  # Remove empty columns
     # Strip whitespace from column names for consistent matching
     df.columns = [str(col).strip() for col in df.columns]
-    print(f"Excel loaded successfully. Found {len(df)} rows.")
-
     update_progress(10, "Excel file loaded successfully")
 
     # Use selected tag column or default to column G (index 6)
@@ -891,21 +876,17 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
         tag_col = df.columns[6]  # Default to column G
 
     tags = df[tag_col].dropna().astype(str).str.strip()
-    print(f"Found {len(tags)} tags in column '{tag_col}'.")
 
     update_progress(12, "Validating PDF file...")
-    print(f"Opening PDF file...")
 
     update_progress(15, "Loading PDF document...")
     doc = fitz.open(pdf_path)
 
     update_progress(18, "Analyzing PDF structure...")
-    print(f"PDF opened successfully. Contains {len(doc)} pages.")
 
     update_progress(20, "PDF file ready for processing")
 
     update_progress(22, "Preparing annotation parameters...")
-    print(f"Found {len(tags)} tags in column '{tag_col}'.")
 
     update_progress(25, "Initializing processing pipeline...")
 
@@ -1225,16 +1206,11 @@ def _annotate_pdf_streaming(config: AnnotationConfig) -> tuple:
     column_color_pairs = config.column_color_pairs
 
     def update_progress(progress, status):
-        print(f"[CORE DEBUG STREAMING] update_progress called: progress={progress}%, status='{status}'")
         if progress_callback:
             try:
                 progress_callback(task_id, progress, status)
             except Exception as e:
                 print(f"[CORE ERROR] progress_callback failed: {e}")
-
-    print(f"\n--- Starting STREAMING annotation process ---")
-    print(f"PDF: {pdf_path}")
-    print(f"Using streaming mode for large file optimization")
 
     # Read Excel data
     update_progress(2, "Loading Excel file...")

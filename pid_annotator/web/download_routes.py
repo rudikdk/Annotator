@@ -27,21 +27,15 @@ def download_file():
     current_task = session.get('current_task')
     file_type = request.args.get('type', 'all')  # 'all', 'pdf', 'excel', 'report'
 
-    print(f"[APP DEBUG] /download route called, current_task: {current_task}, file_type: {file_type}")
-
     # Check if we have a completed task with output files
     if not current_task or current_task not in output_files_data:
-        print(f"[APP DEBUG] No task data found for task: {current_task}")
         return jsonify({'success': False, 'message': 'No output files available'})
 
     task_data = output_files_data[current_task]
     if not task_data.get('completed'):
-        print(f"[APP DEBUG] Task not completed: {current_task}")
         return jsonify({'success': False, 'message': 'Processing not complete'})
 
     output_files = task_data['output_files']
-    print(f"[APP DEBUG] Output files: {output_files}")
-    print(f"[APP DEBUG] Number of output files: {len(output_files)}")
 
     if not output_files:
         return jsonify({'success': False, 'message': 'No output files available'})
@@ -57,8 +51,6 @@ def download_file():
             filtered_files.append(filename)
         elif file_type == 'all':
             filtered_files.append(filename)
-
-    print(f"[APP DEBUG] Filtered files ({file_type}): {filtered_files}")
 
     if not filtered_files:
         return jsonify({'success': False, 'message': f'No {file_type} files available'})
@@ -82,7 +74,6 @@ def download_file():
 
     # Single file download
     if len(file_urls) == 1:
-        print(f"[APP DEBUG] Single file download mode")
         response_data = {
             'success': True,
             'multiple_files': False,
@@ -91,12 +82,10 @@ def download_file():
             'output_files': filtered_files,  # Include original filenames for workspace management
             'message': '1 file ready for download'
         }
-        print(f"[APP DEBUG] Returning JSON response for single file: {response_data}")
         return jsonify(response_data)
 
     # Multiple files - return JSON with file list for sequential download
     else:
-        print(f"[APP DEBUG] Multiple files download mode")
         response_data = {
             'success': True,
             'multiple_files': True,
@@ -105,7 +94,6 @@ def download_file():
             'output_files': filtered_files,  # Include original filenames for workspace management
             'message': f'{len(file_urls)} files ready for download'
         }
-        print(f"[APP DEBUG] Returning JSON response: {response_data}")
         return jsonify(response_data)
 
 

@@ -69,8 +69,6 @@ class SocketIOProgressReporter(ProgressReporter):
             'timestamp': datetime.now().isoformat()
         }
 
-        print(f"[APP DEBUG] Progress callback called: task_id={task_id}, progress={percent}, status='{message}'")
-
         # Emit progress update via SocketIO
         try:
             self.socketio.emit('progress_update', {
@@ -85,7 +83,6 @@ class SocketIOProgressReporter(ProgressReporter):
             except Exception:
                 pass
 
-            print(f"[APP DEBUG] SocketIO emit successful for task {task_id}")
         except Exception as e:
             print(f"[APP ERROR] Failed to emit progress update: {e}")
 

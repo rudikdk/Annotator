@@ -421,6 +421,6 @@ def build_page_bookmark_map(doc):
                             page_bookmark_map[p] = title
 
     except Exception as e:
-        pass  # Silently skip bookmark errors
+        print(f"[WARNING] Error building page-bookmark map: {e}")
 
     return page_bookmark_map
