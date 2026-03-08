@@ -1585,7 +1585,6 @@
 
       // Configuration state
       const [headerRow, setHeaderRow] = useState(6);
-      const [startColumn, setStartColumn] = useState('A');
       const [sheetName, setSheetName] = useState('');
       const [sheetNames, setSheetNames] = useState([]);
       const [tagColumn, setTagColumn] = useState("");
@@ -2460,7 +2459,6 @@
         const data = {
           header_row: Number(headerRow) || 1,
           sheet_name: sheetName || null,
-          start_column: startColumn || 'A',
           tag_column: tagColumn || "",
           comment_columns: commentColumns.length > 0 ? commentColumns : null,
           highlight_color: highlightColor,
@@ -2864,7 +2862,6 @@
                       onColumnsLoaded(colData.columns, colData.default_tag_column);
                       if (colData.sheet_names) setSheetNames(colData.sheet_names);
                       if (colData.active_sheet) setSheetName(colData.active_sheet);
-                      setStartColumn('A');
                     }
                   })
                   .catch((err) => {
@@ -3197,7 +3194,6 @@
               setTagColumn("");
               setCommentColumns([]);
               setHeaderRow(6);
-              setStartColumn('A');
               setSheetName('');
               setSheetNames([]);
               setHighlightColumn("");
@@ -3253,7 +3249,7 @@
                 onDeleteFile={() => {}}
                 onUploadFiles={() => {}}
                 onColumnsLoaded={onColumnsLoaded}
-                onSheetNamesLoaded={(names, active) => { setSheetNames(names); setSheetName(active || ''); setStartColumn('A'); }}
+                onSheetNamesLoaded={(names, active) => { setSheetNames(names); setSheetName(active || ''); }}
                 setToast={setToast}
                 onRefresh={refreshWorkspace}
                 loadingColumns={loadingColumns}
@@ -3302,31 +3298,6 @@
                       </select>
                       <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
                         Default: 6
-                      </div>
-                    </div>
-                    <div>
-                      <label htmlFor="start-column" className="block text-sm font-medium mb-1">
-                        Start Column
-                      </label>
-                      <select
-                        id="start-column"
-                        value={startColumn}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setStartColumn(v);
-                          reloadColumns({ nextStartColumn: v });
-                        }}
-                        disabled={loadingColumns || !selectedExcel}
-                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => (
-                          <option key={letter} value={letter}>
-                            Column {letter}
-                          </option>
-                        ))}
-                      </select>
-                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-                        Columns before this are ignored. Default: A
                       </div>
                     </div>
                     {sheetNames.length > 1 && (

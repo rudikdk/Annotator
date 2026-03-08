@@ -1324,7 +1324,6 @@ function App() {
 
   // Configuration state
   const [headerRow, setHeaderRow] = useState(6);
-  const [startColumn, setStartColumn] = useState('A');
   const [sheetName, setSheetName] = useState('');
   const [sheetNames, setSheetNames] = useState([]);
   const [tagColumn, setTagColumn] = useState("");
@@ -2272,7 +2271,6 @@ function App() {
     const data = {
       header_row: Number(headerRow) || 1,
       sheet_name: sheetName || null,
-      start_column: startColumn || 'A',
       tag_column: tagColumn || "",
       comment_columns: commentColumns.length > 0 ? commentColumns : null,
       highlight_color: highlightColor,
@@ -2692,7 +2690,6 @@ function App() {
               onColumnsLoaded(colData.columns, colData.default_tag_column);
               if (colData.sheet_names) setSheetNames(colData.sheet_names);
               if (colData.active_sheet) setSheetName(colData.active_sheet);
-              setStartColumn('A');
             }
           }).catch(err => {
             console.error("Error loading columns for auto-selected Excel:", err);
@@ -3003,7 +3000,6 @@ function App() {
         setTagColumn("");
         setCommentColumns([]);
         setHeaderRow(6);
-        setStartColumn('A');
         setSheetName('');
         setSheetNames([]);
         setHighlightColumn("");
@@ -3056,7 +3052,6 @@ function App() {
     onSheetNamesLoaded: (names, active) => {
       setSheetNames(names);
       setSheetName(active || '');
-      setStartColumn('A');
     },
     setToast: setToast,
     onRefresh: refreshWorkspace,
@@ -3101,27 +3096,7 @@ function App() {
     }, "Row ", rowNum);
   })), /*#__PURE__*/React.createElement("div", {
     className: "mt-1 text-xs text-zinc-500 dark:text-zinc-400"
-  }, "Default: 6")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    htmlFor: "start-column",
-    className: "block text-sm font-medium mb-1"
-  }, "Start Column"), /*#__PURE__*/React.createElement("select", {
-    id: "start-column",
-    value: startColumn,
-    onChange: e => {
-      const v = e.target.value;
-      setStartColumn(v);
-      reloadColumns({
-        nextStartColumn: v
-      });
-    },
-    disabled: loadingColumns || !selectedExcel,
-    className: "w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
-  }, "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(letter => /*#__PURE__*/React.createElement("option", {
-    key: letter,
-    value: letter
-  }, "Column ", letter))), /*#__PURE__*/React.createElement("div", {
-    className: "mt-1 text-xs text-zinc-500 dark:text-zinc-400"
-  }, "Columns before this are ignored. Default: A")), sheetNames.length > 1 && /*#__PURE__*/React.createElement("div", {
+  }, "Default: 6")), sheetNames.length > 1 && /*#__PURE__*/React.createElement("div", {
     className: "sm:col-span-2"
   }, /*#__PURE__*/React.createElement("label", {
     htmlFor: "sheet-name",
