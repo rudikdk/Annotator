@@ -97,6 +97,19 @@ def download_file():
         return jsonify(response_data)
 
 
+@download_bp.route('/get_report_data')
+def get_report_data():
+    """Return the lean report summary (found/not_found) for the current task."""
+    current_task = session.get('current_task')
+    if not current_task or current_task not in output_files_data:
+        return jsonify({'success': False, 'message': 'No report data available'})
+    task_data = output_files_data[current_task]
+    summary = task_data.get('report_summary')
+    if not summary:
+        return jsonify({'success': False, 'message': 'No report data available'})
+    return jsonify({'success': True, 'found': summary['found'], 'not_found': summary['not_found']})
+
+
 @download_bp.route('/download_file/<filename>')
 def download_single_file(filename):
     """Download a single file by filename"""

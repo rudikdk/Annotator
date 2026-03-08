@@ -838,7 +838,12 @@ function ProgressModal({
   reportFilename,
   annotateExcelEnabled,
   isTestRun,
-  onStartFullRun
+  onStartFullRun,
+  tagReportData,
+  tagSearch,
+  setTagSearch,
+  tagFilter,
+  setTagFilter
 }) {
   if (!open) return null;
   const complete = progress === 100 && !error;
@@ -933,7 +938,77 @@ function ProgressModal({
     className: "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-4 py-2.5 font-semibold hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-colors"
   }, /*#__PURE__*/React.createElement("i", {
     className: "fa-solid fa-times"
-  }), "Close")))), error && /*#__PURE__*/React.createElement("div", {
+  }), "Close")), tagReportData && (() => {
+    const allRows = [...tagReportData.found.map(r => ({
+      ...r,
+      status: 'found'
+    })), ...tagReportData.not_found.map(r => ({
+      ...r,
+      status: 'not_found'
+    }))];
+    const filtered = allRows.filter(r => {
+      if (tagFilter === 'found' && r.status !== 'found') return false;
+      if (tagFilter === 'not_found' && r.status !== 'not_found') return false;
+      if (tagSearch && !r.tag.toLowerCase().includes(tagSearch.toLowerCase())) return false;
+      return true;
+    });
+    return /*#__PURE__*/React.createElement("div", {
+      className: "mt-4 border-t border-zinc-200/60 dark:border-zinc-700 pt-4"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "flex items-center justify-between mb-2"
+    }, /*#__PURE__*/React.createElement("h4", {
+      className: "text-sm font-semibold"
+    }, "Tag Results", /*#__PURE__*/React.createElement("span", {
+      className: "ml-2 text-xs font-normal text-zinc-500"
+    }, tagReportData.found.length, " found / ", tagReportData.not_found.length, " not found"))), /*#__PURE__*/React.createElement("div", {
+      className: "flex gap-2 mb-2"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: tagSearch,
+      onChange: e => setTagSearch(e.target.value),
+      placeholder: "Search tag...",
+      className: "flex-1 rounded-lg border border-zinc-200/60 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+    }), ['all', 'found', 'not_found'].map(f => /*#__PURE__*/React.createElement("button", {
+      key: f,
+      onClick: () => setTagFilter(f),
+      className: cx("px-3 py-1.5 rounded-lg text-xs font-medium transition-colors", tagFilter === f ? f === 'found' ? "bg-green-600 text-white" : f === 'not_found' ? "bg-red-500 text-white" : "bg-brand text-white" : "bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300/70 dark:hover:bg-zinc-700")
+    }, f === 'all' ? 'All' : f === 'found' ? 'Found' : 'Not Found'))), /*#__PURE__*/React.createElement("div", {
+      className: "max-h-56 overflow-y-auto rounded-lg border border-zinc-200/60 dark:border-zinc-700"
+    }, filtered.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      className: "text-center text-sm text-zinc-400 py-4 italic"
+    }, "No results") : /*#__PURE__*/React.createElement("table", {
+      className: "w-full text-xs"
+    }, /*#__PURE__*/React.createElement("thead", {
+      className: "sticky top-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400"
+    }, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", {
+      className: "text-left px-3 py-2 font-medium"
+    }, "Tag"), /*#__PURE__*/React.createElement("th", {
+      className: "text-left px-3 py-2 font-medium"
+    }, "Status"), /*#__PURE__*/React.createElement("th", {
+      className: "text-left px-3 py-2 font-medium"
+    }, "Pages"), /*#__PURE__*/React.createElement("th", {
+      className: "text-left px-3 py-2 font-medium"
+    }, "Excel Row"))), /*#__PURE__*/React.createElement("tbody", {
+      className: "divide-y divide-zinc-100 dark:divide-zinc-800"
+    }, filtered.map((r, i) => /*#__PURE__*/React.createElement("tr", {
+      key: i,
+      className: "hover:bg-zinc-50 dark:hover:bg-zinc-800/50"
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-1.5 font-mono font-medium"
+    }, r.tag), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-1.5"
+    }, r.status === 'found' ? /*#__PURE__*/React.createElement("span", {
+      className: "text-green-600 dark:text-green-400 font-medium"
+    }, "\u2713 Found") : /*#__PURE__*/React.createElement("span", {
+      className: "text-red-500 dark:text-red-400 font-medium"
+    }, "\u2717 Not found")), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-1.5 text-zinc-500"
+    }, r.pages && r.pages.length > 0 ? r.pages.slice(0, 4).join(', ') + (r.pages.length > 4 ? '…' : '') : '—'), /*#__PURE__*/React.createElement("td", {
+      className: "px-3 py-1.5 text-zinc-500"
+    }, r.excel_row || '—')))))), filtered.length > 0 && /*#__PURE__*/React.createElement("p", {
+      className: "text-xs text-zinc-400 mt-1 text-right"
+    }, filtered.length, " row", filtered.length !== 1 ? 's' : ''));
+  })())), error && /*#__PURE__*/React.createElement("div", {
     className: "px-5 py-6"
   }, /*#__PURE__*/React.createElement("div", {
     className: "flex flex-col items-center text-center"
@@ -1358,6 +1433,10 @@ function App() {
     non_matches: []
   });
   const [ruleLoadingExamples, setRuleLoadingExamples] = useState(false);
+  const [tagReportData, setTagReportData] = useState(null); // null = not loaded
+  const [tagSearch, setTagSearch] = useState('');
+  const [tagFilter, setTagFilter] = useState('all'); // 'all' | 'found' | 'not_found'
+
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
   const [watermarkAttributes, setWatermarkAttributes] = useState([]);
   const [watermarkTextColor, setWatermarkTextColor] = useState("#000000");
@@ -2787,6 +2866,18 @@ function App() {
             }).catch(err => {
               logToConsole(`Error fetching output files: ${err.message}`);
             });
+
+            // Fetch tag report data for inline searchable table
+            fetch("/get_report_data").then(r => r.json()).then(data => {
+              if (data.success) {
+                setTagReportData({
+                  found: data.found || [],
+                  not_found: data.not_found || []
+                });
+                setTagSearch('');
+                setTagFilter('all');
+              }
+            }).catch(() => {});
           }
         } else {
           setErrorText(data.status || "Processing failed");
@@ -2842,6 +2933,9 @@ function App() {
     setProgress(0);
     setStatusText("Initializing...");
     setReportFilename(null);
+    setTagReportData(null);
+    setTagSearch('');
+    setTagFilter('all');
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
@@ -4309,40 +4403,59 @@ function App() {
       className: "text-sm text-zinc-500 dark:text-zinc-400 italic text-center py-4"
     }, "No color rules defined. Click \"Add Rule\" to create one.") : /*#__PURE__*/React.createElement("div", {
       className: "space-y-2"
-    }, colorRules.map((rule, index) => /*#__PURE__*/React.createElement("div", {
-      key: rule.id,
-      className: "flex items-center gap-2 p-2 rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900/50"
-    }, /*#__PURE__*/React.createElement("div", {
-      className: "w-6 h-6 rounded border border-zinc-300 dark:border-zinc-700 flex-shrink-0",
-      style: {
-        backgroundColor: rule.color
-      },
-      title: rule.color
-    }), /*#__PURE__*/React.createElement("div", {
-      className: "flex-1 text-sm"
-    }, formatRuleDisplay(rule)), /*#__PURE__*/React.createElement("div", {
-      className: "flex items-center gap-1"
-    }, /*#__PURE__*/React.createElement("button", {
-      onClick: () => handleMoveColorRule(rule.id, 'up'),
-      disabled: index === 0,
-      className: "p-1.5 rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed",
-      title: "Move up"
-    }, /*#__PURE__*/React.createElement("i", {
-      className: "fa-solid fa-arrow-up text-xs"
+    }, colorRules.map((rule, index) => {
+      // Find earlier rules that share the same column (potential overlap)
+      const overlappingIndices = rule.rule_type === 'header_column' ? colorRules.slice(0, index).map((r, i) => ({
+        r,
+        i
+      })).filter(({
+        r
+      }) => r.rule_type === 'header_column' && r.column_name === rule.column_name).map(({
+        i
+      }) => i + 1) // 1-based display index
+      : [];
+      return /*#__PURE__*/React.createElement("div", {
+        key: rule.id,
+        className: "flex items-center gap-2 p-2 rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900/50"
+      }, /*#__PURE__*/React.createElement("div", {
+        className: "w-6 h-6 rounded border border-zinc-300 dark:border-zinc-700 flex-shrink-0",
+        style: {
+          backgroundColor: rule.color
+        },
+        title: rule.color
+      }), /*#__PURE__*/React.createElement("div", {
+        className: "flex-1 text-sm min-w-0"
+      }, /*#__PURE__*/React.createElement("div", null, formatRuleDisplay(rule)), overlappingIndices.length > 0 && /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-1 mt-0.5",
+        title: "Both rules can match the same rows \u2014 this rule applies last and wins"
+      }, /*#__PURE__*/React.createElement("i", {
+        className: "fa-solid fa-circle-info text-amber-400 text-xs"
+      }), /*#__PURE__*/React.createElement("span", {
+        className: "text-xs text-amber-500 dark:text-amber-400"
+      }, "Overrides rule ", overlappingIndices.join(', '), " on same column \u2014 last wins"))), /*#__PURE__*/React.createElement("div", {
+        className: "flex items-center gap-1"
+      }, /*#__PURE__*/React.createElement("button", {
+        onClick: () => handleMoveColorRule(rule.id, 'up'),
+        disabled: index === 0,
+        className: "p-1.5 rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed",
+        title: "Move up"
+      }, /*#__PURE__*/React.createElement("i", {
+        className: "fa-solid fa-arrow-up text-xs"
+      })), /*#__PURE__*/React.createElement("button", {
+        onClick: () => handleMoveColorRule(rule.id, 'down'),
+        disabled: index === colorRules.length - 1,
+        className: "p-1.5 rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed",
+        title: "Move down"
+      }, /*#__PURE__*/React.createElement("i", {
+        className: "fa-solid fa-arrow-down text-xs"
+      })), /*#__PURE__*/React.createElement("button", {
+        onClick: () => handleRemoveColorRule(rule.id),
+        className: "p-1.5 rounded hover:bg-danger/10 text-danger",
+        title: "Delete rule"
+      }, /*#__PURE__*/React.createElement("i", {
+        className: "fa-solid fa-trash-can text-xs"
+      }))));
     })), /*#__PURE__*/React.createElement("button", {
-      onClick: () => handleMoveColorRule(rule.id, 'down'),
-      disabled: index === colorRules.length - 1,
-      className: "p-1.5 rounded hover:bg-zinc-200/60 dark:hover:bg-zinc-800 disabled:opacity-30 disabled:cursor-not-allowed",
-      title: "Move down"
-    }, /*#__PURE__*/React.createElement("i", {
-      className: "fa-solid fa-arrow-down text-xs"
-    })), /*#__PURE__*/React.createElement("button", {
-      onClick: () => handleRemoveColorRule(rule.id),
-      className: "p-1.5 rounded hover:bg-danger/10 text-danger",
-      title: "Delete rule"
-    }, /*#__PURE__*/React.createElement("i", {
-      className: "fa-solid fa-trash-can text-xs"
-    })))))), /*#__PURE__*/React.createElement("button", {
       onClick: () => setColorRuleBuilderOpen(!colorRuleBuilderOpen),
       className: "w-full inline-flex items-center justify-center gap-2 rounded-lg bg-brand/10 text-brand hover:bg-brand/20 px-3 py-2 text-sm font-medium transition-colors"
     }, /*#__PURE__*/React.createElement("i", {
@@ -4695,7 +4808,12 @@ function App() {
     reportFilename: reportFilename,
     annotateExcelEnabled: annotateExcel,
     isTestRun: isCurrentTestRun,
-    onStartFullRun: () => startProcessing(false)
+    onStartFullRun: () => startProcessing(false),
+    tagReportData: tagReportData,
+    tagSearch: tagSearch,
+    setTagSearch: setTagSearch,
+    tagFilter: tagFilter,
+    setTagFilter: setTagFilter
   }), /*#__PURE__*/React.createElement(ImportProfileModal, {
     open: showImportProfileModal,
     onClose: () => setShowImportProfileModal(false),

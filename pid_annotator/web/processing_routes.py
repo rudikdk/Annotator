@@ -545,12 +545,25 @@ def process_files():
                     traceback.print_exc()
                     progress_callback(task_id, 98, "Report generation failed (processing continued)")
 
+                # Build lean report summary (no full row_data, keeps memory small)
+                report_summary = {
+                    'found': [
+                        {'tag': e['tag'], 'pages': e.get('pages', []), 'excel_row': e.get('excel_row'), 'occurrence_count': e.get('occurrence_count', 1)}
+                        for e in aggregated_report.get('found', [])
+                    ],
+                    'not_found': [
+                        {'tag': e['tag'], 'excel_row': e.get('excel_row')}
+                        for e in aggregated_report.get('not_found', [])
+                    ],
+                }
+
                 # Store output files info in thread-safe global dictionary
                 output_files_data[task_id] = {
                     'output_files': output_files,
                     'completed': True,
                     'timestamp': datetime.now().isoformat(),
                     'annotate_excel': annotate_excel,
+                    'report_summary': report_summary,
                     'is_test': is_test
                 }
 
