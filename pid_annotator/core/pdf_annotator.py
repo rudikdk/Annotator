@@ -826,6 +826,8 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
     out_path = config.output_path
     tag_column = config.tag_column
     header_row = config.header_row
+    sheet_name = config.sheet_name
+    start_column = config.start_column or 'A'
     selected_comment_columns = config.comment_columns
     annotation_type = config.annotation_type
     default_highlight_color = config.highlight_color

@@ -1738,15 +1738,14 @@
         }
       }
 
-      function reloadColumns({ nextHeaderRow, nextStartColumn, nextSheetName } = {}) {
+      function reloadColumns({ nextHeaderRow, nextSheetName } = {}) {
         const row = nextHeaderRow !== undefined ? nextHeaderRow : headerRow;
-        const col = nextStartColumn !== undefined ? nextStartColumn : startColumn;
         const sheet = nextSheetName !== undefined ? nextSheetName : sheetName;
         setLoadingColumns(true);
         fetch("/reload_columns", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ header_row: row, start_column: col, sheet_name: sheet || null }),
+          body: JSON.stringify({ header_row: row, sheet_name: sheet || null }),
         })
           .then((r) => r.json())
           .then((data) => {
