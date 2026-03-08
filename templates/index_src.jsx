@@ -8,6 +8,7 @@
     // Help content for all features
     const HELP_CONTENT = {
       headerRow: "Specify which row in your Excel file contains the column headers. The application will read column names from this row. Default is row 6, but adjust to match your file structure.",
+      sheetName: "Select which sheet to read from your Excel file. Only visible when the file has more than one sheet. The first sheet is always the default. Changing sheet reloads the column list automatically.",
       tagColumn: "Select the Excel column containing your component identifiers (tags). These tags will be searched for in your PDF files. Examples: TAG-001-A, SYS.PUMP.01, A.B.C",
       commentColumns: "Choose which Excel columns to include as annotations in the PDF. Selected columns will appear as notes attached to each found tag. Useful for adding descriptions, specifications, or notes.",
       excelAnnotation: "When enabled, the application highlights Excel rows (with green fill) where tags were successfully found in the PDF. Only works with .xlsx files. Helps you identify which components were located.",
@@ -3311,9 +3312,12 @@
                       </div>
                     </div>
                     {sheetNames.length > 1 && (
-                      <div className="sm:col-span-2">
-                        <label htmlFor="sheet-name" className="block text-sm font-medium mb-1">
-                          Sheet
+                      <div>
+                        <label htmlFor="sheet-name" className="block text-sm font-medium mb-1 flex items-center">
+                          <span className="flex items-center">
+                            Sheet
+                            <HelpIcon content={HELP_CONTENT.sheetName} />
+                          </span>
                         </label>
                         <select
                           id="sheet-name"
