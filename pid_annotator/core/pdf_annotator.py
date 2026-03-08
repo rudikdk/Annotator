@@ -151,7 +151,7 @@ def apply_color_rules_to_all_text(doc, tag_index, color_rules, default_highlight
         # the enable_default_color logic below decides if a default color should be applied
         if color_rules:
             highlight_color, matched_rule_id, conflicts = apply_color_rules(
-                tag_text, None, color_rules, None
+                tag_text, tag_to_row_data.get(tag_text), color_rules, None
             )
         else:
             # No color rules defined - use default color if enabled
