@@ -10,11 +10,11 @@ from werkzeug.utils import secure_filename as werkzeug_secure_filename
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {
     'pdf': {'pdf'},
-    'excel': {'xlsx', 'xls', 'csv'}
+    'excel': {'xlsx', 'xls', 'xlsm', 'csv'}
 }
 
 # Combined allowed extensions for unified upload
-ALL_ALLOWED_EXTENSIONS = {'pdf', 'xlsx', 'xls', 'csv'}
+ALL_ALLOWED_EXTENSIONS = {'pdf', 'xlsx', 'xls', 'xlsm', 'csv'}
 
 
 def allowed_file(filename: str, file_type: str) -> bool:

@@ -412,14 +412,14 @@ def list_workspace_files():
                 if '_annotated_' in original_name or '_TEST_' in original_name:
                     continue
 
-                if file_ext in ['.xlsx', '.xls', '.csv']:
+                if file_ext in ['.xlsx', '.xls', '.xlsm', '.csv']:
                     files_data['excel'].append({
                         'name': original_name,
                         'filename': file_path.name,
                         'size': file_size,
                         'uploadedAt': file_path.stat().st_mtime,
                         'type': file_ext[1:],  # Remove dot
-                        'supportsAnnotation': file_ext == '.xlsx'  # Only .xlsx supports Excel annotation
+                        'supportsAnnotation': file_ext in ('.xlsx', '.xlsm')
                     })
                 elif file_ext == '.pdf':
                     files_data['pdfs'].append({
