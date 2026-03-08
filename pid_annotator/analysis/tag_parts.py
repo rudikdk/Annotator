@@ -36,7 +36,7 @@ def parse_tag_parts(tag, allowed_delimiters=["-", "."]):
     return [tag.strip()] if tag.strip() else []
 
 
-def analyze_tag_parts(excel_path, tag_column, header_row=6, top_n=20):
+def analyze_tag_parts(excel_path, tag_column, header_row=6, top_n=20, sheet_name=None, start_column='A'):
     """
     Analyze an Excel file and extract the most common values for each tag part.
 
@@ -45,19 +45,20 @@ def analyze_tag_parts(excel_path, tag_column, header_row=6, top_n=20):
         tag_column: Column name containing the tags
         header_row: Row number containing headers (1-based)
         top_n: Number of top values to return per part
+        sheet_name: Sheet name to read (None = first sheet)
+        start_column: Excel column letter to start from, e.g. 'A', 'C' (default 'A')
 
     Returns:
         dict: Contains 'success', 'parts' (dict with part statistics), and 'message'
     """
     try:
-        # Support both .xlsx and .xls files
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        from .excel_helpers import _get_engine, _apply_start_column
+        engine = _get_engine(excel_path)
+        xl = pd.ExcelFile(excel_path, engine=engine)
+        resolved_sheet = sheet_name if sheet_name in xl.sheet_names else xl.sheet_names[0]
 
-        if is_xls:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
+        df = xl.parse(sheet_name=resolved_sheet, header=header_row - 1)
+        df = _apply_start_column(df, start_column)
         df = df.dropna(axis=1, how="all")
 
         # Strip whitespace from column names for consistent matching

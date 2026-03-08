@@ -9,7 +9,7 @@ Used to populate filter and color rule dropdowns for header-based matching.
 import pandas as pd
 
 
-def analyze_header_unique_values(excel_path, column_name, header_row=6, top_n=100):
+def analyze_header_unique_values(excel_path, column_name, header_row=6, top_n=100, sheet_name=None, start_column='A'):
     """
     Analyze an Excel file and extract unique values from a specific column.
     This function is used to populate filter and color rule dropdowns for header-based matching.
@@ -19,6 +19,8 @@ def analyze_header_unique_values(excel_path, column_name, header_row=6, top_n=10
         column_name: Name of the column to analyze
         header_row: Row number containing headers (1-based, default: 6)
         top_n: Maximum number of unique values to return (default: 100)
+        sheet_name: Sheet name to read (None = first sheet)
+        start_column: Excel column letter to start from, e.g. 'A', 'C' (default 'A')
 
     Returns:
         list: List of dictionaries with 'value' and 'count' keys, sorted by count descending
@@ -26,13 +28,13 @@ def analyze_header_unique_values(excel_path, column_name, header_row=6, top_n=10
               Returns empty list on error
     """
     try:
-        # Support both .xlsx and .xls files
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        from .excel_helpers import _get_engine, _apply_start_column
+        engine = _get_engine(excel_path)
+        xl = pd.ExcelFile(excel_path, engine=engine)
+        resolved_sheet = sheet_name if sheet_name in xl.sheet_names else xl.sheet_names[0]
 
-        if is_xls:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+        df = xl.parse(sheet_name=resolved_sheet, header=header_row - 1)
+        df = _apply_start_column(df, start_column)
 
         # Remove completely empty columns
         df = df.dropna(axis=1, how="all")

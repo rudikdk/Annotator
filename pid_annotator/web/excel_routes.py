@@ -9,7 +9,8 @@ from flask import Blueprint, request, jsonify, session, current_app
 from pid_annotator.analysis import (
     analyze_tag_parts,
     analyze_header_unique_values,
-    reload_excel_columns
+    reload_excel_columns,
+    get_excel_sheets,
 )
 from pid_annotator.tag_engine.filters import apply_tag_filters
 from pid_annotator.config.tag_matching_config import TagMatchingConfig
@@ -21,21 +22,24 @@ excel_bp = Blueprint('excel', __name__)
 
 @excel_bp.route('/reload_columns', methods=['POST'])
 def reload_columns():
-    """Reload Excel columns with new header row"""
+    """Reload Excel columns with new header row, sheet, or start column"""
     data = request.get_json()
     header_row = data.get('header_row', 6)
+    sheet_name = data.get('sheet_name', session.get('sheet_name'))
+    start_column = data.get('start_column', session.get('start_column', 'A'))
 
     if 'excel_file' not in session:
         return jsonify({'success': False, 'message': 'No Excel file uploaded'})
 
     excel_path = os.path.join(current_app.config['UPLOAD_FOLDER'], session['excel_file'])
-    result = reload_excel_columns(excel_path, header_row)
+    result = reload_excel_columns(excel_path, header_row, sheet_name=sheet_name, start_column=start_column)
 
     if result['success']:
         session['excel_columns'] = result['columns']
         session['default_tag_column'] = result['default_tag_column']
-        # Update stored header row in session
         session['header_row'] = header_row
+        session['sheet_name'] = result['active_sheet']
+        session['start_column'] = start_column
 
     return jsonify(result)
 
@@ -67,7 +71,10 @@ def get_tag_parts():
     if not os.path.exists(excel_path):
         return jsonify({'success': False, 'message': f'Excel file not found: {excel_file}'})
 
-    result = analyze_tag_parts(excel_path, tag_column, header_row, top_n=20)
+    sheet_name = data.get('sheet_name') or session.get('sheet_name')
+    start_column = data.get('start_column') or session.get('start_column', 'A')
+    result = analyze_tag_parts(excel_path, tag_column, header_row, top_n=20,
+                               sheet_name=sheet_name, start_column=start_column)
 
     return jsonify(result)
 
@@ -100,8 +107,12 @@ def get_header_unique_values():
     if not os.path.exists(excel_path):
         return jsonify({'values': [], 'error': f'Excel file not found: {excel_file}'})
 
+    sheet_name = data.get('sheet_name') or session.get('sheet_name')
+    start_column = data.get('start_column') or session.get('start_column', 'A')
+
     # Get unique values for the specified column
-    values = analyze_header_unique_values(excel_path, column_name, header_row, top_n=100)
+    values = analyze_header_unique_values(excel_path, column_name, header_row, top_n=100,
+                                          sheet_name=sheet_name, start_column=start_column)
 
     return jsonify({'values': values, 'error': None})
 
@@ -128,9 +139,13 @@ def get_color_rule_examples():
         return jsonify({'matches': [], 'non_matches': []})
 
     try:
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-        engine = 'xlrd' if is_xls else 'openpyxl'
-        df = pd.read_excel(excel_path, header=header_row - 1, engine=engine)
+        from pid_annotator.analysis.excel_helpers import _get_engine, _apply_start_column
+        engine = _get_engine(excel_path)
+        xl = pd.ExcelFile(excel_path, engine=engine)
+        sheet = data.get('sheet_name') or session.get('sheet_name') or xl.sheet_names[0]
+        start_col = data.get('start_column') or session.get('start_column', 'A')
+        df = xl.parse(sheet_name=sheet, header=header_row - 1)
+        df = _apply_start_column(df, start_col)
         df = df.dropna(axis=1, how='all')
         df.columns = [str(col).strip() for col in df.columns]
 
@@ -219,13 +234,13 @@ def preview_filtered_tags():
         return jsonify({'success': False, 'message': f'Excel file not found: {excel_file}'})
 
     try:
-        # Load Excel data
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-        if is_xls:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
+        from pid_annotator.analysis.excel_helpers import _get_engine, _apply_start_column
+        engine = _get_engine(excel_path)
+        xl = pd.ExcelFile(excel_path, engine=engine)
+        sheet = data.get('sheet_name') or session.get('sheet_name') or xl.sheet_names[0]
+        start_col = data.get('start_column') or session.get('start_column', 'A')
+        df = xl.parse(sheet_name=sheet, header=header_row - 1)
+        df = _apply_start_column(df, start_col)
         df = df.dropna(axis=1, how="all")
 
         # Strip whitespace from column names for consistent matching
@@ -343,6 +358,8 @@ def select_excel():
     data = request.get_json()
     excel_file = data.get('excel_file')
     header_row = data.get('header_row', 6)
+    sheet_name = data.get('sheet_name', None)
+    start_column = data.get('start_column', 'A')
 
     if not excel_file:
         return jsonify({'success': False, 'message': 'No Excel file specified'})
@@ -356,12 +373,14 @@ def select_excel():
     session['excel_file'] = excel_file
 
     # Load columns
-    result = reload_excel_columns(excel_path, header_row)
+    result = reload_excel_columns(excel_path, header_row, sheet_name=sheet_name, start_column=start_column)
 
     if result['success']:
         session['excel_columns'] = result['columns']
         session['default_tag_column'] = result['default_tag_column']
         session['header_row'] = header_row
+        session['sheet_name'] = result['active_sheet']
+        session['start_column'] = start_column
         print(f"[SESSION] Selected Excel file updated: {excel_file}")
 
     return jsonify(result)

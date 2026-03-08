@@ -574,7 +574,7 @@
     }
 
     // New FileWorkspace component
-    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, setToast, onRefresh, loadingColumns, setLoadingColumns }) {
+    function FileWorkspace({ workspaceFiles, selectedPdfs, selectedExcel, onSelectionChange, onExcelSelectionChange, onDeleteFile, onUploadFiles, onColumnsLoaded, onSheetNamesLoaded, setToast, onRefresh, loadingColumns, setLoadingColumns }) {
       const inputRef = useRef(null);
       const [dragOver, setDragOver] = useState(false);
 
@@ -711,12 +711,13 @@
         fetch("/select_excel", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ excel_file: filename, header_row: 6 })
+          body: JSON.stringify({ excel_file: filename, header_row: 6, start_column: 'A', sheet_name: null })
         })
           .then((r) => r.json())
           .then((data) => {
             if (data.success && onColumnsLoaded) {
               onColumnsLoaded(data.columns, data.default_tag_column);
+              if (data.sheet_names && onSheetNamesLoaded) onSheetNamesLoaded(data.sheet_names, data.active_sheet);
               setToast({ type: "success", text: `Switched to ${filename.split('_').slice(1).join('_')}` });
             } else {
               setToast({ type: "error", text: data.message || "Failed to load columns" });
@@ -1584,6 +1585,9 @@
 
       // Configuration state
       const [headerRow, setHeaderRow] = useState(6);
+      const [startColumn, setStartColumn] = useState('A');
+      const [sheetName, setSheetName] = useState('');
+      const [sheetNames, setSheetNames] = useState([]);
       const [tagColumn, setTagColumn] = useState("");
       const [commentColumns, setCommentColumns] = useState([]);
       const [highlightColor, setHighlightColor] = useState("#FFFF00");
@@ -1732,17 +1736,22 @@
         }
       }
 
-      function reloadColumnsForHeaderRow(nextHeaderRow) {
+      function reloadColumns({ nextHeaderRow, nextStartColumn, nextSheetName } = {}) {
+        const row = nextHeaderRow !== undefined ? nextHeaderRow : headerRow;
+        const col = nextStartColumn !== undefined ? nextStartColumn : startColumn;
+        const sheet = nextSheetName !== undefined ? nextSheetName : sheetName;
         setLoadingColumns(true);
         fetch("/reload_columns", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ header_row: nextHeaderRow }),
+          body: JSON.stringify({ header_row: row, start_column: col, sheet_name: sheet || null }),
         })
           .then((r) => r.json())
           .then((data) => {
             if (data.success) {
               onColumnsLoaded(data.columns, data.default_tag_column);
+              if (data.sheet_names) setSheetNames(data.sheet_names);
+              if (data.active_sheet) setSheetName(data.active_sheet);
               logToConsole(data.message || "Columns reloaded");
             } else {
               setToast({ type: "error", text: data.message || "Failed to reload columns" });
@@ -1756,6 +1765,10 @@
           .finally(() => {
             setLoadingColumns(false);
           });
+      }
+
+      function reloadColumnsForHeaderRow(nextHeaderRow) {
+        reloadColumns({ nextHeaderRow });
       }
 
       // Handle tag matching preset changes
@@ -2446,6 +2459,8 @@
 
         const data = {
           header_row: Number(headerRow) || 1,
+          sheet_name: sheetName || null,
+          start_column: startColumn || 'A',
           tag_column: tagColumn || "",
           comment_columns: commentColumns.length > 0 ? commentColumns : null,
           highlight_color: highlightColor,
@@ -2847,6 +2862,9 @@
                   .then((colData) => {
                     if (colData.success) {
                       onColumnsLoaded(colData.columns, colData.default_tag_column);
+                      if (colData.sheet_names) setSheetNames(colData.sheet_names);
+                      if (colData.active_sheet) setSheetName(colData.active_sheet);
+                      setStartColumn('A');
                     }
                   })
                   .catch((err) => {
@@ -3179,6 +3197,9 @@
               setTagColumn("");
               setCommentColumns([]);
               setHeaderRow(6);
+              setStartColumn('A');
+              setSheetName('');
+              setSheetNames([]);
               setHighlightColumn("");
               setHighlightColor("#FFFF00");
               setAnnotateExcel(false);
@@ -3232,6 +3253,7 @@
                 onDeleteFile={() => {}}
                 onUploadFiles={() => {}}
                 onColumnsLoaded={onColumnsLoaded}
+                onSheetNamesLoaded={(names, active) => { setSheetNames(names); setSheetName(active || ''); setStartColumn('A'); }}
                 setToast={setToast}
                 onRefresh={refreshWorkspace}
                 loadingColumns={loadingColumns}
@@ -3264,7 +3286,7 @@
                         onChange={(e) => {
                           const v = Number(e.target.value);
                           setHeaderRow(v);
-                          reloadColumnsForHeaderRow(v);
+                          reloadColumns({ nextHeaderRow: v });
                         }}
                         disabled={loadingColumns}
                         className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -3282,6 +3304,56 @@
                         Default: 6
                       </div>
                     </div>
+                    <div>
+                      <label htmlFor="start-column" className="block text-sm font-medium mb-1">
+                        Start Column
+                      </label>
+                      <select
+                        id="start-column"
+                        value={startColumn}
+                        onChange={(e) => {
+                          const v = e.target.value;
+                          setStartColumn(v);
+                          reloadColumns({ nextStartColumn: v });
+                        }}
+                        disabled={loadingColumns || !selectedExcel}
+                        className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((letter) => (
+                          <option key={letter} value={letter}>
+                            Column {letter}
+                          </option>
+                        ))}
+                      </select>
+                      <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                        Columns before this are ignored. Default: A
+                      </div>
+                    </div>
+                    {sheetNames.length > 1 && (
+                      <div className="sm:col-span-2">
+                        <label htmlFor="sheet-name" className="block text-sm font-medium mb-1">
+                          Sheet
+                        </label>
+                        <select
+                          id="sheet-name"
+                          value={sheetName}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setSheetName(v);
+                            reloadColumns({ nextSheetName: v });
+                          }}
+                          disabled={loadingColumns}
+                          className="w-full rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-brand/60 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {sheetNames.map((s) => (
+                            <option key={s} value={s}>{s}</option>
+                          ))}
+                        </select>
+                        <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          Default: first sheet
+                        </div>
+                      </div>
+                    )}
                     <div>
                       <label htmlFor="tag-column" className="block text-sm font-medium mb-1 flex items-center">
                         <span className="flex items-center">

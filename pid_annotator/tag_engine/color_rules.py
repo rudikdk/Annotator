@@ -76,7 +76,7 @@ def apply_color_rules(tag, row_data, color_rules, default_color="#FFFF00"):
                 continue  # Skip if no row data provided
 
             column_name = rule.get('column_name', '')
-            if not column_name or column_name not in row_data.index:
+            if not column_name or column_name not in row_data:
                 continue  # Skip if column doesn't exist
 
             # Get the column value from row data

@@ -6,7 +6,7 @@ from pathlib import Path
 from flask import Blueprint, request, jsonify, session, current_app
 from werkzeug.utils import secure_filename
 
-from pid_annotator.analysis import reload_excel_columns
+from pid_annotator.analysis import reload_excel_columns, get_excel_sheets
 
 # Create blueprint
 upload_bp = Blueprint('upload', __name__)
@@ -14,7 +14,7 @@ upload_bp = Blueprint('upload', __name__)
 # Allowed file extensions
 ALLOWED_EXTENSIONS = {
     'pdf': {'pdf'},
-    'excel': {'xlsx', 'xls', 'csv'}
+    'excel': {'xlsx', 'xls', 'xlsm', 'csv'}
 }
 
 def allowed_file(filename, file_type):
@@ -85,13 +85,15 @@ def upload_excel():
 
         session['excel_file'] = filename
 
-        # Load Excel columns
-        result = reload_excel_columns(filepath, 6)
+        # Load Excel columns (default: header row 6, sheet 0, start column A)
+        result = reload_excel_columns(filepath, 6, sheet_name=None, start_column='A')
 
         if result['success']:
             session['excel_columns'] = result['columns']
             session['default_tag_column'] = result['default_tag_column']
             session['header_row'] = 6
+            session['sheet_name'] = result['active_sheet']
+            session['start_column'] = 'A'
 
             return jsonify({
                 'success': True,
@@ -99,7 +101,9 @@ def upload_excel():
                 'filename': file.filename,
                 'filepath': filename,
                 'columns': result['columns'],
-                'default_tag_column': result['default_tag_column']
+                'default_tag_column': result['default_tag_column'],
+                'sheet_names': result['sheet_names'],
+                'active_sheet': result['active_sheet'],
             })
         else:
             return jsonify({

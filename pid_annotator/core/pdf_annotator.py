@@ -863,17 +863,13 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
 
     # Read Excel with configurable header row
     update_progress(2, "Starting Excel file validation...")
-
-    # Support both .xlsx and .xls files for reading
-    is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-
     update_progress(5, "Reading Excel file...")
-    if is_xls:
-        # Use xlrd engine for .xls files
-        df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-    else:
-        # Use openpyxl engine for .xlsx files
-        df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+    from pid_annotator.analysis.excel_helpers import _get_engine, _apply_start_column, get_excel_sheets
+    _engine = _get_engine(excel_path)
+    _xl = pd.ExcelFile(excel_path, engine=_engine)
+    _resolved_sheet = sheet_name if sheet_name in _xl.sheet_names else _xl.sheet_names[0]
+    df = _xl.parse(sheet_name=_resolved_sheet, header=header_row - 1)
+    df = _apply_start_column(df, start_column)
 
     update_progress(8, "Processing Excel data...")
     df = df.dropna(axis=1, how="all")  # Remove empty columns
@@ -1193,6 +1189,8 @@ def _annotate_pdf_streaming(config: AnnotationConfig) -> tuple:
     out_path = config.output_path
     tag_column = config.tag_column
     header_row = config.header_row
+    sheet_name = config.sheet_name
+    start_column = config.start_column or 'A'
     selected_comment_columns = config.comment_columns
     annotation_type = config.annotation_type
     default_highlight_color = config.highlight_color
@@ -1228,16 +1226,12 @@ def _annotate_pdf_streaming(config: AnnotationConfig) -> tuple:
 
     # Read Excel data
     update_progress(2, "Loading Excel file...")
-    # Support both .xlsx and .xls files for reading
-    is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-
-    if is_xls:
-        # Use xlrd engine for .xls files
-        df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-    else:
-        # Use openpyxl engine for .xlsx files
-        df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
+    from pid_annotator.analysis.excel_helpers import _get_engine, _apply_start_column
+    _engine = _get_engine(excel_path)
+    _xl = pd.ExcelFile(excel_path, engine=_engine)
+    _resolved_sheet = sheet_name if sheet_name in _xl.sheet_names else _xl.sheet_names[0]
+    df = _xl.parse(sheet_name=_resolved_sheet, header=header_row - 1)
+    df = _apply_start_column(df, start_column)
     df = df.dropna(axis=1, how="all")
     # Strip whitespace from column names for consistent matching
     df.columns = [str(col).strip() for col in df.columns]

@@ -37,6 +37,8 @@ class AnnotationConfig:
     # Excel settings
     tag_column: Optional[str] = None
     header_row: int = 6
+    sheet_name: Optional[str] = None
+    start_column: str = 'A'
     comment_columns: Optional[List[str]] = None
 
     # Highlighting
@@ -125,6 +127,8 @@ class AnnotationConfig:
             output_path=request_data.get('output_path', ''),
             tag_column=tag_column,
             header_row=request_data.get('header_row', 6),
+            sheet_name=request_data.get('sheet_name') or session_data.get('sheet_name'),
+            start_column=request_data.get('start_column') or session_data.get('start_column', 'A'),
             comment_columns=request_data.get('comment_columns'),
             highlight_color=request_data.get('default_highlight_color', '#FFFF00'),
             annotate_excel=request_data.get('annotate_excel', False),

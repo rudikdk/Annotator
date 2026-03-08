@@ -9,16 +9,51 @@ with different header row configurations.
 import pandas as pd
 
 
-def reload_excel_columns(excel_path, header_row):
+def _get_engine(excel_path: str) -> str:
+    """Return the correct pandas engine for the given Excel file."""
+    lower = excel_path.lower()
+    if lower.endswith('.xls') and not lower.endswith('.xlsx'):
+        return 'xlrd'
+    return 'openpyxl'
+
+
+def _apply_start_column(df, start_column: str):
+    """Drop all columns to the left of start_column (Excel letter, e.g. 'C')."""
+    start_column = (start_column or 'A').upper()
+    if start_column == 'A':
+        return df
+    try:
+        from openpyxl.utils import column_index_from_string
+        start_idx = column_index_from_string(start_column) - 1
+        if 0 < start_idx < len(df.columns):
+            return df.iloc[:, start_idx:]
+    except Exception:
+        pass
+    return df
+
+
+def get_excel_sheets(excel_path: str) -> list:
+    """Return list of sheet names for an Excel file. Returns [] on error."""
+    try:
+        xl = pd.ExcelFile(excel_path, engine=_get_engine(excel_path))
+        return xl.sheet_names
+    except Exception:
+        return []
+
+
+def reload_excel_columns(excel_path, header_row, sheet_name=None, start_column='A'):
     """
-    Reload Excel columns with a new header row
+    Reload Excel columns with a new header row, optional sheet, and optional start column.
 
     Args:
         excel_path: Path to the Excel file
         header_row: Row number containing headers (1-based)
+        sheet_name: Sheet name to read (None = first sheet)
+        start_column: Excel column letter to start reading from, e.g. 'A', 'C' (default 'A')
 
     Returns:
-        dict: Contains 'success', 'columns', 'message', 'default_tag_column'
+        dict: Contains 'success', 'columns', 'message', 'default_tag_column',
+              'sheet_names', 'active_sheet'
     """
     try:
         if header_row < 1:
@@ -26,36 +61,44 @@ def reload_excel_columns(excel_path, header_row):
                 'success': False,
                 'columns': [],
                 'message': 'Header row must be 1 or greater',
-                'default_tag_column': None
+                'default_tag_column': None,
+                'sheet_names': [],
+                'active_sheet': None,
             }
 
-        # Support both .xlsx and .xls files
-        # .xls files can be read for processing but cannot be annotated (Excel annotation disabled for .xls)
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        engine = _get_engine(excel_path)
 
-        if is_xls:
-            # Use xlrd engine for .xls files
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            # Use openpyxl engine for .xlsx files
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+        # Get sheet names
+        xl = pd.ExcelFile(excel_path, engine=engine)
+        sheet_names = xl.sheet_names
+
+        # Resolve sheet
+        if sheet_name not in sheet_names:
+            sheet_name = sheet_names[0] if sheet_names else 0
+
+        df = xl.parse(sheet_name=sheet_name, header=header_row - 1)
+
+        # Apply start column filter (drop columns to the left of start_column)
+        start_column = (start_column or 'A').upper()
+        if start_column != 'A':
+            try:
+                from openpyxl.utils import column_index_from_string
+                start_idx = column_index_from_string(start_column) - 1
+                if 0 < start_idx < len(df.columns):
+                    df = df.iloc[:, start_idx:]
+            except Exception:
+                pass  # Invalid column letter — ignore, use full dataframe
 
         df = df.dropna(axis=1, how="all")  # Remove empty columns
-
-        # Strip whitespace from column names to prevent matching issues
         columns = [str(col).strip() for col in df.columns]
-
-        # Default tag column to None - user must select manually
-        default_tag_column = None
-
-        # Build message
-        message = f"Successfully loaded {len(columns)} columns from header row {header_row}"
 
         return {
             'success': True,
             'columns': columns,
-            'message': message,
-            'default_tag_column': default_tag_column
+            'message': f"Successfully loaded {len(columns)} columns from header row {header_row}",
+            'default_tag_column': None,
+            'sheet_names': sheet_names,
+            'active_sheet': sheet_name,
         }
 
     except Exception as e:
@@ -63,5 +106,7 @@ def reload_excel_columns(excel_path, header_row):
             'success': False,
             'columns': [],
             'message': f'Error loading Excel columns: {str(e)}',
-            'default_tag_column': None
+            'default_tag_column': None,
+            'sheet_names': [],
+            'active_sheet': None,
         }

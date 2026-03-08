@@ -157,8 +157,8 @@ def process_files():
         is_test = data.get('is_test', False)  # Flag to indicate test run
         annotate_excel = data.get('annotate_excel', False)  # New parameter for Excel annotation
 
-        # Disable Excel annotation for .xls files (read-only support for .xls)
-        is_xls_file = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        # Disable Excel annotation for legacy .xls files (read-only); .xlsx and .xlsm are writable
+        is_xls_file = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith(('.xlsx', '.xlsm'))
         if annotate_excel and is_xls_file:
             # Automatically disable Excel annotation for .xls files
             print(f"[APP INFO] Excel annotation disabled for .xls file: {excel_path}")
@@ -196,14 +196,16 @@ def process_files():
         filter_logic = data.get('filter_logic', 'AND')
 
         # Validate filters and count matching tags
-        if tag_filters:
-            # Load Excel to count matching tags
-            is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-            if is_xls:
-                df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-            else:
-                df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
+        sheet_name = data.get('sheet_name') or session.get('sheet_name')
+        start_column = data.get('start_column') or session.get('start_column', 'A')
 
+        if tag_filters:
+            from pid_annotator.analysis.excel_helpers import _get_engine, _apply_start_column
+            _engine = _get_engine(excel_path)
+            _xl = pd.ExcelFile(excel_path, engine=_engine)
+            _sheet = sheet_name if sheet_name in _xl.sheet_names else _xl.sheet_names[0]
+            df = _xl.parse(sheet_name=_sheet, header=header_row - 1)
+            df = _apply_start_column(df, start_column)
             df = df.dropna(axis=1, how="all")
 
             # Strip whitespace from column names for consistent matching
