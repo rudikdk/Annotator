@@ -1306,8 +1306,16 @@
               a: 'Follow these steps: 1) Upload your Excel file with component tags, 2) Upload one or more PDF files, 3) Configure settings or load a template, 4) Click "Start" to process.'
             },
             {
+              q: 'Which Excel file formats are supported?',
+              a: 'The application supports .xlsx, .xls, .xlsm (macro-enabled), and .csv files. For .xlsm files, the macros are completely ignored — only the data is read, exactly like a normal Excel file. Excel annotation (row highlighting) works with .xlsx and .xlsm files.'
+            },
+            {
               q: 'Which row is used as headers in Excel?',
-              a: 'You can configure which row contains the headers using the "Header Row" field. The default is row 6, but you can adjust this to match your Excel file structure.'
+              a: 'Use the "Header Row" dropdown to select which row contains the column headers. Default is row 6, but you can adjust it to match your file. Changing this reloads the column list automatically.'
+            },
+            {
+              q: 'My Excel file has multiple sheets — which one is used?',
+              a: 'When your Excel file has more than one sheet, a "Sheet" dropdown appears automatically in the configuration. The first sheet is always selected by default. Switching sheets reloads the column list so you can pick the right tag and comment columns.'
             },
             {
               q: 'Which column should I use for tags?',
@@ -1344,7 +1352,7 @@
             },
             {
               q: 'How does Excel Annotation work?',
-              a: 'When enabled, the application highlights rows in your Excel file (with green fill) where tags were successfully found in the PDF. This helps you quickly identify which components were annotated.'
+              a: 'When enabled, the application highlights rows in your Excel file based on tag status: green = found in PDF, orange = not found, red = duplicate tag. Works with .xlsx and .xlsm files. Not available for legacy .xls files.'
             },
             {
               q: 'What is the Watermark feature?',
@@ -1352,7 +1360,7 @@
             },
             {
               q: 'How do Color Rules work?',
-              a: 'Color Rules let you highlight tags with different colors based on matching criteria. There are two rule types: Tag Part (match by a part of the tag string, e.g. Part B = "HV") and Excel Column (match by a column value in your Excel file). Rules are evaluated in order — the last matching rule wins and decides the color. Use the up/down arrows to set priority.'
+              a: 'Color Rules let you highlight tags with different colors based on matching criteria. There are two rule types: Tag Part (match by a part of the tag string, e.g. Part B = "HV") and Excel Column (match by a column value in your Excel file). Rules are evaluated in order — the last matching rule wins and decides the color. Color Rules work independently of the default highlight color — you can disable the default color and rely entirely on rules.'
             },
             {
               q: 'What match types are available in Color Rules?',
@@ -1394,7 +1402,7 @@
             },
             {
               q: 'What if my Excel file has a different structure?',
-              a: 'Adjust the "Header Row" setting to match your file. The application is flexible and works with most Excel structures as long as you specify the correct header row and tag column.'
+              a: 'Use the "Header Row" dropdown to point to the correct header row. If your data is on a specific sheet, the "Sheet" dropdown appears automatically when multiple sheets are detected. The column list refreshes every time you change these settings.'
             }
           ]
         },
