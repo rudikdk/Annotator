@@ -41,7 +41,9 @@ def annotate_pdf_page_for_preview(
     tag_matching_config=None,
     tag_filters=None,
     filter_logic="AND",
-    annotation_type="highlight_only"
+    annotation_type="highlight_only",
+    sheet_name=None,
+    start_column='A'
 ):
     """
     Process ONLY the specified page with full annotation pipeline for preview.
@@ -93,12 +95,12 @@ def annotate_pdf_page_for_preview(
         tag_pattern = generate_regex_pattern(config)
 
         # Load Excel data
-        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
-        if is_xls:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='xlrd')
-        else:
-            df = pd.read_excel(excel_path, header=header_row-1, engine='openpyxl')
-
+        from pid_annotator.analysis.excel_helpers import _get_engine, _apply_start_column
+        _engine = _get_engine(excel_path)
+        _xl = pd.ExcelFile(excel_path, engine=_engine)
+        _resolved_sheet = sheet_name if sheet_name in _xl.sheet_names else _xl.sheet_names[0]
+        df = _xl.parse(sheet_name=_resolved_sheet, header=header_row - 1)
+        df = _apply_start_column(df, start_column)
         df = df.dropna(axis=1, how="all")
         # Strip whitespace from column names for consistent matching
         df.columns = [str(col).strip() for col in df.columns]

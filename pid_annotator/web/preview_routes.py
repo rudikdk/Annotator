@@ -86,6 +86,9 @@ def preview_color_rules():
 
         print(f"[PREVIEW] Generating preview for page {page_num + 1} of {total_pages}")
 
+        sheet_name_p = data.get('sheet_name') or session.get('sheet_name')
+        start_column_p = data.get('start_column') or session.get('start_column', 'A')
+
         # Call the single-page preview function with ALL settings
         result = annotate_pdf_page_for_preview(
             pdf_path=pdf_path,
@@ -107,7 +110,9 @@ def preview_color_rules():
             tag_matching_config=tag_matching_config,
             tag_filters=tag_filters,
             filter_logic=filter_logic,
-            annotation_type=annotation_type
+            annotation_type=annotation_type,
+            sheet_name=sheet_name_p,
+            start_column=start_column_p
         )
 
         if not result['success']:
@@ -265,12 +270,17 @@ def generate_full_preview():
                 tag_matching_obj = tag_matching_config
 
         # Create annotation configuration
+        sheet_name = data.get('sheet_name') or session.get('sheet_name')
+        start_column = data.get('start_column') or session.get('start_column', 'A')
+
         config = AnnotationConfig(
             pdf_paths=[temp_single_page_pdf],
             excel_path=excel_path,
             output_path=preview_output_path,
             tag_column=tag_column,
             header_row=header_row,
+            sheet_name=sheet_name,
+            start_column=start_column,
             comment_columns=selected_comment_columns,
             highlight_color=default_highlight_color,
             annotation_type="highlight_only",
