@@ -337,13 +337,15 @@
         const excelFiles = files.filter(
           (f) =>
             f.name.toLowerCase().endsWith(".xlsx") ||
-            f.name.toLowerCase().endsWith(".xls")
+            f.name.toLowerCase().endsWith(".xls") ||
+            f.name.toLowerCase().endsWith(".xlsm")
         );
         const invalidFiles = files.filter(
           (f) =>
             !f.name.toLowerCase().endsWith(".pdf") &&
             !f.name.toLowerCase().endsWith(".xlsx") &&
-            !f.name.toLowerCase().endsWith(".xls")
+            !f.name.toLowerCase().endsWith(".xls") &&
+            !f.name.toLowerCase().endsWith(".xlsm")
         );
 
         if (invalidFiles.length > 0) {
@@ -482,12 +484,12 @@
               Upload one Excel first, then one or more PDF files
             </div>
             <div className="mt-2 text-xs text-zinc-400">
-              Supported: PDF, Excel (.xlsx / .xls)
+              Supported: PDF, Excel (.xlsx / .xls / .xlsm)
             </div>
             <input
               ref={inputRef}
               type="file"
-              accept=".pdf,.xlsx,.xls"
+              accept=".pdf,.xlsx,.xls,.xlsm"
               multiple
               className="hidden"
               onChange={(e) => {
@@ -766,7 +768,7 @@
             <input
               ref={inputRef}
               type="file"
-              accept=".pdf,.xlsx,.xls,.csv"
+              accept=".pdf,.xlsx,.xls,.xlsm,.csv"
               multiple
               className="hidden"
               onChange={(e) => {

@@ -292,8 +292,8 @@ function UploadArea({
     setStatusMsg("processing", `Processing ${files.length} file(s)...`);
     logToConsole(`Processing ${files.length} files...`);
     const pdfFiles = files.filter(f => f.name.toLowerCase().endsWith(".pdf"));
-    const excelFiles = files.filter(f => f.name.toLowerCase().endsWith(".xlsx") || f.name.toLowerCase().endsWith(".xls"));
-    const invalidFiles = files.filter(f => !f.name.toLowerCase().endsWith(".pdf") && !f.name.toLowerCase().endsWith(".xlsx") && !f.name.toLowerCase().endsWith(".xls"));
+    const excelFiles = files.filter(f => f.name.toLowerCase().endsWith(".xlsx") || f.name.toLowerCase().endsWith(".xls") || f.name.toLowerCase().endsWith(".xlsm"));
+    const invalidFiles = files.filter(f => !f.name.toLowerCase().endsWith(".pdf") && !f.name.toLowerCase().endsWith(".xlsx") && !f.name.toLowerCase().endsWith(".xls") && !f.name.toLowerCase().endsWith(".xlsm"));
     if (invalidFiles.length > 0) {
       setStatusMsg("error", `Invalid file types: ${invalidFiles.map(f => f.name).join(", ")}`);
       logToConsole(`Invalid file types: ${invalidFiles.map(f => f.name).join(", ")}`);
@@ -419,10 +419,10 @@ function UploadArea({
     className: "text-sm text-zinc-500 dark:text-zinc-400"
   }, "Upload one Excel first, then one or more PDF files"), /*#__PURE__*/React.createElement("div", {
     className: "mt-2 text-xs text-zinc-400"
-  }, "Supported: PDF, Excel (.xlsx / .xls)"), /*#__PURE__*/React.createElement("input", {
+  }, "Supported: PDF, Excel (.xlsx / .xls / .xlsm)"), /*#__PURE__*/React.createElement("input", {
     ref: inputRef,
     type: "file",
-    accept: ".pdf,.xlsx,.xls",
+    accept: ".pdf,.xlsx,.xls,.xlsm",
     multiple: true,
     className: "hidden",
     onChange: e => {
@@ -702,7 +702,7 @@ function FileWorkspace({
   }, "(PDF, Excel, CSV)")), /*#__PURE__*/React.createElement("input", {
     ref: inputRef,
     type: "file",
-    accept: ".pdf,.xlsx,.xls,.csv",
+    accept: ".pdf,.xlsx,.xls,.xlsm,.csv",
     multiple: true,
     className: "hidden",
     onChange: e => {
