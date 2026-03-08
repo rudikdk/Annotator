@@ -316,17 +316,13 @@ def process_files():
                     # Create watermark configuration if enabled
                     watermark_config = None
                     if watermark_enabled:
-                        # Handle watermark_attributes - convert list to string if needed
-                        watermark_attr_str = ""
-                        if isinstance(watermark_attributes, list) and watermark_attributes:
-                            watermark_attr_str = watermark_attributes[0] if watermark_attributes else ""
-                        elif isinstance(watermark_attributes, str):
-                            watermark_attr_str = watermark_attributes
-
+                        attrs = watermark_attributes if isinstance(watermark_attributes, list) else ([watermark_attributes] if watermark_attributes else [])
                         watermark_config = WatermarkConfig(
                             enabled=True,
-                            attributes=watermark_attr_str,
-                            text_color=watermark_text_color
+                            attributes=attrs,
+                            text_color=watermark_text_color,
+                            font_size=data.get('watermark_font_size', 9),
+                            background_enabled=watermark_background_enabled
                         )
 
                     # Convert tag_matching_config from dict to object if needed

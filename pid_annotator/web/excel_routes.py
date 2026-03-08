@@ -106,6 +106,89 @@ def get_header_unique_values():
     return jsonify({'values': values, 'error': None})
 
 
+@excel_bp.route('/get_color_rule_examples', methods=['POST'])
+def get_color_rule_examples():
+    """
+    Return up to 3 matching and 2 non-matching rows from Excel for a color rule being built.
+    Used to give the user live feedback in the rule builder.
+    """
+    data = request.get_json()
+    header_row = data.get('header_row', 6)
+    column_name = data.get('column_name')
+    match_type = data.get('match_type', 'exact')
+    value = data.get('value', '')
+    tag_column = data.get('tag_column')
+    selected_excel = data.get('selected_excel') or session.get('excel_file')
+
+    if not selected_excel or not column_name:
+        return jsonify({'matches': [], 'non_matches': []})
+
+    excel_path = os.path.join(current_app.config['UPLOAD_FOLDER'], selected_excel)
+    if not os.path.exists(excel_path):
+        return jsonify({'matches': [], 'non_matches': []})
+
+    try:
+        is_xls = excel_path.lower().endswith('.xls') and not excel_path.lower().endswith('.xlsx')
+        engine = 'xlrd' if is_xls else 'openpyxl'
+        df = pd.read_excel(excel_path, header=header_row - 1, engine=engine)
+        df = df.dropna(axis=1, how='all')
+        df.columns = [str(col).strip() for col in df.columns]
+
+        if column_name not in df.columns:
+            return jsonify({'matches': [], 'non_matches': []})
+
+        if not tag_column or tag_column not in df.columns:
+            tag_column = df.columns[0]
+
+        matches = []
+        non_matches = []
+
+        for _, row in df.iterrows():
+            tag = str(row[tag_column]).strip()
+            if not tag or tag.lower() == 'nan':
+                continue
+
+            col_val = row[column_name]
+            col_str = str(col_val).strip() if pd.notna(col_val) else ''
+            is_empty = col_str == '' or col_str.lower() == 'nan'
+
+            matched = False
+            if match_type == 'has_value':
+                matched = not is_empty
+            elif not is_empty:
+                col_upper = col_str.upper()
+                val_upper = value.strip().upper()
+                if match_type == 'exact':
+                    matched = (col_upper == val_upper)
+                elif match_type == 'contains':
+                    matched = (val_upper in col_upper)
+                elif match_type == 'greater_than':
+                    try:
+                        matched = float(col_str) > float(value)
+                    except (ValueError, TypeError):
+                        matched = col_upper > val_upper
+                elif match_type == 'less_than':
+                    try:
+                        matched = float(col_str) < float(value)
+                    except (ValueError, TypeError):
+                        matched = col_upper < val_upper
+
+            entry = {'tag': tag, 'column_value': col_str if not is_empty else '(empty)'}
+
+            if matched and len(matches) < 3:
+                matches.append(entry)
+            elif not matched and len(non_matches) < 2:
+                non_matches.append(entry)
+
+            if len(matches) >= 3 and len(non_matches) >= 2:
+                break
+
+        return jsonify({'matches': matches, 'non_matches': non_matches})
+
+    except Exception as e:
+        return jsonify({'matches': [], 'non_matches': [], 'error': str(e)})
+
+
 @excel_bp.route('/preview_filtered_tags', methods=['POST'])
 def preview_filtered_tags():
     """Preview which tags match the current filter criteria"""

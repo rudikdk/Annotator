@@ -36,6 +36,7 @@ def annotate_pdf_page_for_preview(
     watermark_enabled=False,
     watermark_attributes=None,
     watermark_text_color="#000000",
+    watermark_font_size=9,
     watermark_background_enabled=False,
     tag_matching_config=None,
     tag_filters=None,
@@ -288,13 +289,13 @@ def annotate_pdf_page_for_preview(
                                     watermark_parts.append(str(val))
 
                         if watermark_parts:
-                            watermark_text = " | ".join(watermark_parts)
+                            watermark_text = " / ".join(watermark_parts)
                             first_rect = rects[0]
                             watermark_items.append({
                                 'text': watermark_text,
                                 'x': first_rect.x0,
                                 'y': first_rect.y0 - 15,
-                                'font_size': 8
+                                'font_size': watermark_font_size
                             })
 
         # PHASE 3: Apply watermarks if enabled

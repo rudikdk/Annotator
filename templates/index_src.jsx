@@ -1608,10 +1608,15 @@
       const [pdfDocument, setPdfDocument] = useState(null);
 
       const [annotateExcel, setAnnotateExcel] = useState(true);
+      const [ruleExamples, setRuleExamples] = useState({ matches: [], non_matches: [] });
+      const [ruleLoadingExamples, setRuleLoadingExamples] = useState(false);
+
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
       const [watermarkTextColor, setWatermarkTextColor] = useState("#000000");
       const [watermarkBackgroundEnabled, setWatermarkBackgroundEnabled] = useState(false);
+      const [watermarkFontSize, setWatermarkFontSize] = useState(9);
+      const [watermarkDragIndex, setWatermarkDragIndex] = useState(null);
 
       // Tag matching configuration state
       const [tagMatchingPreset, setTagMatchingPreset] = useState('default'); // 'default', 'match_all', 'custom'
@@ -1949,7 +1954,8 @@
 
       // Color rules handlers
       function handleAddColorRule() {
-        if (!newRuleValue.trim()) {
+        // has_value doesn't need a value to match against
+        if (newRuleMatchType !== 'has_value' && !newRuleValue.trim()) {
           setToast({ type: "error", text: "Please enter a value to match" });
           return;
         }
@@ -1986,6 +1992,7 @@
         setNewRuleMatchType('contains');
         setNewRuleColor('#FFFF00');
         setRuleAvailableHeaderValues([]);
+        setRuleExamples({ matches: [], non_matches: [] });
         setToast({ type: "success", text: "Color rule added successfully" });
       }
 
@@ -2022,6 +2029,40 @@
             setToast({ type: "error", text: "Error fetching column values" });
             setRuleAvailableHeaderValues([]);
             logToConsole(`Error fetching header values: ${err.message}`);
+          });
+      }
+
+      function handleFetchRuleExamples(columnName, matchType, value) {
+        if (!columnName || !selectedExcel) {
+          setRuleExamples({ matches: [], non_matches: [] });
+          return;
+        }
+        // For match types that need a value, skip if value is empty
+        if (['exact', 'contains', 'greater_than', 'less_than'].includes(matchType) && !value.trim()) {
+          setRuleExamples({ matches: [], non_matches: [] });
+          return;
+        }
+        setRuleLoadingExamples(true);
+        fetch("/get_color_rule_examples", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            selected_excel: selectedExcel,
+            column_name: columnName,
+            match_type: matchType,
+            value: value,
+            tag_column: tagColumn,
+            header_row: headerRow
+          })
+        })
+          .then((r) => r.json())
+          .then((data) => {
+            setRuleLoadingExamples(false);
+            setRuleExamples({ matches: data.matches || [], non_matches: data.non_matches || [] });
+          })
+          .catch(() => {
+            setRuleLoadingExamples(false);
+            setRuleExamples({ matches: [], non_matches: [] });
           });
       }
 
@@ -2136,6 +2177,7 @@
           watermark_enabled: watermarkEnabled,
           watermark_attributes: watermarkAttributes,
           watermark_text_color: watermarkTextColor,
+          watermark_font_size: watermarkFontSize,
           watermark_background_enabled: watermarkBackgroundEnabled
         };
 
@@ -2399,6 +2441,7 @@
           watermark_enabled: watermarkEnabled,
           watermark_attributes: watermarkAttributes,
           watermark_text_color: watermarkTextColor,
+          watermark_font_size: watermarkFontSize,
           watermark_background_enabled: watermarkBackgroundEnabled,
           max_tags: isTest ? 100 : null,
           is_test: isTest,
@@ -2579,6 +2622,7 @@
         if (settings.watermark_attributes !== undefined) setWatermarkAttributes(settings.watermark_attributes);
         if (settings.watermark_text_color !== undefined) setWatermarkTextColor(settings.watermark_text_color);
         if (settings.watermark_background_enabled !== undefined) setWatermarkBackgroundEnabled(settings.watermark_background_enabled);
+        if (settings.watermark_font_size !== undefined) setWatermarkFontSize(settings.watermark_font_size);
 
         // Apply tag matching settings
         if (settings.tag_matching_preset !== undefined) setTagMatchingPreset(settings.tag_matching_preset);
@@ -2614,6 +2658,7 @@
           watermark_enabled: watermarkEnabled,
           watermark_attributes: watermarkAttributes,
           watermark_text_color: watermarkTextColor,
+          watermark_font_size: watermarkFontSize,
           watermark_background_enabled: watermarkBackgroundEnabled,
           tag_matching_preset: tagMatchingPreset,
           tag_matching_min_parts: tagMatchingMinParts,
@@ -3402,17 +3447,33 @@
 
                     {watermarkEnabled && (
                       <>
-                        <div>
-                          <label htmlFor="watermark-text-color" className="block text-sm font-medium mb-1">
-                            Text Color
-                          </label>
-                          <input
-                            id="watermark-text-color"
-                            type="color"
-                            value={watermarkTextColor}
-                            onChange={(e) => setWatermarkTextColor(e.target.value)}
-                            className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
-                          />
+                        <div className="flex flex-wrap gap-4 items-end">
+                          <div>
+                            <label htmlFor="watermark-text-color" className="block text-sm font-medium mb-1">
+                              Text Color
+                            </label>
+                            <input
+                              id="watermark-text-color"
+                              type="color"
+                              value={watermarkTextColor}
+                              onChange={(e) => setWatermarkTextColor(e.target.value)}
+                              className="h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="watermark-font-size" className="block text-sm font-medium mb-1">
+                              Font Size (pt)
+                            </label>
+                            <input
+                              id="watermark-font-size"
+                              type="number"
+                              min="5"
+                              max="24"
+                              value={watermarkFontSize}
+                              onChange={(e) => setWatermarkFontSize(Math.max(5, Math.min(24, parseInt(e.target.value) || 9)))}
+                              className="h-10 w-20 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm"
+                            />
+                          </div>
                         </div>
 
                         <div>
@@ -3431,9 +3492,57 @@
                         </div>
 
                         <div>
-                          <label className="block text-sm font-medium mb-1">
-                            Watermark Attributes (multiple allowed)
+                          <label className="block text-sm font-medium mb-2">
+                            Watermark Attributes
                           </label>
+
+                          {/* Live preview */}
+                          <div className="mb-3 rounded-lg border border-zinc-200/60 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2">
+                            <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Preview</p>
+                            <p className="text-sm font-mono" style={{ color: watermarkTextColor, fontSize: `${Math.max(10, watermarkFontSize)}px` }}>
+                              {watermarkAttributes.length === 0
+                                ? <span className="text-zinc-400 italic">No attributes selected</span>
+                                : watermarkAttributes.map((a) => a.split(' ')[0]).join(' / ')}
+                            </p>
+                          </div>
+
+                          {/* Drag-to-reorder selected attributes */}
+                          {watermarkAttributes.length > 1 && (
+                            <div className="mb-3">
+                              <p className="text-xs text-zinc-500 dark:text-zinc-400 mb-1">Drag to reorder</p>
+                              <div className="flex flex-col gap-1">
+                                {watermarkAttributes.map((attr, idx) => (
+                                  <div
+                                    key={attr}
+                                    draggable
+                                    onDragStart={() => setWatermarkDragIndex(idx)}
+                                    onDragOver={(e) => e.preventDefault()}
+                                    onDrop={() => {
+                                      if (watermarkDragIndex === null || watermarkDragIndex === idx) return;
+                                      const reordered = [...watermarkAttributes];
+                                      const [moved] = reordered.splice(watermarkDragIndex, 1);
+                                      reordered.splice(idx, 0, moved);
+                                      setWatermarkAttributes(reordered);
+                                      setWatermarkDragIndex(null);
+                                    }}
+                                    onDragEnd={() => setWatermarkDragIndex(null)}
+                                    className={cx(
+                                      "flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-grab active:cursor-grabbing transition-colors select-none",
+                                      watermarkDragIndex === idx
+                                        ? "border-brand/50 bg-brand/10 opacity-60"
+                                        : "border-zinc-200/60 dark:border-zinc-700 bg-white dark:bg-zinc-800"
+                                    )}
+                                  >
+                                    <span className="text-zinc-400">⠿</span>
+                                    <span className="text-xs text-zinc-400 w-4">{idx + 1}.</span>
+                                    <span>{attr}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Column checkboxes */}
                           <div className="mb-2 flex flex-wrap gap-2">
                             <button
                               type="button"
@@ -4997,6 +5106,7 @@
                                       onChange={(e) => {
                                         setNewRuleColumn(e.target.value);
                                         handleFetchHeaderValuesForRule(e.target.value);
+                                        handleFetchRuleExamples(e.target.value, newRuleMatchType, newRuleValue);
                                       }}
                                       className="w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
                                     >
@@ -5023,7 +5133,10 @@
                                               {ruleAvailableHeaderValues.slice(0, showAllRuleValues ? undefined : 20).map((val, idx) => (
                                                 <button
                                                   key={val.value || idx}
-                                                  onClick={() => setNewRuleValue(val.value)}
+                                                  onClick={() => {
+                                                    setNewRuleValue(val.value);
+                                                    handleFetchRuleExamples(newRuleColumn, newRuleMatchType, val.value);
+                                                  }}
                                                   className="px-2 py-0.5 rounded bg-zinc-200/70 dark:bg-zinc-800 hover:bg-brand/10 hover:text-brand text-xs"
                                                   title={`Click to use "${val.value}" (found ${val.count} times)`}
                                                 >
@@ -5050,35 +5163,17 @@
                                   </div>
                                 )}
 
-                                {/* Value Input */}
-                                <div className="space-y-2">
-                                  <label className="block text-sm font-medium">
-                                    {newRuleType === 'header_column' && newRuleColumn ? 'Or enter custom value:' : 'Match Value'}
-                                  </label>
-                                  <input
-                                    type="text"
-                                    value={newRuleValue}
-                                    onChange={(e) => setNewRuleValue(e.target.value)}
-                                    placeholder={
-                                      newRuleType === 'header_column' && newRuleColumn
-                                        ? 'Type custom value or click a value above...'
-                                        : 'Enter value to match...'
-                                    }
-                                    className="w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-                                  />
-                                </div>
-
-                                {/* Match Type */}
+                                {/* Match Type — extended options for Excel Column rules */}
                                 <div className="space-y-2">
                                   <label className="block text-sm font-medium">Match Type</label>
-                                  <div className="flex gap-3">
+                                  <div className="flex flex-wrap gap-3">
                                     <label className="flex items-center gap-2 cursor-pointer">
                                       <input
                                         type="radio"
                                         name="new-match-type"
                                         value="exact"
                                         checked={newRuleMatchType === 'exact'}
-                                        onChange={(e) => setNewRuleMatchType(e.target.value)}
+                                        onChange={(e) => { setNewRuleMatchType(e.target.value); handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue); }}
                                         className="accent-brand"
                                       />
                                       <span className="text-sm">Exact</span>
@@ -5089,13 +5184,108 @@
                                         name="new-match-type"
                                         value="contains"
                                         checked={newRuleMatchType === 'contains'}
-                                        onChange={(e) => setNewRuleMatchType(e.target.value)}
+                                        onChange={(e) => { setNewRuleMatchType(e.target.value); handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue); }}
                                         className="accent-brand"
                                       />
                                       <span className="text-sm">Contains</span>
                                     </label>
+                                    {newRuleType === 'header_column' && (
+                                      <>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                          <input
+                                            type="radio"
+                                            name="new-match-type"
+                                            value="has_value"
+                                            checked={newRuleMatchType === 'has_value'}
+                                            onChange={(e) => { setNewRuleMatchType(e.target.value); handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue); }}
+                                            className="accent-brand"
+                                          />
+                                          <span className="text-sm">Has value</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                          <input
+                                            type="radio"
+                                            name="new-match-type"
+                                            value="greater_than"
+                                            checked={newRuleMatchType === 'greater_than'}
+                                            onChange={(e) => { setNewRuleMatchType(e.target.value); handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue); }}
+                                            className="accent-brand"
+                                          />
+                                          <span className="text-sm">Greater than</span>
+                                        </label>
+                                        <label className="flex items-center gap-2 cursor-pointer">
+                                          <input
+                                            type="radio"
+                                            name="new-match-type"
+                                            value="less_than"
+                                            checked={newRuleMatchType === 'less_than'}
+                                            onChange={(e) => { setNewRuleMatchType(e.target.value); handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue); }}
+                                            className="accent-brand"
+                                          />
+                                          <span className="text-sm">Less than</span>
+                                        </label>
+                                      </>
+                                    )}
                                   </div>
                                 </div>
+
+                                {/* Value Input — hidden for has_value */}
+                                {newRuleMatchType !== 'has_value' && (
+                                  <div className="space-y-2">
+                                    <label className="block text-sm font-medium">
+                                      {newRuleType === 'header_column' && newRuleColumn ? 'Or enter custom value:' : 'Match Value'}
+                                    </label>
+                                    <input
+                                      type="text"
+                                      value={newRuleValue}
+                                      onChange={(e) => {
+                                        setNewRuleValue(e.target.value);
+                                        handleFetchRuleExamples(newRuleColumn, newRuleMatchType, e.target.value);
+                                      }}
+                                      placeholder={
+                                        newRuleType === 'header_column' && newRuleColumn
+                                          ? 'Type custom value or click a value above...'
+                                          : 'Enter value to match...'
+                                      }
+                                      className="w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+                                    />
+                                  </div>
+                                )}
+
+                                {/* Live Examples */}
+                                {newRuleType === 'header_column' && newRuleColumn && (
+                                  <div className="rounded-lg border border-zinc-200/60 dark:border-zinc-700 overflow-hidden">
+                                    <div className="px-3 py-1.5 bg-zinc-100/80 dark:bg-zinc-800/60 text-xs font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-2">
+                                      <i className="fa-solid fa-flask"></i>
+                                      Live examples from your Excel
+                                      {ruleLoadingExamples && <i className="fa-solid fa-spinner fa-spin ml-auto"></i>}
+                                    </div>
+                                    {!ruleLoadingExamples && ruleExamples.matches.length === 0 && ruleExamples.non_matches.length === 0 ? (
+                                      <div className="px-3 py-2 text-xs text-zinc-400 italic">
+                                        {newRuleMatchType === 'has_value' ? 'Loading...' : 'Enter a value above to see examples'}
+                                      </div>
+                                    ) : (
+                                      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                                        {ruleExamples.matches.map((ex, i) => (
+                                          <div key={`m${i}`} className="flex items-center gap-2 px-3 py-1.5 bg-green-50/60 dark:bg-green-900/10">
+                                            <i className="fa-solid fa-check text-green-500 w-3 flex-shrink-0"></i>
+                                            <span className="text-xs font-mono font-medium text-zinc-700 dark:text-zinc-300 min-w-0 truncate">{ex.tag}</span>
+                                            <span className="text-xs text-zinc-400 mx-1">—</span>
+                                            <span className="text-xs text-zinc-500 dark:text-zinc-400 truncate">{ex.column_value}</span>
+                                          </div>
+                                        ))}
+                                        {ruleExamples.non_matches.map((ex, i) => (
+                                          <div key={`n${i}`} className="flex items-center gap-2 px-3 py-1.5 bg-red-50/40 dark:bg-red-900/10">
+                                            <i className="fa-solid fa-xmark text-red-400 w-3 flex-shrink-0"></i>
+                                            <span className="text-xs font-mono font-medium text-zinc-500 dark:text-zinc-500 min-w-0 truncate">{ex.tag}</span>
+                                            <span className="text-xs text-zinc-400 mx-1">—</span>
+                                            <span className="text-xs text-zinc-400 truncate">{ex.column_value}</span>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
 
                                 {/* Color Picker */}
                                 <div className="space-y-2">
@@ -5131,6 +5321,7 @@
                                       setNewRuleMatchType('contains');
                                       setNewRuleColor('#FFFF00');
                                       setRuleAvailableHeaderValues([]);
+                                      setRuleExamples({ matches: [], non_matches: [] });
                                     }}
                                     className="inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-2 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-all"
                                   >

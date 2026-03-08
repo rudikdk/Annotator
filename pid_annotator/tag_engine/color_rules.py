@@ -81,18 +81,32 @@ def apply_color_rules(tag, row_data, color_rules, default_color="#FFFF00"):
 
             # Get the column value from row data
             column_value = str(row_data[column_name]).strip()
-            if column_value.lower() == 'nan' or column_value == '':
-                continue  # Skip empty values
+            is_empty = column_value.lower() == 'nan' or column_value == ''
 
-            # Compare column value with rule value (case-insensitive)
-            column_value_upper = column_value.upper()
-            value_upper = value.upper()
+            if match_type == 'has_value':
+                matches = not is_empty
+            else:
+                if is_empty:
+                    continue  # Skip empty values for other match types
 
-            # Check if rule matches
-            if match_type == 'exact':
-                matches = (column_value_upper == value_upper)
-            elif match_type == 'contains':
-                matches = (value_upper in column_value_upper)
+                # Compare column value with rule value (case-insensitive)
+                column_value_upper = column_value.upper()
+                value_upper = value.upper()
+
+                if match_type == 'exact':
+                    matches = (column_value_upper == value_upper)
+                elif match_type == 'contains':
+                    matches = (value_upper in column_value_upper)
+                elif match_type == 'greater_than':
+                    try:
+                        matches = float(column_value) > float(value)
+                    except (ValueError, TypeError):
+                        matches = column_value_upper > value_upper
+                elif match_type == 'less_than':
+                    try:
+                        matches = float(column_value) < float(value)
+                    except (ValueError, TypeError):
+                        matches = column_value_upper < value_upper
 
         else:  # tag_part matching (original logic)
             part = rule.get('part', 1)

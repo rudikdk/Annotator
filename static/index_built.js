@@ -1353,10 +1353,17 @@ function App() {
   const previewCanvasRef = useRef(null);
   const [pdfDocument, setPdfDocument] = useState(null);
   const [annotateExcel, setAnnotateExcel] = useState(true);
+  const [ruleExamples, setRuleExamples] = useState({
+    matches: [],
+    non_matches: []
+  });
+  const [ruleLoadingExamples, setRuleLoadingExamples] = useState(false);
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
   const [watermarkAttributes, setWatermarkAttributes] = useState([]);
   const [watermarkTextColor, setWatermarkTextColor] = useState("#000000");
   const [watermarkBackgroundEnabled, setWatermarkBackgroundEnabled] = useState(false);
+  const [watermarkFontSize, setWatermarkFontSize] = useState(9);
+  const [watermarkDragIndex, setWatermarkDragIndex] = useState(null);
 
   // Tag matching configuration state
   const [tagMatchingPreset, setTagMatchingPreset] = useState('default'); // 'default', 'match_all', 'custom'
@@ -1722,7 +1729,8 @@ function App() {
 
   // Color rules handlers
   function handleAddColorRule() {
-    if (!newRuleValue.trim()) {
+    // has_value doesn't need a value to match against
+    if (newRuleMatchType !== 'has_value' && !newRuleValue.trim()) {
       setToast({
         type: "error",
         text: "Please enter a value to match"
@@ -1764,6 +1772,10 @@ function App() {
     setNewRuleMatchType('contains');
     setNewRuleColor('#FFFF00');
     setRuleAvailableHeaderValues([]);
+    setRuleExamples({
+      matches: [],
+      non_matches: []
+    });
     setToast({
       type: "success",
       text: "Color rule added successfully"
@@ -1807,6 +1819,50 @@ function App() {
       });
       setRuleAvailableHeaderValues([]);
       logToConsole(`Error fetching header values: ${err.message}`);
+    });
+  }
+  function handleFetchRuleExamples(columnName, matchType, value) {
+    if (!columnName || !selectedExcel) {
+      setRuleExamples({
+        matches: [],
+        non_matches: []
+      });
+      return;
+    }
+    // For match types that need a value, skip if value is empty
+    if (['exact', 'contains', 'greater_than', 'less_than'].includes(matchType) && !value.trim()) {
+      setRuleExamples({
+        matches: [],
+        non_matches: []
+      });
+      return;
+    }
+    setRuleLoadingExamples(true);
+    fetch("/get_color_rule_examples", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        selected_excel: selectedExcel,
+        column_name: columnName,
+        match_type: matchType,
+        value: value,
+        tag_column: tagColumn,
+        header_row: headerRow
+      })
+    }).then(r => r.json()).then(data => {
+      setRuleLoadingExamples(false);
+      setRuleExamples({
+        matches: data.matches || [],
+        non_matches: data.non_matches || []
+      });
+    }).catch(() => {
+      setRuleLoadingExamples(false);
+      setRuleExamples({
+        matches: [],
+        non_matches: []
+      });
     });
   }
   function handleFetchHeaderValuesForFilter(columnName) {
@@ -1928,6 +1984,7 @@ function App() {
       watermark_enabled: watermarkEnabled,
       watermark_attributes: watermarkAttributes,
       watermark_text_color: watermarkTextColor,
+      watermark_font_size: watermarkFontSize,
       watermark_background_enabled: watermarkBackgroundEnabled
     };
 
@@ -2190,6 +2247,7 @@ function App() {
       watermark_enabled: watermarkEnabled,
       watermark_attributes: watermarkAttributes,
       watermark_text_color: watermarkTextColor,
+      watermark_font_size: watermarkFontSize,
       watermark_background_enabled: watermarkBackgroundEnabled,
       max_tags: isTest ? 100 : null,
       is_test: isTest,
@@ -2363,6 +2421,7 @@ function App() {
     if (settings.watermark_attributes !== undefined) setWatermarkAttributes(settings.watermark_attributes);
     if (settings.watermark_text_color !== undefined) setWatermarkTextColor(settings.watermark_text_color);
     if (settings.watermark_background_enabled !== undefined) setWatermarkBackgroundEnabled(settings.watermark_background_enabled);
+    if (settings.watermark_font_size !== undefined) setWatermarkFontSize(settings.watermark_font_size);
 
     // Apply tag matching settings
     if (settings.tag_matching_preset !== undefined) setTagMatchingPreset(settings.tag_matching_preset);
@@ -2398,6 +2457,7 @@ function App() {
       watermark_enabled: watermarkEnabled,
       watermark_attributes: watermarkAttributes,
       watermark_text_color: watermarkTextColor,
+      watermark_font_size: watermarkFontSize,
       watermark_background_enabled: watermarkBackgroundEnabled,
       tag_matching_preset: tagMatchingPreset,
       tag_matching_min_parts: tagMatchingMinParts,
@@ -3105,7 +3165,9 @@ function App() {
     className: cx("block h-5 w-5 rounded-full bg-white dark:bg-zinc-200 translate-x-0.5 transition-transform", watermarkEnabled && "translate-x-[22px]")
   })), /*#__PURE__*/React.createElement("span", {
     className: "text-sm font-medium"
-  }, "Enable Watermark"))), watermarkEnabled && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+  }, "Enable Watermark"))), watermarkEnabled && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-wrap gap-4 items-end"
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     htmlFor: "watermark-text-color",
     className: "block text-sm font-medium mb-1"
   }, "Text Color"), /*#__PURE__*/React.createElement("input", {
@@ -3115,6 +3177,17 @@ function App() {
     onChange: e => setWatermarkTextColor(e.target.value),
     className: "h-10 w-14 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 p-1"
   })), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
+    htmlFor: "watermark-font-size",
+    className: "block text-sm font-medium mb-1"
+  }, "Font Size (pt)"), /*#__PURE__*/React.createElement("input", {
+    id: "watermark-font-size",
+    type: "number",
+    min: "5",
+    max: "24",
+    value: watermarkFontSize,
+    onChange: e => setWatermarkFontSize(Math.max(5, Math.min(24, parseInt(e.target.value) || 9))),
+    className: "h-10 w-20 rounded-lg border border-zinc-300/70 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 text-sm"
+  }))), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
     className: "flex items-center gap-2 cursor-pointer"
   }, /*#__PURE__*/React.createElement("input", {
     type: "checkbox",
@@ -3126,8 +3199,45 @@ function App() {
   }, "White background behind watermark")), /*#__PURE__*/React.createElement("p", {
     className: "text-xs text-zinc-500 dark:text-zinc-400 mt-1 ml-6"
   }, "Improves readability when watermark overlaps graphics")), /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("label", {
-    className: "block text-sm font-medium mb-1"
-  }, "Watermark Attributes (multiple allowed)"), /*#__PURE__*/React.createElement("div", {
+    className: "block text-sm font-medium mb-2"
+  }, "Watermark Attributes"), /*#__PURE__*/React.createElement("div", {
+    className: "mb-3 rounded-lg border border-zinc-200/60 dark:border-zinc-700 bg-zinc-50 dark:bg-zinc-800/50 px-3 py-2"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-zinc-500 dark:text-zinc-400 mb-1"
+  }, "Preview"), /*#__PURE__*/React.createElement("p", {
+    className: "text-sm font-mono",
+    style: {
+      color: watermarkTextColor,
+      fontSize: `${Math.max(10, watermarkFontSize)}px`
+    }
+  }, watermarkAttributes.length === 0 ? /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-400 italic"
+  }, "No attributes selected") : watermarkAttributes.map(a => a.split(' ')[0]).join(' / '))), watermarkAttributes.length > 1 && /*#__PURE__*/React.createElement("div", {
+    className: "mb-3"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "text-xs text-zinc-500 dark:text-zinc-400 mb-1"
+  }, "Drag to reorder"), /*#__PURE__*/React.createElement("div", {
+    className: "flex flex-col gap-1"
+  }, watermarkAttributes.map((attr, idx) => /*#__PURE__*/React.createElement("div", {
+    key: attr,
+    draggable: true,
+    onDragStart: () => setWatermarkDragIndex(idx),
+    onDragOver: e => e.preventDefault(),
+    onDrop: () => {
+      if (watermarkDragIndex === null || watermarkDragIndex === idx) return;
+      const reordered = [...watermarkAttributes];
+      const [moved] = reordered.splice(watermarkDragIndex, 1);
+      reordered.splice(idx, 0, moved);
+      setWatermarkAttributes(reordered);
+      setWatermarkDragIndex(null);
+    },
+    onDragEnd: () => setWatermarkDragIndex(null),
+    className: cx("flex items-center gap-2 rounded-lg border px-3 py-2 text-sm cursor-grab active:cursor-grabbing transition-colors select-none", watermarkDragIndex === idx ? "border-brand/50 bg-brand/10 opacity-60" : "border-zinc-200/60 dark:border-zinc-700 bg-white dark:bg-zinc-800")
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "text-zinc-400"
+  }, "\u283F"), /*#__PURE__*/React.createElement("span", {
+    className: "text-xs text-zinc-400 w-4"
+  }, idx + 1, "."), /*#__PURE__*/React.createElement("span", null, attr))))), /*#__PURE__*/React.createElement("div", {
     className: "mb-2 flex flex-wrap gap-2"
   }, /*#__PURE__*/React.createElement("button", {
     type: "button",
@@ -4322,6 +4432,7 @@ function App() {
       onChange: e => {
         setNewRuleColumn(e.target.value);
         handleFetchHeaderValuesForRule(e.target.value);
+        handleFetchRuleExamples(e.target.value, newRuleMatchType, newRuleValue);
       },
       className: "w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
     }, /*#__PURE__*/React.createElement("option", {
@@ -4343,7 +4454,10 @@ function App() {
       className: "flex flex-wrap gap-1 max-h-20 overflow-y-auto"
     }, ruleAvailableHeaderValues.slice(0, showAllRuleValues ? undefined : 20).map((val, idx) => /*#__PURE__*/React.createElement("button", {
       key: val.value || idx,
-      onClick: () => setNewRuleValue(val.value),
+      onClick: () => {
+        setNewRuleValue(val.value);
+        handleFetchRuleExamples(newRuleColumn, newRuleMatchType, val.value);
+      },
       className: "px-2 py-0.5 rounded bg-zinc-200/70 dark:bg-zinc-800 hover:bg-brand/10 hover:text-brand text-xs",
       title: `Click to use "${val.value}" (found ${val.count} times)`
     }, val.value, " ", /*#__PURE__*/React.createElement("span", {
@@ -4357,18 +4471,8 @@ function App() {
       className: "space-y-2"
     }, /*#__PURE__*/React.createElement("label", {
       className: "block text-sm font-medium"
-    }, newRuleType === 'header_column' && newRuleColumn ? 'Or enter custom value:' : 'Match Value'), /*#__PURE__*/React.createElement("input", {
-      type: "text",
-      value: newRuleValue,
-      onChange: e => setNewRuleValue(e.target.value),
-      placeholder: newRuleType === 'header_column' && newRuleColumn ? 'Type custom value or click a value above...' : 'Enter value to match...',
-      className: "w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-    })), /*#__PURE__*/React.createElement("div", {
-      className: "space-y-2"
-    }, /*#__PURE__*/React.createElement("label", {
-      className: "block text-sm font-medium"
     }, "Match Type"), /*#__PURE__*/React.createElement("div", {
-      className: "flex gap-3"
+      className: "flex flex-wrap gap-3"
     }, /*#__PURE__*/React.createElement("label", {
       className: "flex items-center gap-2 cursor-pointer"
     }, /*#__PURE__*/React.createElement("input", {
@@ -4376,7 +4480,10 @@ function App() {
       name: "new-match-type",
       value: "exact",
       checked: newRuleMatchType === 'exact',
-      onChange: e => setNewRuleMatchType(e.target.value),
+      onChange: e => {
+        setNewRuleMatchType(e.target.value);
+        handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue);
+      },
       className: "accent-brand"
     }), /*#__PURE__*/React.createElement("span", {
       className: "text-sm"
@@ -4387,11 +4494,103 @@ function App() {
       name: "new-match-type",
       value: "contains",
       checked: newRuleMatchType === 'contains',
-      onChange: e => setNewRuleMatchType(e.target.value),
+      onChange: e => {
+        setNewRuleMatchType(e.target.value);
+        handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue);
+      },
       className: "accent-brand"
     }), /*#__PURE__*/React.createElement("span", {
       className: "text-sm"
-    }, "Contains")))), /*#__PURE__*/React.createElement("div", {
+    }, "Contains")), newRuleType === 'header_column' && /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("label", {
+      className: "flex items-center gap-2 cursor-pointer"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "radio",
+      name: "new-match-type",
+      value: "has_value",
+      checked: newRuleMatchType === 'has_value',
+      onChange: e => {
+        setNewRuleMatchType(e.target.value);
+        handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue);
+      },
+      className: "accent-brand"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-sm"
+    }, "Has value")), /*#__PURE__*/React.createElement("label", {
+      className: "flex items-center gap-2 cursor-pointer"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "radio",
+      name: "new-match-type",
+      value: "greater_than",
+      checked: newRuleMatchType === 'greater_than',
+      onChange: e => {
+        setNewRuleMatchType(e.target.value);
+        handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue);
+      },
+      className: "accent-brand"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-sm"
+    }, "Greater than")), /*#__PURE__*/React.createElement("label", {
+      className: "flex items-center gap-2 cursor-pointer"
+    }, /*#__PURE__*/React.createElement("input", {
+      type: "radio",
+      name: "new-match-type",
+      value: "less_than",
+      checked: newRuleMatchType === 'less_than',
+      onChange: e => {
+        setNewRuleMatchType(e.target.value);
+        handleFetchRuleExamples(newRuleColumn, e.target.value, newRuleValue);
+      },
+      className: "accent-brand"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-sm"
+    }, "Less than"))))), newRuleMatchType !== 'has_value' && /*#__PURE__*/React.createElement("div", {
+      className: "space-y-2"
+    }, /*#__PURE__*/React.createElement("label", {
+      className: "block text-sm font-medium"
+    }, newRuleType === 'header_column' && newRuleColumn ? 'Or enter custom value:' : 'Match Value'), /*#__PURE__*/React.createElement("input", {
+      type: "text",
+      value: newRuleValue,
+      onChange: e => {
+        setNewRuleValue(e.target.value);
+        handleFetchRuleExamples(newRuleColumn, newRuleMatchType, e.target.value);
+      },
+      placeholder: newRuleType === 'header_column' && newRuleColumn ? 'Type custom value or click a value above...' : 'Enter value to match...',
+      className: "w-full rounded-lg border border-zinc-200/60 dark:border-zinc-800 bg-white dark:bg-zinc-900 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
+    })), newRuleType === 'header_column' && newRuleColumn && /*#__PURE__*/React.createElement("div", {
+      className: "rounded-lg border border-zinc-200/60 dark:border-zinc-700 overflow-hidden"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "px-3 py-1.5 bg-zinc-100/80 dark:bg-zinc-800/60 text-xs font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-2"
+    }, /*#__PURE__*/React.createElement("i", {
+      className: "fa-solid fa-flask"
+    }), "Live examples from your Excel", ruleLoadingExamples && /*#__PURE__*/React.createElement("i", {
+      className: "fa-solid fa-spinner fa-spin ml-auto"
+    })), !ruleLoadingExamples && ruleExamples.matches.length === 0 && ruleExamples.non_matches.length === 0 ? /*#__PURE__*/React.createElement("div", {
+      className: "px-3 py-2 text-xs text-zinc-400 italic"
+    }, newRuleMatchType === 'has_value' ? 'Loading...' : 'Enter a value above to see examples') : /*#__PURE__*/React.createElement("div", {
+      className: "divide-y divide-zinc-100 dark:divide-zinc-800"
+    }, ruleExamples.matches.map((ex, i) => /*#__PURE__*/React.createElement("div", {
+      key: `m${i}`,
+      className: "flex items-center gap-2 px-3 py-1.5 bg-green-50/60 dark:bg-green-900/10"
+    }, /*#__PURE__*/React.createElement("i", {
+      className: "fa-solid fa-check text-green-500 w-3 flex-shrink-0"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-mono font-medium text-zinc-700 dark:text-zinc-300 min-w-0 truncate"
+    }, ex.tag), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs text-zinc-400 mx-1"
+    }, "\u2014"), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs text-zinc-500 dark:text-zinc-400 truncate"
+    }, ex.column_value))), ruleExamples.non_matches.map((ex, i) => /*#__PURE__*/React.createElement("div", {
+      key: `n${i}`,
+      className: "flex items-center gap-2 px-3 py-1.5 bg-red-50/40 dark:bg-red-900/10"
+    }, /*#__PURE__*/React.createElement("i", {
+      className: "fa-solid fa-xmark text-red-400 w-3 flex-shrink-0"
+    }), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs font-mono font-medium text-zinc-500 dark:text-zinc-500 min-w-0 truncate"
+    }, ex.tag), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs text-zinc-400 mx-1"
+    }, "\u2014"), /*#__PURE__*/React.createElement("span", {
+      className: "text-xs text-zinc-400 truncate"
+    }, ex.column_value))))), /*#__PURE__*/React.createElement("div", {
       className: "space-y-2"
     }, /*#__PURE__*/React.createElement("label", {
       htmlFor: "new-rule-color",
@@ -4420,6 +4619,10 @@ function App() {
         setNewRuleMatchType('contains');
         setNewRuleColor('#FFFF00');
         setRuleAvailableHeaderValues([]);
+        setRuleExamples({
+          matches: [],
+          non_matches: []
+        });
       },
       className: "inline-flex items-center justify-center gap-2 rounded-lg bg-zinc-200/80 dark:bg-zinc-800 px-3 py-2 text-sm font-medium hover:bg-zinc-300/70 dark:hover:bg-zinc-700 transition-all"
     }, /*#__PURE__*/React.createElement("i", {

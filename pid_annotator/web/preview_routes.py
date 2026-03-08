@@ -50,6 +50,7 @@ def preview_color_rules():
         watermark_enabled = data.get('watermark_enabled', False)
         watermark_attributes = data.get('watermark_attributes', [])
         watermark_text_color = data.get('watermark_text_color', '#000000')
+        watermark_font_size = data.get('watermark_font_size', 9)
         watermark_background_enabled = data.get('watermark_background_enabled', False)
         annotation_type = data.get('annotation_type', 'highlight_only')
 
@@ -101,6 +102,7 @@ def preview_color_rules():
             watermark_enabled=watermark_enabled,
             watermark_attributes=watermark_attributes,
             watermark_text_color=watermark_text_color,
+            watermark_font_size=watermark_font_size,
             watermark_background_enabled=watermark_background_enabled,
             tag_matching_config=tag_matching_config,
             tag_filters=tag_filters,
@@ -198,6 +200,7 @@ def generate_full_preview():
         watermark_enabled = data.get('watermark_enabled', False)
         watermark_attributes = data.get('watermark_attributes', [])
         watermark_text_color = data.get('watermark_text_color', '#000000')
+        watermark_font_size = data.get('watermark_font_size', 9)
         watermark_background_enabled = data.get('watermark_background_enabled', False)
 
         # Tag matching and filtering
@@ -244,16 +247,13 @@ def generate_full_preview():
         # Create watermark configuration if enabled
         watermark_config = None
         if watermark_enabled:
-            watermark_attr_str = ""
-            if isinstance(watermark_attributes, list) and watermark_attributes:
-                watermark_attr_str = watermark_attributes[0] if watermark_attributes else ""
-            elif isinstance(watermark_attributes, str):
-                watermark_attr_str = watermark_attributes
-
+            attrs = watermark_attributes if isinstance(watermark_attributes, list) else ([watermark_attributes] if watermark_attributes else [])
             watermark_config = WatermarkConfig(
                 enabled=True,
-                attributes=watermark_attr_str,
-                text_color=watermark_text_color
+                attributes=attrs,
+                text_color=watermark_text_color,
+                font_size=watermark_font_size,
+                background_enabled=watermark_background_enabled
             )
 
         # Convert tag_matching_config from dict to object if needed

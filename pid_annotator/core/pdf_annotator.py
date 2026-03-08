@@ -325,8 +325,9 @@ def process_annotations_from_index(
     selected_comment_columns=None,
     annotation_type="highlight_only",
     watermark_enabled=False,
-    watermark_attribute="",
+    watermark_attribute=None,
     watermark_text_color="#000000",
+    watermark_font_size=9,
     max_tags=None,
     update_progress=None,
     watermark_items_by_page=None,
@@ -554,6 +555,16 @@ def process_annotations_from_index(
                 # Add highlight annotation if color determined or comments are selected
                 should_add_highlight = (highlight_color is not None) or note_text
                 if should_add_highlight:
+                    # Remove any existing highlight annotations on these rects to prevent
+                    # color mixing when phase-1 (apply_color_rules_to_all_text) already
+                    # colored this tag with a different color.
+                    for annot in list(page.annots()):
+                        if annot.type[0] == 8:  # 8 = Highlight annotation type
+                            for rect in rects:
+                                if annot.rect.intersects(rect):
+                                    page.delete_annot(annot)
+                                    break
+
                     hl = page.add_highlight_annot(rects)
 
                     # Set highlight color
@@ -614,7 +625,7 @@ def process_annotations_from_index(
 
                             # Orientation-aware placement relative to the tag box.
                             # Also record desired text rotation (0 = horizontal, 90 = vertical).
-                            font_size = 9
+                            font_size = watermark_font_size
                             char_width = font_size * 0.6
                             text_length = len(wm_text) * char_width  # approximate text width in points
                             margin = 6
@@ -821,9 +832,10 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
 
     # Watermark configuration
     watermark_enabled = config.watermark and config.watermark.enabled
-    watermark_attribute = config.watermark.attributes if config.watermark else ""
+    watermark_attribute = config.watermark.attributes if config.watermark else []
     watermark_text_color = config.watermark.text_color if config.watermark else "#000000"
-    watermark_background_enabled = False  # Not yet in WatermarkConfig
+    watermark_font_size = config.watermark.font_size if config.watermark else 9
+    watermark_background_enabled = config.watermark.background_enabled if config.watermark else False
 
     # Tag matching and filtering
     tag_matching_config = config.tag_matching or TagMatchingConfig.get_default_preset()
@@ -972,6 +984,7 @@ def _annotate_pdf_standard(config: AnnotationConfig) -> tuple:
         watermark_enabled=watermark_enabled,
         watermark_attribute=watermark_attribute,
         watermark_text_color=watermark_text_color,
+        watermark_font_size=watermark_font_size,
         max_tags=max_tags,
         update_progress=annotation_progress_callback,
         watermark_items_by_page=watermark_items_by_page,
@@ -1186,9 +1199,10 @@ def _annotate_pdf_streaming(config: AnnotationConfig) -> tuple:
 
     # Watermark configuration
     watermark_enabled = config.watermark and config.watermark.enabled
-    watermark_attribute = config.watermark.attributes if config.watermark else ""
+    watermark_attribute = config.watermark.attributes if config.watermark else []
     watermark_text_color = config.watermark.text_color if config.watermark else "#000000"
-    watermark_background_enabled = False  # Not yet in WatermarkConfig
+    watermark_font_size = config.watermark.font_size if config.watermark else 9
+    watermark_background_enabled = config.watermark.background_enabled if config.watermark else False
 
     # Tag matching and filtering
     tag_matching_config = config.tag_matching or TagMatchingConfig.get_default_preset()
@@ -1279,6 +1293,7 @@ def _annotate_pdf_streaming(config: AnnotationConfig) -> tuple:
         watermark_enabled=watermark_enabled,
         watermark_attribute=watermark_attribute,
         watermark_text_color=watermark_text_color,
+        watermark_font_size=watermark_font_size,
         max_tags=max_tags,
         update_progress=annotation_progress_callback,
         watermark_items_by_page=watermark_items_by_page,

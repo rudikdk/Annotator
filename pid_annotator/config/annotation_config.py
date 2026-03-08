@@ -10,9 +10,10 @@ class WatermarkConfig:
     """Configuration for watermark overlay on PDF pages."""
     enabled: bool = False
     text: str = ""
-    attributes: str = ""  # Column name to use for watermark text
+    attributes: List[str] = field(default_factory=list)  # Ordered list of column names
     text_color: str = "#000000"
-    font_size: int = 40
+    font_size: int = 9
+    background_enabled: bool = False
     opacity: float = 0.3
     angle: int = 45
     position_x: float = 0.5  # Relative position (0.0 to 1.0)
@@ -84,16 +85,15 @@ class AnnotationConfig:
             watermark_attributes = request_data.get('watermark_attributes', [])
             if not watermark_attributes and request_data.get('watermark_attribute'):
                 watermark_attributes = [request_data.get('watermark_attribute')]
-            if isinstance(watermark_attributes, list):
-                watermark_attr_str = watermark_attributes[0] if watermark_attributes else ""
-            else:
-                watermark_attr_str = watermark_attributes
+            if isinstance(watermark_attributes, str):
+                watermark_attributes = [watermark_attributes] if watermark_attributes else []
 
             watermark = WatermarkConfig(
                 enabled=True,
-                attributes=watermark_attr_str,
+                attributes=watermark_attributes,
                 text_color=request_data.get('watermark_text_color', '#000000'),
-                font_size=request_data.get('watermark_font_size', 40),
+                font_size=request_data.get('watermark_font_size', 9),
+                background_enabled=request_data.get('watermark_background_enabled', False),
                 opacity=request_data.get('watermark_opacity', 0.3),
                 angle=request_data.get('watermark_angle', 45),
                 position_x=request_data.get('watermark_position_x', 0.5),
