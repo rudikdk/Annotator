@@ -970,11 +970,6 @@
       annotateExcelEnabled,
       isTestRun,
       onStartFullRun,
-      tagReportData,
-      tagSearch,
-      setTagSearch,
-      tagFilter,
-      setTagFilter,
     }) {
       if (!open) return null;
       const complete = progress === 100 && !error;
@@ -1115,91 +1110,6 @@
                       </button>
                     </div>
 
-                    {/* Inline tag results table */}
-                    {tagReportData && (() => {
-                      const allRows = [
-                        ...tagReportData.found.map(r => ({ ...r, status: 'found' })),
-                        ...tagReportData.not_found.map(r => ({ ...r, status: 'not_found' })),
-                      ];
-                      const filtered = allRows.filter(r => {
-                        if (tagFilter === 'found' && r.status !== 'found') return false;
-                        if (tagFilter === 'not_found' && r.status !== 'not_found') return false;
-                        if (tagSearch && !r.tag.toLowerCase().includes(tagSearch.toLowerCase())) return false;
-                        return true;
-                      });
-                      return (
-                        <div className="mt-4 border-t border-zinc-200/60 dark:border-zinc-700 pt-4">
-                          <div className="flex items-center justify-between mb-2">
-                            <h4 className="text-sm font-semibold">
-                              Tag Results
-                              <span className="ml-2 text-xs font-normal text-zinc-500">
-                                {tagReportData.found.length} found / {tagReportData.not_found.length} not found
-                              </span>
-                            </h4>
-                          </div>
-                          <div className="flex gap-2 mb-2">
-                            <input
-                              type="text"
-                              value={tagSearch}
-                              onChange={e => setTagSearch(e.target.value)}
-                              placeholder="Search tag..."
-                              className="flex-1 rounded-lg border border-zinc-200/60 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50"
-                            />
-                            {['all', 'found', 'not_found'].map(f => (
-                              <button
-                                key={f}
-                                onClick={() => setTagFilter(f)}
-                                className={cx(
-                                  "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors",
-                                  tagFilter === f
-                                    ? f === 'found' ? "bg-green-600 text-white"
-                                      : f === 'not_found' ? "bg-red-500 text-white"
-                                      : "bg-brand text-white"
-                                    : "bg-zinc-200/80 dark:bg-zinc-800 hover:bg-zinc-300/70 dark:hover:bg-zinc-700"
-                                )}
-                              >
-                                {f === 'all' ? 'All' : f === 'found' ? 'Found' : 'Not Found'}
-                              </button>
-                            ))}
-                          </div>
-                          <div className="max-h-56 overflow-y-auto rounded-lg border border-zinc-200/60 dark:border-zinc-700">
-                            {filtered.length === 0 ? (
-                              <div className="text-center text-sm text-zinc-400 py-4 italic">No results</div>
-                            ) : (
-                              <table className="w-full text-xs">
-                                <thead className="sticky top-0 bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
-                                  <tr>
-                                    <th className="text-left px-3 py-2 font-medium">Tag</th>
-                                    <th className="text-left px-3 py-2 font-medium">Status</th>
-                                    <th className="text-left px-3 py-2 font-medium">Pages</th>
-                                    <th className="text-left px-3 py-2 font-medium">Excel Row</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                                  {filtered.map((r, i) => (
-                                    <tr key={i} className="hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                                      <td className="px-3 py-1.5 font-mono font-medium">{r.tag}</td>
-                                      <td className="px-3 py-1.5">
-                                        {r.status === 'found'
-                                          ? <span className="text-green-600 dark:text-green-400 font-medium">✓ Found</span>
-                                          : <span className="text-red-500 dark:text-red-400 font-medium">✗ Not found</span>}
-                                      </td>
-                                      <td className="px-3 py-1.5 text-zinc-500">
-                                        {r.pages && r.pages.length > 0 ? r.pages.slice(0, 4).join(', ') + (r.pages.length > 4 ? '…' : '') : '—'}
-                                      </td>
-                                      <td className="px-3 py-1.5 text-zinc-500">{r.excel_row || '—'}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            )}
-                          </div>
-                          {filtered.length > 0 && (
-                            <p className="text-xs text-zinc-400 mt-1 text-right">{filtered.length} row{filtered.length !== 1 ? 's' : ''}</p>
-                          )}
-                        </div>
-                      );
-                    })()}
                   </div>
                 )}
               </div>
@@ -1701,9 +1611,6 @@
       const [annotateExcel, setAnnotateExcel] = useState(true);
       const [ruleExamples, setRuleExamples] = useState({ matches: [], non_matches: [] });
       const [ruleLoadingExamples, setRuleLoadingExamples] = useState(false);
-      const [tagReportData, setTagReportData] = useState(null); // null = not loaded
-      const [tagSearch, setTagSearch] = useState('');
-      const [tagFilter, setTagFilter] = useState('all'); // 'all' | 'found' | 'not_found'
 
       const [watermarkEnabled, setWatermarkEnabled] = useState(false);
       const [watermarkAttributes, setWatermarkAttributes] = useState([]);
@@ -3079,17 +2986,6 @@
                     logToConsole(`Error fetching output files: ${err.message}`);
                   });
 
-                // Fetch tag report data for inline searchable table
-                fetch("/get_report_data")
-                  .then((r) => r.json())
-                  .then((data) => {
-                    if (data.success) {
-                      setTagReportData({ found: data.found || [], not_found: data.not_found || [] });
-                      setTagSearch('');
-                      setTagFilter('all');
-                    }
-                  })
-                  .catch(() => {});
               }
             } else {
               setErrorText(data.status || "Processing failed");
@@ -3149,9 +3045,6 @@
         setProgress(0);
         setStatusText("Initializing...");
         setReportFilename(null);
-        setTagReportData(null);
-        setTagSearch('');
-        setTagFilter('all');
         if (pollRef.current) {
           clearInterval(pollRef.current);
           pollRef.current = null;
@@ -5565,11 +5458,6 @@
             annotateExcelEnabled={annotateExcel}
             isTestRun={isCurrentTestRun}
             onStartFullRun={() => startProcessing(false)}
-            tagReportData={tagReportData}
-            tagSearch={tagSearch}
-            setTagSearch={setTagSearch}
-            tagFilter={tagFilter}
-            setTagFilter={setTagFilter}
           />
           <ImportProfileModal
             open={showImportProfileModal}
