@@ -1138,10 +1138,19 @@ function FAQModal({
         a: 'When enabled, the application highlights rows in your Excel file (with green fill) where tags were successfully found in the PDF. This helps you quickly identify which components were annotated.'
       }, {
         q: 'What is the Watermark feature?',
-        a: 'Watermarks add text labels near tags in the PDF using attribute values from your Excel file. Choose which columns to include and customize the text color. The labels are added as overlays on the PDF.'
+        a: 'Watermarks add text labels directly next to tags in the PDF using values from your Excel columns. You can select multiple attributes — all selected values are shown joined by " / " (e.g. "Pump / Gate / 150mm"). Use drag-and-drop to reorder attributes, adjust font size (5–24pt), pick text color, and optionally add a white background for readability. A live preview updates as you configure.'
       }, {
-        q: 'How does Conditional Highlighting work?',
-        a: 'Select a column (e.g., "Critical") and choose a highlight color. Tags will only be highlighted in the PDF if the selected column has a value for that row. This helps emphasize important tags.'
+        q: 'How do Color Rules work?',
+        a: 'Color Rules let you highlight tags with different colors based on matching criteria. There are two rule types: Tag Part (match by a part of the tag string, e.g. Part B = "HV") and Excel Column (match by a column value in your Excel file). Rules are evaluated in order — the last matching rule wins and decides the color. Use the up/down arrows to set priority.'
+      }, {
+        q: 'What match types are available in Color Rules?',
+        a: 'For Tag Part rules: Exact and Contains. For Excel Column rules: Exact, Contains, Has value (colorizes if the column has any non-empty value), Greater than, and Less than. Greater/less than compares numerically when possible, falling back to alphabetical comparison for text.'
+      }, {
+        q: 'How do I know which rules might overlap?',
+        a: 'When two Excel Column rules target the same column, the later rule shows an amber info badge: "Overrides rule #N on same column — last wins". This is just for awareness — the behavior is intentional and correct.'
+      }, {
+        q: 'What are the Live Examples in the rule builder?',
+        a: 'When building an Excel Column rule, a live panel shows up to 3 rows from your Excel that would match the rule (green ✓) and 2 rows that would not match (red ✗), including the tag name and column value. This updates as you change the column, match type, or value — so you can verify the rule before adding it.'
       }, {
         q: 'Can I process multiple PDFs at once?',
         a: 'Yes! Upload multiple PDF files and they will all be processed with the same Excel file. Each PDF gets its own annotated output. Use the checkboxes to select which PDFs to process.'
@@ -1175,7 +1184,7 @@ function FAQModal({
         a: 'Both hyphen-delimited (e.g., 230-HV-NON-501) and period-delimited (e.g., 230.HV.NON.501) formats are supported. Tags should have 3-5 hierarchical parts. Matching is case-insensitive with automatic variant lookup.'
       }, {
         q: 'What is included in the PDF annotations?',
-        a: 'Annotations include: 1) The tag identifier at the top, 2) All selected comment columns from the Excel row, 3) Optional highlights based on attribute column, 4) Optional watermark labels. Format is customizable via configuration.'
+        a: 'Annotations include: 1) Highlights on the tag text, colored by your Color Rules (or a default color if no rule matches), 2) Popup comment notes containing all selected Excel columns for that tag, 3) Optional watermark text labels placed next to each tag showing selected attribute values. All three are optional and configurable.'
       }, {
         q: 'Where is the output saved?',
         a: 'Output files are generated on the server and available for download via the processing modal. Click the download button when processing completes. Files are stored in session-isolated folders.'
