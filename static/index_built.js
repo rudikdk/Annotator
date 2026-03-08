@@ -514,7 +514,7 @@ function FileWorkspace({
   function handleFileUpload(files) {
     if (!files || files.length === 0) return;
     const pdfFiles = files.filter(f => f.name.toLowerCase().endsWith(".pdf"));
-    const excelFiles = files.filter(f => f.name.toLowerCase().endsWith(".xlsx") || f.name.toLowerCase().endsWith(".xls") || f.name.toLowerCase().endsWith(".csv"));
+    const excelFiles = files.filter(f => f.name.toLowerCase().endsWith(".xlsx") || f.name.toLowerCase().endsWith(".xls") || f.name.toLowerCase().endsWith(".xlsm") || f.name.toLowerCase().endsWith(".csv"));
 
     // Multiple Excel files are now allowed - users can select which one to use
 

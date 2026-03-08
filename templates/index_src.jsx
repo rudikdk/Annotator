@@ -596,6 +596,7 @@
           (f) =>
             f.name.toLowerCase().endsWith(".xlsx") ||
             f.name.toLowerCase().endsWith(".xls") ||
+            f.name.toLowerCase().endsWith(".xlsm") ||
             f.name.toLowerCase().endsWith(".csv")
         );
 
